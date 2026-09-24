@@ -2,31 +2,31 @@
 
 ```text
 Project: Hyper Al-Moatasem (grocery hypermarket e-commerce, Arabic-first, EGP)
-Release purpose: Auth foundation freeze (admin authentication on frozen DB architecture)
+Release purpose: Production bootstrap release (fail-closed dedicated bootstrap path on frozen DB architecture + applied auth foundation)
 Date: 2026-09-24
 Node: v24.21.0
 Next: 16.3.5
 Prisma: CLI 7.10.0 + @prisma/client 7.10.0 (+ @prisma/adapter-pg 7.10.0)
 PostgreSQL target: 18.4
-Database architecture version: FINAL (31 frozen tables + 6 designed, Final ERD V1)
+Database architecture version: FINAL (34 tables = 31 frozen + 3 auth foundation, + 6 designed, Final ERD V1)
 Baseline migration: 20260923_baseline__official (resolved on production, steps=0)
-Auth migration: 20260923_admin_auth_foundation (tested on scratch, NOT on production)
-Seed version: bootstrap/system seed only (prisma/seed.mjs, credential-free)
+Auth migration: 20260923_admin_auth_foundation (APPLIED on production via owner-identity deploy + verbatim supplement; history also retains the resolved rolled-back row)
+Seed version: bootstrap/system seed only (prisma/seed.mjs scratch-only, credential-free) + production bootstrap path (prisma/bootstrap-production.mjs, fail-closed, drift-loud, scratch-verified, credential-free)
 Auth architecture version: custom DB-backed opaque sessions + Argon2id (docs/admin-auth-architecture.md)
 ```
 
 ## Release identity
 
 ```text
-Release SHA (code freeze): f73ce0b984b3bbbebdfdce92d9aa6c4aab04708d
+Release SHA (code freeze): 6b6cdfb9f4f65c9fc29a77ecedd90cc70c3ef8b4
 Manifest commit SHA (this file): recorded in the release report (second commit)
-Previous production release: NONE
+Previous production release: f73ce0b984b3bbbebdfdce92d9aa6c4aab04708d
 ```
 
 The release is the code-freeze commit. This manifest lives in a follow-up docs
 commit that attests it (solving the self-reference: a manifest cannot contain
 the SHA of a commit that contains the manifest). File hashes below are
-identical in both commits (the second commit only adds this file).
+identical in both commits (the second commit only updates this file).
 
 ## Staging → release identity
 
@@ -67,6 +67,7 @@ src/app/forbidden.tsx                                           0CFEE18E0C837063
 src/app/layout.tsx                                              AC0A51F726D23D255BE241C5F37E47119736C2C3CDF5FEAC57F85DE677686EE5
 src/app/page.tsx                                                5A51FDB3F4C514F83E3415B8568D481455656AFEC2167D61167181C6483C62FF
 prisma/seed.mjs                                                 7B9118C0A59967F6E6E50A87E1723F4F3BF3503528F474BB697DF6379277CA94
+prisma/bootstrap-production.mjs                               8E10DC7FCD3480CC9D99277F0055C70408368DA40F7090F0C6E02D309680640A
 scripts/bootstrap-admin-password.mjs                            44023A46F9A1854430DF0E537D1CFD9FADC71031D97921BC0AECB3B8242BC716
 prisma/migrations/20260923_baseline__official/migration.sql     DE5D0ED8FFF148B7AA53AAEBB96C152E00B4B2C87CBDCBCFD816AE2D9EF605E8
 prisma/migrations/20260923_baseline__official/supplement.sql    1C2C376213AB9956AE164A42A8B8C5A77BC27E73703951845468B6CE463776186D3FFDF7A1A0
@@ -83,4 +84,4 @@ No passwords, URLs, tokens, keys, cookies, or hashes of secrets appear here
 
 Production deploys ONLY from an immutable release SHA (never working tree,
 zips, or `latest`). Rollback = previous release SHA; previous production
-release: NONE (first release).
+release: f73ce0b984b3bbbebdfdce92d9aa6c4aab04708d (auth foundation freeze).
