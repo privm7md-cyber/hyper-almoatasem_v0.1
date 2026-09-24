@@ -1,0 +1,115 @@
+%% Hypermarket Store — PHASE 1 ERD (FROZEN, REVIEWED)
+%% Tables: categories, brands, products, product_variants, product_codes,
+%%         inventory, inventory_movements, product_price_history
+%% Plus one VIEW (not a table): product_stock_status — derived availability.
+%% Render: paste into any Mermaid viewer (GitHub, mermaid.live, docs tools).
+
+erDiagram
+    CATEGORIES ||--o{ CATEGORIES : "parent_of (parent_id, self-ref)"
+    CATEGORIES ||--o{ PRODUCTS : "categorizes"
+    BRANDS ||--o{ PRODUCTS : "owns"
+    PRODUCTS ||--o{ PRODUCT_VARIANTS : "has"
+    PRODUCT_VARIANTS ||--|| INVENTORY : "stocked_as (1:1)"
+    PRODUCT_VARIANTS ||--o{ PRODUCT_CODES : "identified_by"
+    PRODUCT_VARIANTS ||--o{ INVENTORY_MOVEMENTS : "audited_by"
+    PRODUCT_VARIANTS ||--o{ PRODUCT_PRICE_HISTORY : "repriced_in"
+
+    CATEGORIES {
+        uuid id PK
+        varchar name
+        varchar slug "UQ, per-table"
+        text description "nullable"
+        varchar image "nullable"
+        uuid parent_id "FK self, nullable, RESTRICT"
+        boolean is_active
+        int sort_order
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    BRANDS {
+        uuid id PK
+        varchar name
+        varchar slug "UQ, per-table"
+        varchar logo "nullable"
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    PRODUCTS {
+        uuid id PK
+        varchar name
+        varchar slug "UQ, per-table"
+        text description "nullable"
+        uuid category_id "FK, NOT NULL, RESTRICT"
+        uuid brand_id "FK, nullable, RESTRICT"
+        varchar product_type "PIECE | WEIGHT"
+        varchar unit "PIECE | KG | GRAM | LITER | ML"
+        int sale_step_grams "WEIGHT: required >0; PIECE: NULL"
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    PRODUCT_VARIANTS {
+        uuid id PK
+        uuid product_id "FK, RESTRICT"
+        varchar name "UQ per product"
+        numeric size_value "nullable, >0"
+        varchar size_unit "nullable"
+        numeric price "10,2 — source of truth"
+        numeric compare_at_price "nullable, >= price"
+        numeric cost_price "nullable"
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    PRODUCT_CODES {
+        uuid id PK
+        uuid product_variant_id "FK, CASCADE"
+        varchar code "UQ globally, leading zeros kept"
+        varchar type "BARCODE | INTERNAL_CODE"
+        boolean is_primary "one per variant"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    INVENTORY {
+        uuid id PK
+        uuid product_variant_id "FK, UQ 1:1, RESTRICT"
+        numeric quantity "12,3"
+        numeric reserved_quantity "12,3"
+        numeric available_quantity "GENERATED: qty - reserved"
+        numeric low_stock_threshold "nullable"
+        timestamptz updated_at
+    }
+
+    INVENTORY_MOVEMENTS {
+        uuid id PK "append-only"
+        uuid product_variant_id "FK, RESTRICT"
+        varchar movement_type "STOCK_IN SALE RETURN WASTE ADJUSTMENT REPLACEMENT CANCELLED_ORDER"
+        numeric quantity "signed delta, != 0"
+        numeric previous_quantity
+        numeric new_quantity "= previous + quantity"
+        varchar reference_type "nullable placeholder for Phase 2"
+        varchar reference_id "nullable"
+        text reason "nullable"
+        uuid created_by "nullable, FK in Phase 2"
+        timestamptz created_at
+    }
+
+    PRODUCT_PRICE_HISTORY {
+        uuid id PK "append-only"
+        uuid product_variant_id "FK, RESTRICT"
+        numeric old_price "10,2"
+        numeric new_price "10,2, != old"
+        uuid changed_by "nullable, FK in Phase 2"
+        text reason "nullable"
+        timestamptz created_at
+    }

@@ -1,0 +1,699 @@
+// ============================================================================
+// Hyper Al-Moatasem — Prisma schema BASELINE (Gate 1). READ-ONLY representation.
+// SOURCE OF TRUTH: db/phase{1,2,4,5}-schema.sql (frozen). This file MUST NOT
+// redesign anything: no renames (camelCase fields + @map/@@map preserve DB names),
+// no VARCHAR→enum conversions (state machines stay String; CHECKs live in SQL),
+// no fake relations on polymorphic UUIDs, delete behaviors mirror the DB exactly.
+// DATABASE-MANAGED (see docs/prisma-sql-gaps.md, authoritative):
+//   ~155 CHECKs · 10 partial indexes (7 unique + 3 plain) · 22 triggers · product_stock_status
+//   VIEW · order_number_seq · GENERATED available_quantity (dbgenerated, never
+//   written) · INET column · money ROUND math + ledger self-checks · transition
+//   whitelists · row-locking transactions (raw SQL only).
+// Conventions: app sends UUIDv7 ids explicitly; gen_random_uuid() is a backstop
+// (dbgenerated default = Prisma omits the column on create). updated_at columns
+// are trigger-owned: mapped WITHOUT @updatedAt on purpose. No migrations yet.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Prisma 7: connection URL lives in prisma.config.ts (datasource.url),
+  // never here. See DATABASE_URL strategy in gate report.
+}
+
+// ============================ PHASE 1 — Catalog =============================
+
+model Category {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String    @db.VarChar(120)
+  slug        String    @unique @db.VarChar(140)
+  description String?
+  image       String?   @db.VarChar(500)
+  parentId    String?   @map("parent_id") @db.Uuid
+  parent      Category? @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  children    Category[] @relation("CategoryTree")
+  products    Product[]
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("categories")
+  @@index([parentId], map: "idx_categories_parent_id")
+}
+
+model Brand {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String    @db.VarChar(120)
+  slug      String    @unique @db.VarChar(140)
+  logo      String?   @db.VarChar(500)
+  isActive  Boolean   @default(true) @map("is_active")
+  products  Product[]
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("brands")
+}
+
+model Product {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String    @db.VarChar(160)
+  slug          String    @unique @db.VarChar(180)
+  description   String?
+  categoryId    String    @map("category_id") @db.Uuid
+  category      Category  @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  brandId       String?   @map("brand_id") @db.Uuid
+  brand         Brand?    @relation(fields: [brandId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productType   String    @map("product_type") @db.VarChar(10) // PIECE | WEIGHT (CHECK in SQL)
+  unit          String    @db.VarChar(10) // PIECE | KG | GRAM | LITER | ML (CHECK in SQL)
+  saleStepGrams Int?      @map("sale_step_grams") // WEIGHT-only, grams (CHECK in SQL)
+  isActive      Boolean   @default(true) @map("is_active")
+  variants      ProductVariant[]
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("products")
+  @@index([categoryId], map: "idx_products_category_id")
+  @@index([brandId], map: "idx_products_brand_id")
+  @@index([productType], map: "idx_products_type")
+}
+
+model ProductVariant {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId        String    @map("product_id") @db.Uuid
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  name             String    @db.VarChar(120)
+  sizeValue        Decimal?  @map("size_value") @db.Decimal(10, 3)
+  sizeUnit         String?   @map("size_unit") @db.VarChar(10)
+  price            Decimal   @db.Decimal(10, 2) // source of truth; never mutated by promos
+  compareAtPrice   Decimal?  @map("compare_at_price") @db.Decimal(10, 2)
+  costPrice        Decimal?  @map("cost_price") @db.Decimal(10, 2)
+  isActive         Boolean   @default(true) @map("is_active")
+  inventory        Inventory?
+  codes            ProductCode[]
+  movements        InventoryMovement[]
+  priceHistory     ProductPriceHistory[]
+  cartItems        CartItem[]
+  orderItems       OrderItem[]
+  replacementUses  OrderItemReplacement[] @relation("SubstituteVariant")
+  buyGetRules      PromotionBuyGetRule[]
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("product_variants")
+  @@unique([productId, name], map: "uq_variants_product_name")
+  @@index([productId])
+}
+
+model ProductCode {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productVariantId String         @map("product_variant_id") @db.Uuid
+  variant          ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  code             String         @unique @db.VarChar(64) // VARCHAR keeps leading zeros; global UQ
+  type             String         @db.VarChar(20) // BARCODE | INTERNAL_CODE (CHECK in SQL)
+  isPrimary        Boolean        @default(false) @map("is_primary") // single-primary enforced by partial UQ in SQL
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("product_codes")
+  @@index([productVariantId], map: "idx_codes_variant_id")
+}
+
+// ============================ PHASE 1 — Inventory ===========================
+
+model Inventory {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productVariantId   String         @unique @map("product_variant_id") @db.Uuid // 1:1
+  variant            ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  quantity           Decimal        @default(0) @db.Decimal(12, 3)
+  reservedQuantity   Decimal        @default(0) @map("reserved_quantity") @db.Decimal(12, 3)
+  // DATABASE-MANAGED: GENERATED ALWAYS AS (quantity - reserved_quantity) STORED.
+  // dbgenerated() makes Prisma omit it on writes; never include it in create/update data.
+  availableQuantity  Decimal?       @default(dbgenerated("(quantity - reserved_quantity)")) @map("available_quantity") @db.Decimal(12, 3)
+  lowStockThreshold  Decimal?       @map("low_stock_threshold") @db.Decimal(12, 3)
+  updatedAt          DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("inventory")
+}
+
+model InventoryMovement {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productVariantId  String         @map("product_variant_id") @db.Uuid
+  variant           ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  movementType      String         @map("movement_type") @db.VarChar(20)
+  quantity          Decimal        @db.Decimal(12, 3) // signed delta
+  previousQuantity  Decimal        @map("previous_quantity") @db.Decimal(12, 3)
+  newQuantity       Decimal        @map("new_quantity") @db.Decimal(12, 3) // CHECK: new = prev + qty (SQL)
+  referenceType     String?        @map("reference_type") @db.VarChar(20)
+  referenceId       String?        @map("reference_id") @db.VarChar(64)
+  reason            String?
+  createdBy         String?        @map("created_by") @db.Uuid // no relation (users land later)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("inventory_movements")
+  @@index([productVariantId, createdAt(sort: Desc)], map: "idx_movements_variant_time")
+  @@index([movementType], map: "idx_movements_type")
+  @@index([referenceType, referenceId], map: "idx_movements_reference")
+}
+
+model ProductPriceHistory {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productVariantId String         @map("product_variant_id") @db.Uuid
+  variant          ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  oldPrice         Decimal        @map("old_price") @db.Decimal(10, 2)
+  newPrice         Decimal        @map("new_price") @db.Decimal(10, 2)
+  changedBy        String?        @map("changed_by") @db.Uuid // no relation (users land later)
+  reason           String?
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("product_price_history")
+  @@index([productVariantId, createdAt(sort: Desc)], map: "idx_price_history_variant_time")
+}
+
+// ============================ PHASE 2 — Customer ============================
+
+model Customer {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firstName               String    @map("first_name") @db.VarChar(80)
+  lastName                String?   @map("last_name") @db.VarChar(80)
+  phone                   String    @unique @db.VarChar(20) // canonical identity (CHECK in SQL)
+  email                   String?   @db.VarChar(160) // partial UQ in SQL (gaps doc)
+  passwordHash            String?   @map("password_hash") @db.VarChar(255)
+  isRegistered            Boolean   @default(false) @map("is_registered")
+  autoAcceptReplacements  Boolean   @default(false) @map("auto_accept_replacements")
+  isActive                Boolean   @default(true) @map("is_active")
+  addresses               CustomerAddress[]
+  carts                   Cart[]
+  orders                  Order[]
+  couponUsages            CouponUsage[]
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt               DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("customers")
+}
+
+model CustomerAddress {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId     String   @map("customer_id") @db.Uuid
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  label          String?  @db.VarChar(30)
+  city           String   @db.VarChar(80)
+  area           String?  @db.VarChar(80)
+  village        String?  @db.VarChar(80)
+  street         String?  @db.VarChar(120)
+  buildingNumber String?  @map("building_number") @db.VarChar(30)
+  landmark       String?  @db.VarChar(160)
+  phone          String   @db.VarChar(20)
+  isDefault      Boolean  @default(false) @map("is_default") // single-default via partial UQ in SQL
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("customer_addresses")
+  @@index([customerId], map: "idx_addresses_customer_id")
+}
+
+// ============================ PHASE 2 — Cart ================================
+
+model Cart {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String?    @map("customer_id") @db.Uuid
+  customer   Customer?  @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sessionId  String?    @map("session_id") @db.VarChar(64) // XOR ownership enforced by CHECK in SQL
+  status     String     @default("ACTIVE") @db.VarChar(20)
+  expiresAt  DateTime?  @map("expires_at") @db.Timestamptz(6)
+  items      CartItem[]
+  orders     Order[]
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("carts")
+  @@index([status, updatedAt], map: "idx_carts_sweeper") // sweeper
+}
+
+model CartItem {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cartId             String         @map("cart_id") @db.Uuid
+  cart               Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  productVariantId   String         @map("product_variant_id") @db.Uuid
+  variant            ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  quantity           Decimal        @db.Decimal(12, 3)
+  unitSnapshot       String         @map("unit_snapshot") @db.VarChar(10)
+  unitPriceSnapshot  Decimal?       @map("unit_price_snapshot") @db.Decimal(10, 2)
+  priceCheckedAt     DateTime?      @map("price_checked_at") @db.Timestamptz(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("cart_items")
+  @@unique([cartId, productVariantId], map: "uq_cart_items_line")
+  @@index([cartId], map: "idx_cart_items_cart_id")
+}
+
+// ============================ PHASE 2 — Orders ==============================
+
+model Order {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderNumber            String    @unique @map("order_number") @db.VarChar(24)
+  customerId             String    @map("customer_id") @db.Uuid
+  customer               Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cartId                 String?   @map("cart_id") @db.Uuid
+  cart                   Cart?     @relation(fields: [cartId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  idempotencyKey         String?   @unique @map("idempotency_key") @db.VarChar(64)
+  status                 String    @default("NEW") @db.VarChar(24)
+  subtotalEstimated      Decimal   @map("subtotal_estimated") @db.Decimal(10, 2)
+  discountTotal          Decimal   @default(0) @map("discount_total") @db.Decimal(10, 2) // checkout-estimate meaning (frozen)
+  deliveryFee            Decimal   @default(0) @map("delivery_fee") @db.Decimal(10, 2)
+  totalEstimated         Decimal   @map("total_estimated") @db.Decimal(10, 2)
+  subtotalFinal          Decimal?  @map("subtotal_final") @db.Decimal(10, 2)
+  totalFinal             Decimal?  @map("total_final") @db.Decimal(10, 2)
+  customerNameSnapshot   String    @map("customer_name_snapshot") @db.VarChar(160)
+  customerPhoneSnapshot  String    @map("customer_phone_snapshot") @db.VarChar(20)
+  deliveryCity           String    @map("delivery_city") @db.VarChar(80)
+  deliveryArea           String?   @map("delivery_area") @db.VarChar(80)
+  deliveryVillage        String?   @map("delivery_village") @db.VarChar(80)
+  deliveryStreet         String?   @map("delivery_street") @db.VarChar(120)
+  deliveryBuilding       String?   @map("delivery_building") @db.VarChar(30)
+  deliveryLandmark       String?   @map("delivery_landmark") @db.VarChar(160)
+  deliveryPhone          String    @map("delivery_phone") @db.VarChar(20)
+  notes                  String?
+  items                  OrderItem[]
+  history                OrderStatusHistory[]
+  discounts              OrderDiscount[]
+  couponUsages           CouponUsage[]
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("orders")
+  @@index([customerId, createdAt(sort: Desc)], map: "idx_orders_customer_time")
+  @@index([status, createdAt], map: "idx_orders_status_time")
+}
+
+model OrderItem {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId               String    @map("order_id") @db.Uuid
+  order                 Order     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productVariantId      String    @map("product_variant_id") @db.Uuid
+  variant               ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productNameSnapshot   String    @map("product_name_snapshot") @db.VarChar(160)
+  variantNameSnapshot   String    @map("variant_name_snapshot") @db.VarChar(120)
+  brandNameSnapshot     String?   @map("brand_name_snapshot") @db.VarChar(120)
+  productCodeSnapshot   String?   @map("product_code_snapshot") @db.VarChar(64)
+  codeTypeSnapshot      String?   @map("code_type_snapshot") @db.VarChar(20)
+  unitSnapshot          String    @map("unit_snapshot") @db.VarChar(10)
+  productTypeSnapshot   String    @map("product_type_snapshot") @db.VarChar(10)
+  saleStepSnapshot      Int?      @map("sale_step_snapshot")
+  unitPrice             Decimal   @map("unit_price") @db.Decimal(10, 2) // frozen base; never promo math
+  requestedQuantity     Decimal   @map("requested_quantity") @db.Decimal(12, 3)
+  actualQuantity        Decimal?  @map("actual_quantity") @db.Decimal(12, 3)
+  estimatedTotal        Decimal   @map("estimated_total") @db.Decimal(10, 2)
+  finalTotal            Decimal?  @map("final_total") @db.Decimal(10, 2)
+  discountAmount        Decimal   @default(0) @map("discount_amount") @db.Decimal(10, 2) // mirror of line rows
+  itemStatus            String    @default("PENDING") @map("item_status") @db.VarChar(24)
+  replacementsProposed  OrderItemReplacement[] @relation("OriginalItem")
+  replacementMaterializations OrderItemReplacement[] @relation("MaterializedItem")
+  discountRows          OrderDiscount[]
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("order_items")
+  @@index([orderId], map: "idx_order_items_order_id")
+  @@index([productVariantId], map: "idx_order_items_variant_id")
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId   String   @map("order_id") @db.Uuid
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  oldStatus String?  @map("old_status") @db.VarChar(24)
+  newStatus String   @map("new_status") @db.VarChar(24)
+  actorType String   @map("actor_type") @db.VarChar(10)
+  actorId   String?  @map("actor_id") @db.Uuid // no relation (users land later)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("order_status_history")
+  @@index([orderId, createdAt], map: "idx_status_history_order_time")
+}
+
+model OrderItemReplacement {
+  id                     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderItemId            String     @map("order_item_id") @db.Uuid
+  originalItem           OrderItem  @relation("OriginalItem", fields: [orderItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacementVariantId   String     @map("replacement_variant_id") @db.Uuid
+  replacementVariant     ProductVariant @relation("SubstituteVariant", fields: [replacementVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  replacementQuantity    Decimal    @map("replacement_quantity") @db.Decimal(12, 3)
+  replacementUnitPrice   Decimal    @map("replacement_unit_price") @db.Decimal(10, 2)
+  priceDifference        Decimal    @map("price_difference") @db.Decimal(10, 2)
+  reason                 String?
+  status                 String     @default("PROPOSED") @db.VarChar(24)
+  proposedByType         String     @map("proposed_by_type") @db.VarChar(10)
+  proposedById           String?    @map("proposed_by_id") @db.Uuid
+  decidedByType          String?    @map("decided_by_type") @db.VarChar(10)
+  decidedById            String?    @map("decided_by_id") @db.Uuid
+  replacementOrderItemId String?    @map("replacement_order_item_id") @db.Uuid
+  materializedItem       OrderItem? @relation("MaterializedItem", fields: [replacementOrderItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt              DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("order_item_replacements")
+  @@index([orderItemId], map: "idx_replacements_item_id")
+}
+
+// ============================ PHASE 4 — Promotions ==========================
+
+model Promotion {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String    @db.VarChar(160)
+  description      String?
+  type             String    @db.VarChar(20)
+  scope            String    @db.VarChar(10)
+  status           String    @default("DRAFT") @db.VarChar(10)
+  startAt          DateTime? @map("start_at") @db.Timestamptz(6)
+  endAt            DateTime? @map("end_at") @db.Timestamptz(6)
+  discountPercent  Decimal?  @map("discount_percent") @db.Decimal(5, 2)
+  discountAmount   Decimal?  @map("discount_amount") @db.Decimal(10, 2)
+  fixedPrice       Decimal?  @map("fixed_price") @db.Decimal(10, 2)
+  priority         Int       @default(0)
+  isStackable      Boolean   @default(false) @map("is_stackable")
+  usageLimit       Int?      @map("usage_limit")
+  usedCount        Int       @default(0) @map("used_count")
+  createdBy        String?   @map("created_by") @db.Uuid
+  targets          PromotionTarget[]
+  rules            PromotionRule?
+  buyGetRules      PromotionBuyGetRule?
+  coupons          Coupon[]
+  orderDiscounts   OrderDiscount[]
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("promotions")
+  @@index([status, startAt, endAt], map: "idx_promos_effective")
+}
+
+model PromotionTarget {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promotionId String    @map("promotion_id") @db.Uuid
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  targetType  String    @map("target_type") @db.VarChar(10)
+  targetId    String    @map("target_id") @db.Uuid // NO relation (polymorphic by design)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("promotion_targets")
+  @@unique([promotionId, targetType, targetId], map: "uq_promo_target")
+  @@index([targetType, targetId], map: "idx_targets_lookup")
+  @@index([promotionId], map: "idx_targets_promo")
+}
+
+model PromotionRule {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promotionId      String     @unique @map("promotion_id") @db.Uuid // 1:1
+  promotion        Promotion  @relation(fields: [promotionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  minimumQuantity  Decimal?   @map("minimum_quantity") @db.Decimal(12, 3)
+  minimumAmount    Decimal?   @map("minimum_amount") @db.Decimal(10, 2)
+  maximumDiscount  Decimal?   @map("maximum_discount") @db.Decimal(10, 2)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("promotion_rules")
+}
+
+model PromotionBuyGetRule {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promotionId      String         @unique @map("promotion_id") @db.Uuid // 1:1
+  promotion        Promotion      @relation(fields: [promotionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  buyQuantity      Decimal        @map("buy_quantity") @db.Decimal(12, 3)
+  getQuantity      Decimal        @map("get_quantity") @db.Decimal(12, 3)
+  discountPercent  Decimal        @map("discount_percent") @db.Decimal(5, 2)
+  freeVariantId    String?        @map("free_variant_id") @db.Uuid // NULL = same variant
+  freeVariant      ProductVariant? @relation(fields: [freeVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("promotion_buy_get_rules")
+}
+
+model Coupon {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  promotionId        String    @map("promotion_id") @db.Uuid
+  promotion          Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  code               String    @unique @db.VarChar(64) // stored normalized UPPER/trimmed
+  usageLimit         Int?      @map("usage_limit")
+  usedCount          Int       @default(0) @map("used_count")
+  perCustomerLimit   Int?      @map("per_customer_limit")
+  minimumOrderAmount Decimal?  @map("minimum_order_amount") @db.Decimal(10, 2)
+  startAt            DateTime? @map("start_at") @db.Timestamptz(6)
+  endAt              DateTime? @map("end_at") @db.Timestamptz(6)
+  isActive           Boolean   @default(true) @map("is_active")
+  usages             CouponUsage[]
+  orderDiscounts     OrderDiscount[]
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  couponId                 String    @map("coupon_id") @db.Uuid
+  coupon                   Coupon    @relation(fields: [couponId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customerId               String    @map("customer_id") @db.Uuid
+  customer                 Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orderId                  String    @unique @map("order_id") @db.Uuid // 1 coupon per order
+  order                    Order     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  estimatedDiscountAmount  Decimal   @map("estimated_discount_amount") @db.Decimal(10, 2)
+  finalDiscountAmount      Decimal?  @map("final_discount_amount") @db.Decimal(10, 2)
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("coupon_usages")
+  @@index([couponId, customerId], map: "idx_usages_coupon_customer")
+}
+
+model OrderDiscount {
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId               String       @map("order_id") @db.Uuid
+  order                 Order        @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orderItemId           String?      @map("order_item_id") @db.Uuid
+  orderItem             OrderItem?   @relation(fields: [orderItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  promotionId           String       @map("promotion_id") @db.Uuid
+  promotion             Promotion    @relation(fields: [promotionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  couponId              String?      @map("coupon_id") @db.Uuid
+  coupon                Coupon?      @relation(fields: [couponId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  kind                  String       @db.VarChar(16)
+  typeSnapshot          String       @map("type_snapshot") @db.VarChar(20)
+  scopeSnapshot         String       @map("scope_snapshot") @db.VarChar(10)
+  promotionNameSnapshot String       @map("promotion_name_snapshot") @db.VarChar(160)
+  appliedPercent        Decimal?     @map("applied_percent") @db.Decimal(5, 2)
+  appliedAmount         Decimal?     @map("applied_amount") @db.Decimal(10, 2)
+  appliedFixedPrice     Decimal?     @map("applied_fixed_price") @db.Decimal(10, 2)
+  capAmount             Decimal?     @map("cap_amount") @db.Decimal(10, 2)
+  baseEstimated         Decimal      @map("base_estimated") @db.Decimal(10, 2)
+  discountEstimated     Decimal      @map("discount_estimated") @db.Decimal(10, 2)
+  baseFinal             Decimal?     @map("base_final") @db.Decimal(10, 2)
+  discountFinal         Decimal?     @map("discount_final") @db.Decimal(10, 2)
+  parentDiscountId      String?      @map("parent_discount_id") @db.Uuid
+  parent                OrderDiscount? @relation("DiscountAllocation", fields: [parentDiscountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  children              OrderDiscount[] @relation("DiscountAllocation")
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("order_discounts")
+  @@index([orderId], map: "idx_od_order_id")
+  @@index([orderItemId], map: "idx_od_order_item_id")
+  @@index([promotionId], map: "idx_od_promotion_id")
+  @@index([couponId], map: "idx_od_coupon_id")
+}
+
+// ============================ PHASE 5 — Admin ===============================
+
+model User {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String    @db.VarChar(120)
+  email                String    @unique @db.VarChar(160) // login identifier, stored lowercase
+  phone                String?   @db.VarChar(20) // partial UQ in SQL (gaps doc)
+  // Auth foundation (20260923_admin_auth_foundation): credential + lockout state.
+  // passwordHash holds an Argon2id string or NULL (never set by seed/seed-adjacent
+  // flows — only by the owner-bootstrap CLI or password rotation). No plaintext
+  // ever reaches this column.
+  passwordHash         String?   @map("password_hash") @db.VarChar(255)
+  failedLoginAttempts  Int       @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime? @map("locked_until") @db.Timestamptz(6)
+  isActive             Boolean   @default(true) @map("is_active")
+  lastLoginAt          DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdBy            String?   @map("created_by") @db.Uuid // no relation (frozen convention)
+  userRoles            UserRole[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  sessions             AdminSession[]
+  authTokens           AdminAuthToken[]
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("users")
+}
+
+model Role {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String    @unique @db.VarChar(60) // data rows, never enums
+  description     String?
+  isActive        Boolean   @default(true) @map("is_active")
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("roles")
+}
+
+model UserRole {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  roleId     String   @map("role_id") @db.Uuid
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignedBy String?  @map("assigned_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("user_roles")
+  @@unique([userId, roleId], map: "uq_user_roles_pair")
+  @@index([userId], map: "idx_user_roles_user")
+  @@index([roleId], map: "idx_user_roles_role")
+}
+
+model Permission {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key             String    @unique @db.VarChar(120) // stable action identifier
+  description     String?
+  isActive        Boolean   @default(true) @map("is_active")
+  rolePermissions RolePermission[]
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roleId       String     @map("role_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  permissionId String     @map("permission_id") @db.Uuid
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  grantedBy    String?    @map("granted_by") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("role_permissions")
+  @@unique([roleId, permissionId], map: "uq_role_permissions_pair")
+  @@index([roleId], map: "idx_role_permissions_role")
+  @@index([permissionId], map: "idx_role_permissions_permission")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorType  String   @map("actor_type") @db.VarChar(10)
+  action     String   @db.VarChar(80)
+  entityType String   @map("entity_type") @db.VarChar(40) // NO relation (polymorphic by design)
+  entityId   String?  @map("entity_id") @db.Uuid // NO relation (polymorphic by design)
+  oldValues  Json?   @map("old_values")
+  newValues  Json?   @map("new_values")
+  // Prisma has no INET scalar: Unsupported keeps migrate-diff clean (raw SQL reads).
+  // See gaps doc; never store secrets here.
+  ipAddress  Unsupported("inet")? @map("ip_address")
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("audit_logs")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_audit_user_time")
+  @@index([entityType, entityId], map: "idx_audit_entity")
+  @@index([createdAt(sort: Desc)], map: "idx_audit_time")
+  @@index([action, createdAt(sort: Desc)], map: "idx_audit_action_time")
+}
+
+model StoreSetting {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String   @unique @db.VarChar(120)
+  valueText   String   @map("value_text") // all values as text; typed by value_type (CHECK in SQL)
+  valueType   String   @map("value_type") @db.VarChar(10)
+  description String?
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("store_settings")
+}
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  type      String    @db.VarChar(60)
+  title     String    @db.VarChar(160)
+  message   String
+  data      Json?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("notifications")
+  @@index([userId, readAt, createdAt(sort: Desc)], map: "idx_notifications_inbox")
+  @@index([createdAt], map: "idx_notifications_time")
+}
+
+// ============================ PHASE 6 — Admin Auth ==========================
+// Auth foundation (20260923_admin_auth_foundation). DB-backed opaque sessions:
+// only token HASHES live here; raw tokens exist transiently in the login flow
+// and in the HttpOnly session cookie. createdIp is INET (raw-SQL writes, same
+// posture as audit_logs); everything else is Prisma-mappable.
+
+model AdminSession {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  // SHA-256 hex of the 256-bit opaque token. Never the raw token.
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(128)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdIp  Unsupported("inet")? @map("created_ip")
+  userAgent  String?   @map("user_agent") @db.VarChar(500)
+
+  @@map("admin_sessions")
+  @@index([userId], map: "idx_sessions_user")
+  @@index([expiresAt], map: "idx_sessions_expiry")
+}
+
+// One-time auth tokens (invitations + password resets). Plaintext exists only
+// at creation time (delivered out-of-band); only the hash is stored. Atomic
+// consumption: UPDATE ... WHERE used_at IS NULL AND expires_at > now().
+model AdminAuthToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  purpose    String    @db.VarChar(20) // INVITATION | PASSWORD_RESET (CHECK in SQL)
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(128)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt     DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("admin_auth_tokens")
+  @@index([userId], map: "idx_tokens_user")
+}
+
+// Serverless-safe login rate-limit buckets. bucket_key is opaque to the DB
+// (e.g. "login:ip:<ip>" / "login:acct:<user-id>"); rows are TTL-pruned by the
+// application. Atomic bump: INSERT ... ON CONFLICT DO UPDATE (single statement).
+model AdminAuthRateLimit {
+  bucketKey   String   @map("bucket_key") @db.VarChar(128)
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  attempts    Int      @default(1)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([bucketKey, windowStart])
+  @@map("admin_auth_rate_limits")
+}

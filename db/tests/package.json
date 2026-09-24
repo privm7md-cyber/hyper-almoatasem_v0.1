@@ -1,0 +1,22 @@
+{
+  "name": "hypermarket-phase2-db-tests",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Database-level tests for Phase 2: functional suite (PGlite) + two-session concurrency gate (embedded PostgreSQL)",
+  "scripts": {
+    "test": "node run-tests.js",
+    "test:concurrency": "node run-concurrency.js",
+    "test:overlap": "node overlap-probe.js",
+    "test:phase4": "node run-phase4-tests.js",
+    "test:phase4-concurrency": "node run-phase4-concurrency.js",
+    "test:phase5": "node run-phase5-tests.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "pg": "^8.13.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

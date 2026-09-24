@@ -1,0 +1,128 @@
+%% Hypermarket Store — PHASE 4 ERD (PROPOSAL, design only — no SQL built)
+%% Tables: promotions, promotion_targets, promotion_rules, promotion_buy_get_rules,
+%%         coupons, coupon_usages, order_discounts
+%% Links into frozen Phase 1/2: PRODUCT_VARIANTS, PRODUCTS, CATEGORIES, BRANDS (read-only
+%% match, NO FK — polymorphic trade-off), CUSTOMERS, ORDERS, ORDER_ITEMS.
+%% Render: paste into any Mermaid viewer (GitHub, mermaid.live, docs tools).
+
+erDiagram
+    PROMOTIONS ||--o{ PROMOTION_TARGETS : "defines (CASCADE)"
+    PROMOTIONS ||--|| PROMOTION_RULES : "constrained_by (CASCADE, 1:1)"
+    PROMOTIONS ||--o{ PROMOTION_BUY_GET_RULES : "parameterized_by (CASCADE, BXGY only)"
+    PROMOTIONS ||--o{ COUPONS : "accessed_via (CASCADE)"
+    PROMOTIONS ||--o{ ORDER_DISCOUNTS : "applied_as (RESTRICT)"
+    COUPONS ||--o{ COUPON_USAGES : "redeemed_in (RESTRICT)"
+    COUPONS ||--o{ ORDER_DISCOUNTS : "applied_as (RESTRICT)"
+    ORDERS ||--o{ ORDER_DISCOUNTS : "records (RESTRICT)"
+    ORDER_ITEMS ||--o{ ORDER_DISCOUNTS : "attributed_to (RESTRICT)"
+    ORDER_DISCOUNTS ||--o{ ORDER_DISCOUNTS : "allocated_into (self, RESTRICT)"
+    CUSTOMERS ||--o{ COUPON_USAGES : "consumes (RESTRICT)"
+    ORDERS ||--|| COUPON_USAGES : "evidences (RESTRICT, UQ order = 1 coupon)"
+    PRODUCT_VARIANTS ||--o{ PROMOTION_BUY_GET_RULES : "frees (RESTRICT, NULL = same)"
+
+    PROMOTIONS {
+        uuid id PK
+        varchar name
+        text description "nullable"
+        varchar type "PERCENTAGE FIXED_AMOUNT BUY_X_GET_Y FIXED_PRICE"
+        varchar scope "LINE ORDER"
+        varchar status "DRAFT ACTIVE DISABLED (admin)"
+        timestamptz start_at "nullable, open-ended"
+        timestamptz end_at "nullable, open-ended"
+        numeric discount_percent "nullable, 5,2 gated"
+        numeric discount_amount "nullable, 10,2 gated"
+        numeric fixed_price "nullable, 10,2 gated"
+        int priority
+        boolean is_stackable
+        int usage_limit "nullable = unlimited"
+        int used_count "tx-maintained"
+        uuid created_by "nullable, no FK yet"
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    PROMOTION_TARGETS {
+        uuid id PK
+        uuid promotion_id "FK, CASCADE"
+        varchar target_type "VARIANT PRODUCT BRAND CATEGORY"
+        uuid target_id "NO FK (polymorphic trade-off)"
+        timestamptz created_at
+    }
+
+    PROMOTION_RULES {
+        uuid id PK
+        uuid promotion_id "FK, CASCADE, UQ 1:1"
+        numeric minimum_quantity "nullable, 12,3"
+        numeric minimum_amount "nullable, 10,2"
+        numeric maximum_discount "nullable, 10,2 cap per order"
+        timestamptz created_at
+    }
+
+    PROMOTION_BUY_GET_RULES {
+        uuid id PK
+        uuid promotion_id "FK, CASCADE, UQ 1:1, BXGY only"
+        numeric buy_quantity "12,3 counting units"
+        numeric get_quantity "12,3 counting units"
+        numeric discount_percent "5,2 (100 = free)"
+        uuid free_variant_id "nullable = same variant, FK RESTRICT"
+        timestamptz created_at
+    }
+
+    COUPONS {
+        uuid id PK
+        uuid promotion_id "FK, CASCADE (NOT NULL)"
+        varchar code "UQ normalized UPPER/trimmed"
+        int usage_limit "nullable = unlimited"
+        int used_count "tx-maintained"
+        int per_customer_limit "nullable = unlimited"
+        numeric minimum_order_amount "nullable, gross pre-discount"
+        timestamptz start_at "nullable"
+        timestamptz end_at "nullable"
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    COUPON_USAGES {
+        uuid id PK "append-only"
+        uuid coupon_id "FK, RESTRICT"
+        uuid customer_id "FK, RESTRICT (guests included)"
+        uuid order_id "FK, RESTRICT, UQ (1 coupon per order)"
+        numeric estimated_discount_amount "10,2"
+        numeric final_discount_amount "nullable, set once"
+        timestamptz created_at
+    }
+
+    ORDER_DISCOUNTS {
+        uuid id PK "append-only"
+        uuid order_id "FK, RESTRICT"
+        uuid order_item_id "nullable, FK RESTRICT"
+        uuid promotion_id "FK NOT NULL, RESTRICT"
+        uuid coupon_id "nullable, FK RESTRICT"
+        varchar kind "LINE ORDER COUPON ALLOCATION"
+        varchar type_snapshot
+        varchar scope_snapshot
+        varchar promotion_name_snapshot
+        numeric applied_percent "nullable snapshot"
+        numeric applied_amount "nullable snapshot"
+        numeric applied_fixed_price "nullable snapshot"
+        numeric cap_amount "nullable snapshot"
+        numeric base_estimated "10,2"
+        numeric discount_estimated "10,2"
+        numeric base_final "nullable"
+        numeric discount_final "nullable, set once"
+        uuid parent_discount_id "nullable self-FK, ALLOCATION only"
+        timestamptz created_at
+    }
+
+    ORDERS {
+        uuid id PK "Phase 2, FROZEN — stub"
+        numeric discount_total "absorbs promo+coupon sums"
+    }
+
+    ORDER_ITEMS {
+        uuid id PK "Phase 2, FROZEN — stub"
+        numeric discount_amount "mirror of line-attributed rows"
+    }

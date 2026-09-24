@@ -1,0 +1,154 @@
+%% Hypermarket Store — PHASE 2 ERD (APPROVED, restores approved design)
+%% Tables: customers, customer_addresses, carts, cart_items, orders,
+%%         order_items, order_status_history, order_item_replacements
+%% Links into frozen Phase 1: PRODUCT_VARIANTS (+ INVENTORY via reservation).
+%% Render: paste into any Mermaid viewer (GitHub, mermaid.live, docs tools).
+
+erDiagram
+    CUSTOMERS ||--o{ CUSTOMER_ADDRESSES : "owns (RESTRICT)"
+    CUSTOMERS ||--o{ CARTS : "shops_with (RESTRICT, <=1 ACTIVE)"
+    CUSTOMERS ||--o{ ORDERS : "places (RESTRICT)"
+    CARTS ||--o{ CART_ITEMS : "contains (CASCADE)"
+    PRODUCT_VARIANTS ||--o{ CART_ITEMS : "listed_in (RESTRICT, draft)"
+    CARTS ||--o{ ORDERS : "converts_to (SET NULL)"
+    ORDERS ||--o{ ORDER_ITEMS : "has (RESTRICT)"
+    PRODUCT_VARIANTS ||--o{ ORDER_ITEMS : "frozen_in (RESTRICT + snapshots)"
+    ORDERS ||--o{ ORDER_STATUS_HISTORY : "audited_by (RESTRICT, append-only)"
+    ORDER_ITEMS ||--o{ ORDER_ITEM_REPLACEMENTS : "proposed_for (RESTRICT)"
+    PRODUCT_VARIANTS ||--o{ ORDER_ITEM_REPLACEMENTS : "substitutes_with (RESTRICT)"
+    ORDER_ITEMS ||--o{ ORDER_ITEMS : "materialized_as (replacement line)"
+
+    CUSTOMERS {
+        uuid id PK
+        varchar first_name
+        varchar last_name "nullable"
+        varchar phone "UQ normalized, identity"
+        varchar email "nullable, partial UQ"
+        varchar password_hash "nullable, required if registered"
+        boolean is_registered
+        boolean auto_accept_replacements
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at "nullable, soft delete"
+    }
+
+    CUSTOMER_ADDRESSES {
+        uuid id PK
+        uuid customer_id "FK, RESTRICT"
+        varchar label "nullable"
+        varchar city
+        varchar area "nullable"
+        varchar village "nullable"
+        varchar street "nullable"
+        varchar building_number "nullable"
+        varchar landmark "nullable"
+        varchar phone
+        boolean is_default "partial UQ per customer"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    CARTS {
+        uuid id PK
+        uuid customer_id "FK nullable, RESTRICT"
+        varchar session_id "nullable, guest token"
+        varchar status "ACTIVE CHECKED_OUT ABANDONED EXPIRED MERGED"
+        timestamptz expires_at "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    CART_ITEMS {
+        uuid id PK
+        uuid cart_id "FK, CASCADE"
+        uuid product_variant_id "FK, RESTRICT"
+        numeric quantity "12,3 variant-unit"
+        varchar unit_snapshot "counting unit, frozen at add"
+        numeric unit_price_snapshot "nullable quote"
+        timestamptz price_checked_at "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ORDERS {
+        uuid id PK
+        varchar order_number "UQ HM-YYYYMMDD-######"
+        uuid customer_id "FK, RESTRICT"
+        uuid cart_id "FK nullable, SET NULL"
+        varchar idempotency_key "nullable, UQ"
+        varchar status "7-state machine"
+        numeric subtotal_estimated "10,2"
+        numeric discount_total "10,2"
+        numeric delivery_fee "10,2"
+        numeric total_estimated "10,2 CHECK-balanced"
+        numeric subtotal_final "nullable"
+        numeric total_final "nullable"
+        varchar customer_name_snapshot
+        varchar customer_phone_snapshot
+        varchar delivery_city
+        varchar delivery_area "nullable"
+        varchar delivery_village "nullable"
+        varchar delivery_street "nullable"
+        varchar delivery_building "nullable"
+        varchar delivery_landmark "nullable"
+        varchar delivery_phone
+        text notes "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ORDER_ITEMS {
+        uuid id PK
+        uuid order_id "FK, RESTRICT"
+        uuid product_variant_id "FK, RESTRICT"
+        varchar product_name_snapshot
+        varchar variant_name_snapshot
+        varchar brand_name_snapshot "nullable"
+        varchar product_code_snapshot "nullable"
+        varchar code_type_snapshot "nullable"
+        varchar unit_snapshot
+        varchar product_type_snapshot "PIECE WEIGHT"
+        int sale_step_snapshot "nullable"
+        numeric unit_price "10,2 frozen"
+        numeric requested_quantity "12,3"
+        numeric actual_quantity "nullable"
+        numeric estimated_total "10,2 CHECK"
+        numeric final_total "nullable CHECK"
+        numeric discount_amount "10,2"
+        varchar item_status "6-state machine"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ORDER_STATUS_HISTORY {
+        uuid id PK "append-only"
+        uuid order_id "FK, RESTRICT"
+        varchar old_status "nullable on creation"
+        varchar new_status
+        varchar actor_type "SYSTEM CUSTOMER STAFF"
+        uuid actor_id "nullable iff SYSTEM"
+        text note "nullable"
+        timestamptz created_at
+    }
+
+    ORDER_ITEM_REPLACEMENTS {
+        uuid id PK
+        uuid order_item_id "FK original, RESTRICT"
+        uuid replacement_variant_id "FK, RESTRICT"
+        numeric replacement_quantity "12,3"
+        numeric replacement_unit_price "10,2"
+        numeric price_difference "signed"
+        text reason "nullable"
+        varchar status "PROPOSED APPROVED REJECTED AUTO"
+        uuid proposed_by_id
+        uuid decided_by_id "nullable until decided"
+        uuid replacement_order_item_id "nullable until approved"
+        timestamptz created_at
+    }
+
+    PRODUCT_VARIANTS {
+        uuid id PK "Phase 1, FROZEN — stub"
+        numeric price "live source for checkout reprice"
+        varchar size_unit "counting-unit check at checkout"
+    }
