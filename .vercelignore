@@ -1,0 +1,11 @@
+# Local-only deploy hygiene for Preview deployments (never commit).
+# Prevents sensitive/operational files from uploading to Vercel.
+# Contains no secrets.
+_recovery/
+*.dump
+scripts/set-super-admin-password-local.ps1
+.agents/
+.claude/
+.cursor/
+.devin/
+docs/recovery-verification.md
