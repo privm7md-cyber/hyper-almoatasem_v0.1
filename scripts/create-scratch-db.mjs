@@ -24,6 +24,8 @@ const ALLOWED_SCRATCH_DBS = [
   "hyper_almoatasem_authb_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
+  "hyper_almoatasem_restore_verify_20260924",
+  "hyper_almoatasem_restore_verify_2_20260924",
 ];
 const dbFlag = process.argv.indexOf("--db");
 const SCRATCH_DB = dbFlag === -1 ? DEFAULT_SCRATCH_DB : process.argv[dbFlag + 1];

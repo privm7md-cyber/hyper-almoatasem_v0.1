@@ -174,9 +174,13 @@ export async function authenticateAdmin(
   const usable = user.isActive && user.deletedAt === null && !locked;
 
   if (!passwordOk || !usable) {
-    // One atomic statement: bump, and lock exactly when crossing the threshold.
+    // One atomic statement: bump, lock exactly when crossing the threshold,
+    // and decide the lock state INSIDE the database. The returned `locked_now`
+    // boolean is computed by SQL against the post-UPDATE row using now() — no
+    // JavaScript Date comparison of a decoded TIMESTAMPTZ ever decides a
+    // security gate on this stack (Prisma 7.10 decode shift is DST-varying).
     // Concurrent failures cannot lose increments (single UPDATE, row lock).
-    const bumped = (await prisma.$queryRaw<{ failed_login_attempts: number; locked_until: Date | null }[]>`
+    const bumped = (await prisma.$queryRaw<{ failed_login_attempts: number; locked_now: boolean }[]>`
       UPDATE users
          SET failed_login_attempts = failed_login_attempts + 1,
              locked_until = CASE
@@ -185,10 +189,10 @@ export async function authenticateAdmin(
                ELSE locked_until
              END
        WHERE id = ${user.id}::uuid
-      RETURNING failed_login_attempts, locked_until
-    `) as unknown as { failed_login_attempts: number; locked_until: Date | null }[];
+     RETURNING failed_login_attempts, (locked_until IS NOT NULL AND locked_until > now()) AS locked_now
+    `) as unknown as { failed_login_attempts: number; locked_now: boolean }[];
     const row = bumped[0];
-    const nowLocked = row && row.locked_until !== null && new Date(row.locked_until).getTime() > Date.now();
+    const nowLocked = row?.locked_now === true;
     await writeAuthAudit({
       action: nowLocked ? "auth.account_locked" : "auth.login_failure",
       userId: user.id,
