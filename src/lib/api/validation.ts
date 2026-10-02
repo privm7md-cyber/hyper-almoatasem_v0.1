@@ -32,4 +32,13 @@ export const paginationSchema = z.object({
   cursor: uuidSchema.nullish(),
 });
 
+/**
+ * Opaque keyset-cursor wire shape (BA-B2): server-minted base64url token.
+ * Transport shape only — semantic validation (decode + structure) happens
+ * in decodeCursor (api/pagination.ts), which rejects malformed cursors
+ * with 400 VALIDATION. Modules with keyset sorts override the uuid
+ * cursor with this field.
+ */
+export const opaqueCursorSchema = z.string().min(1).max(512);
+
 export type Pagination = z.infer<typeof paginationSchema>;

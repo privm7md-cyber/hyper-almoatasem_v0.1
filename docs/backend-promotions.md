@@ -148,7 +148,83 @@ Races: last-usage single-winner, per-customer single-winner, limited-auto
 SKIP (both succeed, one discounted), rollback atomicity (no usage, no
 counters, no order).
 
-## 10. Session findings (honest)
+## 10. BA-C audit findings (2026-10-02)
+
+### 10.1 CORRECTED — targeted ORDER `minimum_amount` was measured on cart-wide gross
+
+`evaluateOrderLayer` compared `minimumAmount` against the **cart-wide**
+gross. Frozen Phase-4 semantics (`phase4-schema.sql` comment on
+`promotion_rules.minimum_amount`) define it as the **eligible lines' gross,
+pre-discount** — identical for targetless promos (they see every line),
+but wrong for targeted ones: an unrelated expensive line could qualify a
+promo for a cheap line.
+
+Fixed in `src/lib/promotions/engine.ts` (eligible-gross sum; see the
+in-code frozen-semantics comment). Regression-proved both ways in
+`t-bac-shopping`: `promo-order-min-qualifies` (eligible 30.00 ≥ 20.00 →
+10 % = 3.00) and `promo-order-min-eligible-only` (cart-wide 45.00 but
+eligible 15.00 < 20.00 → **0**, pre-fix this returned 1.50).
+
+### 10.2 FIXED (BA-C closure, 2026-10-02) — session timezone pinned to UTC in the client factory
+
+Root cause: Prisma 7.10 + `@prisma/adapter-pg` serialises `Date` parameters
+**without an offset**; PostgreSQL reads an offset-less timestamp literal in the
+*session* time zone, so every Date-bound TIMESTAMPTZ written through Prisma was
+stored shifted by the server UTC offset (DST-varying), and Prisma's reads
+mirrored the same shift (the CC-1 decode shift already recorded in
+`docs/admin-auth-architecture.md` §10).
+
+| Path | Result on this host (server `TimeZone = Africa/Cairo`, +03) |
+|---|---|
+| raw `pg` param (Date **or** ISO string) | exact (drift 0 s) |
+| Prisma Client param, ISO **string** | exact (drift 0 s) |
+| Prisma Client param, JS **Date** | **−10 800 s (3 h early)** |
+
+Observed consequences before the fix: a promotion created with
+`startAt = now + 1 h` applied immediately (`promo-window-skip` → `201/3`), a
+window containing `now()` applied not at all (`promo-window-inside` → `201/0`),
+and a 1 h auth token showed ~4 h of life.
+
+**Fix (central, code-level, no production change):** `src/lib/db-url.ts`
+`withUtcSession()` rewrites `DATABASE_URL` so every pooled connection starts
+with `options=-c timezone=UTC`, applied in the single Prisma factory
+`src/lib/db.ts`. It also *replaces* any `timezone` option coming from the URL,
+because node-postgres lets connection-string parameters override the config
+object — otherwise a stray `?options=…` in the environment would silently
+defeat the pin. Non-timezone options (`statement_timeout`, …) are preserved and
+the rest of the URL is passed through byte-for-byte (no password re-encoding).
+
+Candidates weighed: (A) UTC pin in the client factory — chosen: one choke
+point, covers every Date write and read, deploy-agnostic (Vercel/Neon/local),
+visible in the diff, no DB or production configuration change;
+(B) `ALTER ROLE hyper_app SET timezone='UTC'` — DB-side, invisible in the repo,
+would not travel with a restored/new database, and is a production change;
+(C) no equivalent mechanism existed in the architecture;
+(D) per-path Date→ISO conversions — rejected as default: it leaves the trap
+for future code (exactly the failure mode that produced this bug).
+
+Verification (`scripts/api/t-time-contract.mjs`, 10/10):
+BEFORE evidence reproduces the defect with a client built exactly like the old
+`db.ts` (`drift=-10800s` on a Cairo session; raw ISO-string control `0s`);
+AFTER, a 4×4 matrix (session TZ × process TZ over UTC, Africa/Cairo,
+Pacific/Kiritimati, America/New_York) is exact in every combination and the
+effective session zone is `UTC` in all of them; the pin also overrides a
+hostile URL that requests `Pacific/Kiritimati`. Business gates re-proved
+TZ-independent: promotion before/inside/after window, coupon window, cart
+expiry, admin session expiry, and the 1 h auth-token TTL (now 3600 s).
+`t-bac-shopping` (60 assertions) stays green with the app asking for a Cairo
+session while the process runs in Kiritimati — the application no longer
+depends on the server or process time zone.
+
+`DATE`-only business clocks inside SQL (`now()`, `now() + interval`) were
+always unaffected and remain the mandated authority. Two consequences worth
+knowing: keyset cursors previously stayed consistent only because the decode
+and write shifts cancelled (fragile across DST — now moot), and rows written
+*before* this fix on a non-UTC session keep the old offset, so any deployment
+that adopts the fix should audit pre-existing `promotions.start_at/end_at`,
+`coupons.start_at/end_at` and `admin_auth_tokens.expires_at` values.
+
+## 11. Session findings (honest)
 
 - My BXGY-cross expectation encoded 2×15=60 (actual 30): the
   implementation (subtotal 60 / discount 30 / total 50) was correct all
@@ -164,7 +240,7 @@ counters, no order).
   documented Phase 4 limitation; frozen SQL byte-identical) and CC-1 TZ
   rerun (auth untouched).
 
-## 11. Files
+## 12. Files
 
 - New: `src/lib/promotions/{engine,validation,serialize,queries,writes,checkout}.ts`;
   store `orders/estimate` route (+ `couponCode` on order create);
@@ -177,7 +253,7 @@ counters, no order).
 - Untouched/protected: `db/*`, `prisma/*`, auth/API/BA-1..BA-7 behavior,
   `docs/AGENT-HANDOFF.md`, `docs/release-manifest.md`, all frontend.
 
-## 12. Deferred (unchanged + BA-8-specific)
+## 13. Deferred (unchanged + BA-8-specific)
 
 Finalize/final-discount computation, payments, delivery mechanics,
 OTP/login, rotation, TTL numbers, versioning, retention, notifications,

@@ -142,7 +142,7 @@ async function main() {
     const store = await loginAs(STORE_EMAIL, STORE_PW);
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
-    t("logins-ok", store.status === 200 && owner.status === 200 && bare.status === 200);
+    t("logins-ok", store.status === 201 && owner.status === 201 && bare.status === 201);
     const a1 = await apost(`/api/admin/customers/${idC1}/addresses`,
       { city: "Cairo", phone: P_C1, isDefault: true }, store.cookie);
     const idA1 = a1.body.data.id;

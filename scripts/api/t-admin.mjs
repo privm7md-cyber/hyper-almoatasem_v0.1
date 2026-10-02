@@ -110,7 +110,7 @@ async function main() {
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
     const store = await loginAs(STORE_EMAIL, STORE_PW);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
-    t("logins-ok", owner.status === 200 && store.status === 200 && bare.status === 200);
+    t("logins-ok", owner.status === 201 && store.status === 201 && bare.status === 201);
 
     // ---------- users ----------
     const ulist = await get(`/api/admin/users?limit=5`, owner.cookie);
@@ -163,7 +163,7 @@ async function main() {
     const hashRow = await q(`SELECT password_hash AS h FROM users WHERE id = $1`, [idU1]);
     t("password-hashed", typeof hashRow[0].h === "string" && hashRow[0].h.startsWith("$argon2id$"));
     const loginNew = await loginAs(`ba9-one-${stamp}@example.com`, "Ba9-Provision-Pass-0001!");
-    t("provisioned-login-200", loginNew.status === 200);
+    t("provisioned-login-201", loginNew.status === 201);
     const deact = await patch(`/api/admin/users/${idU1}`, { isActive: false }, owner.cookie);
     t("users-deactivate-200", deact.status === 200 && deact.body.data.isActive === false);
     const loginOff = await loginAs(`ba9-one-${stamp}@example.com`, "Ba9-Provision-Pass-0001!");
@@ -313,11 +313,16 @@ async function main() {
         await db.query(`DELETE FROM admin_sessions WHERE user_id = $1`, [uid]).catch(() => {});
         await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [uid]).catch(() => {});
         await db.query(`DELETE FROM users WHERE id = $1`, [uid]).catch(() => {});
+        // Entity-side rows for removed test users (BA-A: owner-actor history
+        // references entities by id only — drop this suite's own so later
+        // audit-feed pages stay deterministic).
+        await db.query(`DELETE FROM audit_logs WHERE entity_id = $1`, [uid]).catch(() => {});
       }
       for (const rid of roleIds) {
         await db.query(`DELETE FROM role_permissions WHERE role_id = $1`, [rid]).catch(() => {});
         await db.query(`DELETE FROM user_roles WHERE role_id = $1`, [rid]).catch(() => {});
         await db.query(`DELETE FROM roles WHERE id = $1`, [rid]).catch(() => {});
+        await db.query(`DELETE FROM audit_logs WHERE entity_id = $1`, [rid]).catch(() => {});
       }
       for (const email of [OWNER_EMAIL, STORE_EMAIL, BARE_EMAIL]) {
         await db.query(`DELETE FROM admin_sessions WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [email]).catch(() => {});

@@ -2,6 +2,8 @@
 // Same guarantees as the Server-Action form flow: Zod input, generic errors,
 // rate-limit + lockout, audit, HttpOnly session cookie. Used by API clients
 // and by the automated HTTP test suites.
+// BA-A canonical envelopes: success { data, meta } (login creates a session
+// → 201), failures use the shared error envelope (never { ok: false }).
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authenticateAdmin } from "@/lib/auth/login";
@@ -9,6 +11,8 @@ import { setSessionCookie } from "@/lib/auth/session";
 import { getCurrentAdmin } from "@/lib/auth/rbac";
 import { revokeSession, readSessionCookie, clearSessionCookie } from "@/lib/auth/session";
 import { writeAuthAudit } from "@/lib/auth/audit";
+import { ApiError } from "@/lib/api/errors";
+import { created, fail, ok } from "@/lib/api/respond";
 
 const BodySchema = z.object({
   email: z.string().min(1).max(160),
@@ -30,46 +34,50 @@ export async function POST(request: Request) {
   if (origin) {
     try {
       if (new URL(origin).host !== host) {
-        return NextResponse.json({ ok: false }, { status: 403 });
+        const r = fail(new ApiError("FORBIDDEN", "Forbidden.", null));
+        return NextResponse.json(r.body, { status: r.status });
       }
     } catch {
-      return NextResponse.json({ ok: false }, { status: 403 });
+      const r = fail(new ApiError("FORBIDDEN", "Forbidden.", null));
+      return NextResponse.json(r.body, { status: r.status });
     }
   }
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ ok: false, error: "طلب غير صالح." }, { status: 400 });
+    const r = fail(new ApiError("VALIDATION", "طلب غير صالح.", null));
+    return NextResponse.json(r.body, { status: r.status });
   }
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) {
     // Shape errors only (never credential-specific).
-    return NextResponse.json({ ok: false, error: "طلب غير صالح." }, { status: 400 });
+    const r = fail(new ApiError("VALIDATION", "طلب غير صالح.", null));
+    return NextResponse.json(r.body, { status: r.status });
   }
   const ctx = requestContext(request);
   const result = await authenticateAdmin(parsed.data.email, parsed.data.password, ctx);
   if (result.ok === false) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 401 });
+    const r = fail(new ApiError("UNAUTHENTICATED", result.error, null));
+    return NextResponse.json(r.body, { status: r.status });
   }
   await setSessionCookie(result.token);
-  return NextResponse.json({
-    ok: true,
-    admin: { name: result.admin.name, email: result.admin.email },
-  });
+  const r = created({ admin: { name: result.admin.name, email: result.admin.email } });
+  return NextResponse.json(r.body, { status: r.status });
 }
 
 export async function GET() {
   const admin = await getCurrentAdmin();
   if (!admin) {
-    return NextResponse.json({ ok: false }, { status: 401 });
+    const r = fail(new ApiError("UNAUTHENTICATED", "Authentication required.", null));
+    return NextResponse.json(r.body, { status: r.status });
   }
-  return NextResponse.json({
-    ok: true,
+  const r = ok({
     admin: { name: admin.user.name, email: admin.user.email },
     roles: admin.roles,
     permissions: admin.permissions,
   });
+  return NextResponse.json(r.body, { status: r.status });
 }
 
 export async function DELETE() {
@@ -95,5 +103,6 @@ export async function DELETE() {
   } else {
     await clearSessionCookie();
   }
-  return NextResponse.json({ ok: true });
+  const r = ok({ revoked: true });
+  return NextResponse.json(r.body, { status: r.status });
 }

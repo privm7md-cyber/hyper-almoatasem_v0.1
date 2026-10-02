@@ -11,26 +11,26 @@ export async function run(ctx) {
   await resetAuthState(dbName);
   await sql(dbName, `UPDATE users SET is_active = TRUE, deleted_at = NULL`);
 
-  // 1. valid login: 200 + session cookie set.
+  // 1. valid login: 201 + session cookie set.
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
     const body = JSON.parse(r.text);
-    t("valid_login", r.res.status === 200 && body.ok === true && !!c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("valid_login", r.res.status === 201 && body.data?.admin?.email === owner.email && !!c.jar[COOKIE_NAME], `status=${r.res.status}`);
   }
   // 2. wrong password: 401 + generic message, no cookie.
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: "Wrong-Password-000!" });
     const body = JSON.parse(r.text);
-    t("wrong_password", r.res.status === 401 && body.error === GENERIC_MSG && !c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("wrong_password", r.res.status === 401 && body.error?.message === GENERIC_MSG && body.error?.code === "UNAUTHENTICATED" && !c.jar[COOKIE_NAME], `status=${r.res.status}`);
   }
   // 3. unknown email: byte-identical behavior to wrong password.
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: "nobody@example.com", password: "Wrong-Password-000!" });
     const body = JSON.parse(r.text);
-    t("unknown_email", r.res.status === 401 && body.error === GENERIC_MSG, `status=${r.res.status}`);
+    t("unknown_email", r.res.status === 401 && body.error?.message === GENERIC_MSG, `status=${r.res.status}`);
   }
   // 4. inactive user rejected generically.
   await sql(dbName, `UPDATE users SET is_active = FALSE WHERE email = $1`, [owner.email]);
@@ -38,7 +38,7 @@ export async function run(ctx) {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
     const body = JSON.parse(r.text);
-    t("inactive_user", r.res.status === 401 && body.error === GENERIC_MSG, `status=${r.res.status}`);
+    t("inactive_user", r.res.status === 401 && body.error?.message === GENERIC_MSG, `status=${r.res.status}`);
   }
   await sql(dbName, `UPDATE users SET is_active = TRUE WHERE email = $1`, [owner.email]);
   // 5. soft-deleted user rejected generically (frozen CHECK: deleted => !active).
@@ -46,7 +46,7 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("soft_deleted_user", r.res.status === 401 && JSON.parse(r.text).error === GENERIC_MSG, `status=${r.res.status}`);
+    t("soft_deleted_user", r.res.status === 401 && JSON.parse(r.text).error?.message === GENERIC_MSG, `status=${r.res.status}`);
   }
   await sql(dbName, `UPDATE users SET deleted_at = NULL, is_active = TRUE WHERE email = $1`, [owner.email]);
   // 6. locked account rejected generically.
@@ -54,14 +54,14 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("locked_account", r.res.status === 401 && JSON.parse(r.text).error === GENERIC_MSG, `status=${r.res.status}`);
+    t("locked_account", r.res.status === 401 && JSON.parse(r.text).error?.message === GENERIC_MSG, `status=${r.res.status}`);
   }
   // 7. expired lock + correct password succeeds.
   await sql(dbName, `UPDATE users SET locked_until = now() - interval '1 minute', failed_login_attempts = 4 WHERE email = $1`, [owner.email]);
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("expired_lock_success", r.res.status === 200 && !!c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("expired_lock_success", r.res.status === 201 && !!c.jar[COOKIE_NAME], `status=${r.res.status}`);
   }
   // 8. successful login clears failed attempts + lock.
   {

@@ -31,7 +31,7 @@ export async function run(ctx) {
     );
     const tokens = clients.map((c) => c.jar[COOKIE_NAME]).filter(Boolean);
     const uniq = new Set(tokens);
-    t("session_race_distinct", outs.every((r) => r.res.status === 200) && uniq.size === 5, `distinct=${uniq.size}`);
+    t("session_race_distinct", outs.every((r) => r.res.status === 201) && uniq.size === 5, `distinct=${uniq.size}`);
   }
   // R3. revocation race: parallel revoke-all calls stay safe, all die.
   {
@@ -62,7 +62,7 @@ export async function run(ctx) {
       a.post("/api/admin/session", { email: owner.email, password: owner.password }),
       b.post("/api/admin/session", { email: store.email, password: store.password }),
     ]);
-    t("independent_logins", r1.res.status === 200 && r2.res.status === 200, "");
+    t("independent_logins", r1.res.status === 201 && r2.res.status === 201, "");
   }
   // R6. mixed burst: valid logins still succeed while failures accumulate atomically.
   {
@@ -79,7 +79,7 @@ export async function run(ctx) {
     // Successes reset the counter afterwards only if they ran last; with races
     // the only invariant asserted is exact accounting: every bad attempt bumped
     // at most once and successes all hold valid sessions.
-    const sessionsOk = gouts.every((r) => r.res.status === 200);
+    const sessionsOk = gouts.every((r) => r.res.status === 201);
     const badDenied = bouts.every((r) => r.res.status === 401);
     const attempts = Number(row.n);
     t("mixed_burst_consistent", sessionsOk && badDenied && attempts >= 0 && attempts <= 4, `attempts=${attempts}`);

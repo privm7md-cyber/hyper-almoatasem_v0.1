@@ -50,8 +50,8 @@ t("order-number-format", formatOrderNumber("20260926", 42) === "HM-20260926-0000
 const { orderCreateSchema, orderListQuerySchema, adminOrderListQuerySchema, orderCancelSchema } = validation;
 const CID = "04800000-0000-7000-8000-000000000001";
 t("create-shape", orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k-0001" }).success);
-t("create-rejects", !orderCreateSchema.safeParse({ customerId: CID, addressId: CID }).success
-  && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "has space" }).success
+t("create-key-optional-for-header", orderCreateSchema.safeParse({ customerId: CID, addressId: CID }).success);
+t("create-rejects", !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "has space" }).success
   && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "" }).success
   && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k", notes: "x" }).success
   && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k", cartId: CID }).success);

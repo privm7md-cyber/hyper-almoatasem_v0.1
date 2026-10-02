@@ -7,11 +7,7 @@
 // derives from the DB values: out_of_stock iff available <= 0; low_stock iff
 // a threshold is set and available <= threshold (and > 0).
 import type { Prisma } from "@prisma/client";
-
-
-const dec = (v: Prisma.Decimal | null | undefined): string | null =>
-  v === null || v === undefined ? null : v.toString();
-const decReq = (v: Prisma.Decimal): string => v.toString();
+import { dec, decReq } from "@/lib/api/serialize";
 
 export type StockStatus = "in_stock" | "low_stock" | "out_of_stock";
 

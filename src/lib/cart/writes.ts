@@ -257,6 +257,58 @@ export async function removeLine(owner: CartOwner, variantId: string) {
   return getCartFull(cartId);
 }
 
+/**
+ * Reprice every line against LIVE variant state (BA-C persisted reprice).
+ * One tx: lock cart → per line, drop dead variants (inactive/deleted
+ * variant or product, reported — merge precedent) else refresh
+ * unit_price_snapshot to the live price + price_checked_at = now().
+ * Quantities are untouched (steps are immutable after creation; qty was
+ * valid at write time). No inventory, no promotions, no coupon state —
+ * estimate/checkout own those layers. Stale snapshots never become final
+ * truth: checkout revalidates live and rejects drift.
+ */
+export async function repriceCart(owner: CartOwner): Promise<{
+  cartId: string;
+  repriced: number;
+  dropped: Array<{ lineId: string; variantId: string }>;
+}> {
+  const cartId = await requireActiveCart(owner);
+  const report = await prisma.$transaction(async (tx) => {
+    await lockCart(tx, cartId);
+    const lines = await tx.cartItem.findMany({
+      where: { cartId },
+      orderBy: [{ id: "asc" as const }],
+    });
+    let repriced = 0;
+    const dropped: Array<{ lineId: string; variantId: string }> = [];
+    for (const l of lines) {
+      const v = await tx.productVariant.findUnique({
+        where: { id: l.productVariantId },
+        select: {
+          price: true,
+          isActive: true,
+          deletedAt: true,
+          product: { select: { isActive: true, deletedAt: true } },
+        },
+      });
+      if (!v || !v.isActive || v.deletedAt !== null || !v.product.isActive || v.product.deletedAt !== null) {
+        await tx.cartItem.delete({ where: { id: l.id } });
+        dropped.push({ lineId: l.id, variantId: l.productVariantId });
+        continue;
+      }
+      const live = v.price.toString();
+      if (l.unitPriceSnapshot === null || l.unitPriceSnapshot.toString() !== live) {
+        await tx.$executeRaw`
+          UPDATE cart_items SET unit_price_snapshot = ${live}::numeric, price_checked_at = now()
+           WHERE id = ${l.id}::uuid`;
+        repriced++;
+      }
+    }
+    return { repriced, dropped };
+  });
+  return { cartId, ...report };
+}
+
 /** Remove all lines (draft maintenance — the cart row and its ACTIVE
  * status are untouched; no lifecycle transition invented). */
 export async function clearCart(owner: CartOwner) {
@@ -302,9 +354,13 @@ export async function mergeGuestCartToCustomer(
     for (const id of orderLockIds(custId ? [guestHint.id, custId] : [guestHint.id])) {
       await tx.$queryRaw`SELECT 1 FROM carts WHERE id = ${id}::uuid FOR UPDATE`;
     }
-    const g = await tx.$queryRaw<Array<{ status: string; customer_id: string | null }>>`
-      SELECT status, customer_id::text AS customer_id FROM carts WHERE id = ${guestHint.id}::uuid`;
-    if (g.length === 0 || g[0].status !== "ACTIVE" || g[0].customer_id !== null) {
+    const g = await tx.$queryRaw<
+      Array<{ status: string; customer_id: string | null; expired: boolean }>
+    >`
+      SELECT status, customer_id::text AS customer_id,
+        (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+        FROM carts WHERE id = ${guestHint.id}::uuid`;
+    if (g.length === 0 || g[0].status !== "ACTIVE" || g[0].customer_id !== null || g[0].expired) {
       throw conflict("Guest cart is no longer available for merge.", { cartId: guestHint.id });
     }
     if (!custId) {

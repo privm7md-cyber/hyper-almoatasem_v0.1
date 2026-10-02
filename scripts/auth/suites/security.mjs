@@ -17,7 +17,7 @@ export async function run(ctx, serverLogs) {
     const row = (await sql(dbName, `SELECT failed_login_attempts AS n, locked_until IS NOT NULL AS l FROM users WHERE email=$1`, [owner.email])).rows[0];
     t("bruteforce_lockout", Number(row.n) === 5 && row.l === true, `attempts=${row.n}`);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("locked_rejects_valid", r.res.status === 401 && JSON.parse(r.text).error === GENERIC_MSG, `status=${r.res.status}`);
+    t("locked_rejects_valid", r.res.status === 401 && JSON.parse(r.text).error?.message === GENERIC_MSG, `status=${r.res.status}`);
     await sql(dbName, `UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE email=$1`, [owner.email]);
   }
   // 2. credential stuffing: per-account bucket throttles a second identity independently.
@@ -51,7 +51,7 @@ export async function run(ctx, serverLogs) {
       a.post("/api/admin/session", { email: owner.email, password: owner.password }),
       b.post("/api/admin/session", { email: owner.email, password: owner.password }),
     ]);
-    t("distinct_tokens", r1.res.status === 200 && r2.res.status === 200 && a.jar[COOKIE_NAME] !== b.jar[COOKIE_NAME], "");
+    t("distinct_tokens", r1.res.status === 201 && r2.res.status === 201 && a.jar[COOKIE_NAME] !== b.jar[COOKIE_NAME], "");
   }
   // 5. stolen revoked token rejected.
   {

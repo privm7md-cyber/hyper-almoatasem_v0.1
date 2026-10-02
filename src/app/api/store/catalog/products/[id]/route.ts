@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
 import { uuidSchema } from "@/lib/api/validation";
 import { getProduct } from "@/lib/catalog/queries";
-import { toProductListItem } from "@/lib/catalog/serialize";
+import { toProductDetail } from "@/lib/catalog/serialize";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -17,7 +17,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const r = fail(new ApiError("NOT_FOUND", "Product not found."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const r = ok(toProductListItem(row));
+  const r = ok(toProductDetail(row));
   return NextResponse.json(r.body, { status: r.status });
 }
 

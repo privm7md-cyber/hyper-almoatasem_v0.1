@@ -4,8 +4,7 @@
 // construction: the field is omitted from every interface below).
 // DateTimes as ISO strings. Phone/email already canonical from the writer.
 import type { Customer, CustomerAddress } from "@prisma/client";
-
-const iso = (v: Date | null): string | null => (v ? v.toISOString() : null);
+import { iso } from "@/lib/api/serialize";
 
 export interface CustomerShape {
   id: string;

@@ -186,11 +186,11 @@ async function main() {
     const anonAdj = await post(`/api/admin/inventory/adjust`, { productVariantId: VAR_W, delta: "1.000", movementType: "STOCK_IN" });
     t("anon-adjust-401", anonAdj.status === 401);
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
-    t("owner-login-ok", owner.status === 200 && !!owner.cookie);
+    t("owner-login-ok", owner.status === 201 && !!owner.cookie);
     const store = await loginAs(STORE_EMAIL, STORE_PW);
-    t("store-login-ok", store.status === 200 && !!store.cookie);
+    t("store-login-ok", store.status === 201 && !!store.cookie);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
-    t("bare-login-ok", bare.status === 200 && !!bare.cookie);
+    t("bare-login-ok", bare.status === 201 && !!bare.cookie);
     const bareList = await get(`/api/admin/inventory?limit=5`, bare.cookie);
     t("bare-list-403", bareList.status === 403);
     const bareRes = await post(`/api/admin/inventory/reserve`, { productVariantId: VAR_W, quantity: "0.125" }, bare.cookie);

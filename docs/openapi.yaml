@@ -1,0 +1,1434 @@
+# Hyper Al-Moatasem — Backend API contract (OpenAPI 3.0, BA-A).
+#
+# Machine-readable companion to docs/backend-application-contract.md.
+# Conventions (normative, mirror the implementation):
+# - success: { data, meta } (201 on creation, 200 otherwise; session
+#   DELETE returns 200 + { data: { revoked: true } });
+# - errors: { error: { code, message, details } } with stable codes
+#   VALIDATION|UNAUTHENTICATED|FORBIDDEN|NOT_FOUND|CONFLICT|BUSINESS_RULE|
+#   RATE_LIMITED|INTERNAL mapped to 400|401|403|404|409|422|429|500;
+# - money/quantity/percent: decimal STRINGS (never float); timestamps:
+#   ISO-8601 UTC strings; ids: UUIDs; pagination: limit (1..100, def 20)
+#   + cursor (uuid, null at end) via nextCursor;
+# - admin auth: __Host-admin-session cookie + per-permission checks
+#   (x-permission below); store carts: x-guest-token XOR customerId;
+# - order creation: Idempotency-Key header and/or body idempotencyKey
+#   (header wins ties; both-different → 400; neither → 400).
+# Validation strategy: scripts/api/t-ba-a-contract.mjs asserts bidirectional
+# coverage between this file's paths and src/app/api/**/route.ts, plus live
+# envelope/status/validation spot-checks. Keep both sides in sync.
+# BA-B: list cursors are OPAQUE keyset tokens (base64url {v:1,s,id});
+# raw UUIDs are rejected (400). Search cursors are v:2 {t,s,id}. Product
+# detail adds description; gallery lives on dedicated media endpoints.
+openapi: 3.0.3
+info:
+  title: Hyper Al-Moatasem Backend API
+  version: 1.0.0
+  description: Store + admin backend contract (BA-A canonical envelopes).
+servers:
+  - url: http://localhost:3131
+    description: Local scratch verification server.
+tags:
+  - name: infra
+  - name: store-catalog
+  - name: store-inventory
+  - name: store-customers
+  - name: store-cart
+  - name: store-orders
+  - name: admin-catalog
+  - name: admin-inventory
+  - name: admin-customers
+  - name: admin-orders
+  - name: admin-replacements
+  - name: admin-promotions
+  - name: admin-coupons
+  - name: admin-users
+  - name: admin-roles
+  - name: admin-permissions
+  - name: admin-settings
+  - name: admin-audit
+  - name: admin-session
+components:
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: __Host-admin-session
+    guestToken:
+      type: apiKey
+      in: header
+      name: x-guest-token
+  headers:
+    Idempotency-Key:
+      description: Opaque client-generated key (1..64 chars, no spaces). Header wins ties with body idempotencyKey.
+      schema:
+        $ref: '#/components/schemas/IdempotencyKey'
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
+    VariantIdPath:
+      name: variantId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
+    GuestTokenHeaderOpt:
+      name: x-guest-token
+      in: header
+      description: 64-hex guest bearer (absent when customerId identifies the owner).
+      schema:
+        type: string
+    GuestTokenHeaderReq:
+      name: x-guest-token
+      in: header
+      required: true
+      description: 64-hex guest bearer proving cart ownership.
+      schema:
+        type: string
+    IdempotencyKeyHeaderOpt:
+      name: idempotency-key
+      in: header
+      description: Canonical idempotency key (alternative to body idempotencyKey).
+      schema:
+        $ref: '#/components/schemas/IdempotencyKey'
+  schemas:
+    UUID:
+      type: string
+      format: uuid
+    DecimalString:
+      type: string
+      description: Exact decimal (money/quantity/percent). Never float.
+      example: '15.00'
+    DateTime:
+      type: string
+      format: date-time
+      description: ISO-8601 UTC instant.
+      example: '2026-09-29T18:00:00.000Z'
+    IdempotencyKey:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: ^\S+$
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, CONFLICT, BUSINESS_RULE, RATE_LIMITED, INTERNAL]
+            message:
+              type: string
+            details:
+              type: object
+              nullable: true
+    SuccessEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          description: Resource payload (object, array, or null by endpoint).
+        meta:
+          type: object
+          description: Paging ({ limit, nextCursor }) and flags ({ replay }).
+    PageMeta:
+      type: object
+      required: [limit, nextCursor]
+      properties:
+        limit:
+          type: integer
+        nextCursor:
+          type: string
+          format: uuid
+          nullable: true
+    PaginationQuery:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+        cursor:
+          $ref: '#/components/schemas/UUID'
+paths:
+  /api/health:
+    get:
+      tags: [infra]
+      summary: Liveness + DB-readiness probe (public; single SELECT 1; sanitized 500 on DB failure; never writes).
+      responses:
+        '200':
+          description: '{ data: { status: "ok", database: "ok" }, meta: {} }.'
+        '500':
+          description: Sanitized INTERNAL error (no driver text, no connection details).
+  # ---------------- store: catalog (public reads) ----------------
+  /api/store/catalog/brands:
+    get:
+      tags: [store-catalog]
+      summary: List active brands.
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Brand page ({ data, meta }).
+  /api/store/catalog/brands/{id}:
+    get:
+      tags: [store-catalog]
+      summary: Get one active brand.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Brand. }
+        '404': { description: Unknown id. }
+  /api/store/catalog/categories:
+    get:
+      tags: [store-catalog]
+      summary: List active categories.
+      responses:
+        '200': { description: Category page ({ data, meta }). }
+  /api/store/catalog/categories/{id}:
+    get:
+      tags: [store-catalog]
+      summary: Get one active category.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Category. }
+        '404': { description: Unknown id. }
+  /api/store/catalog/codes/lookup:
+    get:
+      tags: [store-catalog]
+      summary: Resolve a barcode/internal code to its variant.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Variant match. }
+        '404': { description: Unknown code. }
+  /api/store/catalog/products:
+    get:
+      tags: [store-catalog]
+      summary: List active products (keyset pages; filters: search/category-subtree/brand/type/price-window/inStock; OOS stays listed).
+      responses:
+        '200': { description: Product page ({ data, meta }). }
+  /api/store/catalog/products/{id}:
+    get:
+      tags: [store-catalog]
+      summary: Get one active product (detail shape: list fields + description; variants/stock/gallery via dedicated endpoints).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Product detail. }
+        '404': { description: Unknown id. }
+  /api/store/catalog/search:
+    get:
+      tags: [store-catalog]
+      summary: Product text search (pg_trgm + Arabic normalization; exact-code pin tier 4; tiers exact/prefix/similarity/brand-category; keyset pages).
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 120 }
+        - $ref: '#/components/parameters/LimitParam'
+        - name: cursor
+          in: query
+          description: Opaque search keyset token (v:2).
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [relevance, newest], default: relevance }
+        - name: category
+          in: query
+          description: Subtree filter (category + descendants).
+          schema: { $ref: '#/components/schemas/UUID' }
+        - name: brand
+          in: query
+          schema: { $ref: '#/components/schemas/UUID' }
+        - name: minPrice
+          in: query
+          schema: { $ref: '#/components/schemas/DecimalString' }
+        - name: maxPrice
+          in: query
+          schema: { $ref: '#/components/schemas/DecimalString' }
+        - name: inStock
+          in: query
+          schema: { type: string, enum: ['true', 'false'] }
+      responses:
+        '200': { description: '{ data: { query, results: [{...product, match: { kind, tier, score } }] } }.' }
+        '400': { description: Empty/short query, bad cursor, bad window. }
+  /api/store/catalog/products/{id}/images:
+    get:
+      tags: [store-catalog]
+      summary: Product gallery (primary ?? first ?? null; empty array when none).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: '{ data: { primary, gallery } }.' }
+        '404': { description: Unknown product. }
+  /api/store/catalog/products/{id}/variants:
+    get:
+      tags: [store-catalog]
+      summary: List a product's active variants.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Variant list. }
+  /api/store/catalog/variants/{id}:
+    get:
+      tags: [store-catalog]
+      summary: Get one active variant (live price basis).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Variant. }
+        '404': { description: Unknown id. }
+  # ---------------- store: inventory (public reads) ----------------
+  /api/store/inventory/products/{id}:
+    get:
+      tags: [store-inventory]
+      summary: Stock status for a product's variants.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Stock rows (quantity/reserved/available decimal strings). }
+  /api/store/inventory/variants/{id}:
+    get:
+      tags: [store-inventory]
+      summary: Stock status for one variant.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200': { description: Stock row. }
+        '404': { description: Unknown variant. }
+  # ---------------- store: customers ----------------
+  /api/store/customers/identify:
+    post:
+      tags: [store-customers]
+      summary: Guest get-or-create by phone (canonical 201XXXXXXXXX; concurrent creators converge).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, firstName]
+              properties:
+                phone: { type: string, description: Any ladder form (010…/+2010…/002010…/2010…). }
+                firstName: { type: string }
+                lastName: { type: string, nullable: true }
+      responses:
+        '200': { description: Existing customer. }
+        '201': { description: Created customer. }
+        '422': { description: Invalid phone (frozen R8 ladder). }
+  # ---------------- store: cart ----------------
+  /api/store/cart:
+    post:
+      tags: [store-cart]
+      summary: Mint guest cart (neither side) → 201 + guestToken; resolve existing → 200.
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Existing ACTIVE cart. }
+        '201': { description: Created cart (+guestToken when guest). }
+        '400': { description: Both/neither identity sides, or malformed token. }
+    get:
+      tags: [store-cart]
+      summary: Read the owner's ACTIVE cart (expired → 404).
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+        - name: customerId
+          in: query
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Cart with lines. }
+        '400': { description: Both/neither identity sides. }
+        '404': { description: No ACTIVE cart (incl. expired). }
+  /api/store/cart/items:
+    post:
+      tags: [store-cart]
+      summary: Add a line (re-add aggregates at live price).
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productVariantId, quantity]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+                productVariantId: { $ref: '#/components/schemas/UUID' }
+                quantity: { $ref: '#/components/schemas/DecimalString' }
+      responses:
+        '200': { description: Updated cart. }
+        '400': { description: Ownership/shape violation. }
+        '404': { description: No ACTIVE cart or unknown variant. }
+        '422': { description: Step/unit/price rule violation. }
+    delete:
+      tags: [store-cart]
+      summary: Clear all lines (draft maintenance; cart row stays ACTIVE).
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+        - name: customerId
+          in: query
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Emptied cart. }
+        '404': { description: No ACTIVE cart. }
+  /api/store/cart/items/{variantId}:
+    patch:
+      tags: [store-cart]
+      summary: Set a line quantity (last-writer-wins).
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+        - $ref: '#/components/parameters/VariantIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+                quantity: { $ref: '#/components/schemas/DecimalString' }
+      responses:
+        '200': { description: Updated cart. }
+        '404': { description: No ACTIVE cart or missing line. }
+    delete:
+      tags: [store-cart]
+      summary: Remove one line.
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+        - $ref: '#/components/parameters/VariantIdPath'
+        - name: customerId
+          in: query
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Updated cart. }
+        '404': { description: No ACTIVE cart or missing line. }
+  /api/store/cart/merge:
+    post:
+      tags: [store-cart]
+      summary: Bind a guest cart to a customer (reassign or per-line sum + live reprice; dead lines reported).
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderReq'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Merge report { mode, inserted, summed, dropped }. }
+        '404': { description: Unknown guest cart. }
+        '409': { description: Guest cart consumed. }
+  /api/store/cart/reprice:
+    post:
+      tags: [store-cart]
+      summary: >-
+        Persisted server-side reprice: refresh every line snapshot to the LIVE
+        variant price and drop lines whose variant/product became inactive.
+        Quantities untouched; no inventory, promotion or coupon state touched.
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200':
+          description: >-
+            { cart, reprice: { repriced: integer, dropped: [{ lineId, variantId }] } }.
+        '400': { description: Ownership XOR violation, or unknown body field (strict). }
+        '404': { description: No ACTIVE cart (unknown / foreign / expired / consumed). }
+  # ---------------- store: orders ----------------
+  /api/store/orders:
+    post:
+      tags: [store-orders]
+      summary: Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT). Replay → 200 + meta.replay.
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+        - $ref: '#/components/parameters/IdempotencyKeyHeaderOpt'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, addressId]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+                addressId: { $ref: '#/components/schemas/UUID' }
+                idempotencyKey: { $ref: '#/components/schemas/IdempotencyKey' }
+                couponCode: { type: string, nullable: true }
+      responses:
+        '201': { description: Created order (snapshots frozen). }
+        '200': { description: Idempotent replay (meta.replay true). }
+        '400': { description: Conflicting idempotency keys (header vs body) or neither supplied. }
+        '404': { description: No ACTIVE cart / customer / address. }
+        '409': { description: Key used with different terms; stock short; price drift (new key needed). }
+        '422': { description: Empty cart, unsellable variant, coupon invalid. }
+    get:
+      tags: [store-orders]
+      summary: Own-order history (customerId-scoped).
+      parameters:
+        - name: customerId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200': { description: Order page. }
+  /api/store/orders/estimate:
+    post:
+      tags: [store-orders]
+      summary: Dry-run pricing (no locks, no rows, no reservation).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, addressId]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+                addressId: { $ref: '#/components/schemas/UUID' }
+                couponCode: { type: string, nullable: true }
+      responses:
+        '200': { description: Estimate (base/discount/net, integer money). }
+  /api/store/orders/{id}:
+    get:
+      tags: [store-orders]
+      summary: Own order detail (ownership-checked, else 404).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: customerId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Order with snapshot lines + history. }
+        '404': { description: Unknown or foreign order. }
+  /api/store/orders/{id}/cancel:
+    post:
+      tags: [store-orders]
+      summary: Customer cancel (unpicked states only; releases holds, no movements).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: CANCELLED order. }
+        '404': { description: Unknown or foreign order. }
+        '409': { description: Picked/further state. }
+  /api/store/orders/{id}/replacements:
+    get:
+      tags: [store-orders]
+      summary: List an order's replacement proposals (ownership-checked).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: customerId
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Proposal list. }
+        '404': { description: Unknown or foreign order. }
+  /api/store/orders/{id}/replacements/{replacementId}/decide:
+    post:
+      tags: [store-orders]
+      summary: Customer approve/reject (approve runs R10 materialization).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: replacementId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, action]
+              properties:
+                customerId: { $ref: '#/components/schemas/UUID' }
+                action: { type: string, enum: [approve, reject] }
+      responses:
+        '200': { description: Decided proposal. }
+        '404': { description: Unknown/foreign proposal. }
+        '409': { description: No longer PROPOSED, or substitute short. }
+  # ---------------- admin: catalog (products.*) ----------------
+  /api/admin/catalog/brands:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: List brands.
+      responses: { '200': { description: Brand page. } }
+    post:
+      tags: [admin-catalog]
+      x-permission: products.create
+      summary: Create brand.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                slug: { type: string, nullable: true }
+      responses:
+        '201': { description: Created brand. }
+        '409': { description: Duplicate slug/name. }
+  /api/admin/catalog/brands/{id}:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: Get one brand.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Brand. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Patch brand (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { name: { type: string }, slug: { type: string, nullable: true } } }
+      responses: { '200': { description: Updated brand. }, '404': { description: Unknown id. } }
+  /api/admin/catalog/categories:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: List categories.
+      responses: { '200': { description: Category page. } }
+    post:
+      tags: [admin-catalog]
+      x-permission: products.create
+      summary: Create category (audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                slug: { type: string, nullable: true }
+                parentId: { $ref: '#/components/schemas/UUID', nullable: true }
+      responses: { '201': { description: Created category. }, '409': { description: Duplicate slug. } }
+  /api/admin/catalog/categories/{id}:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: Get one category.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Category. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Patch category incl. is_active (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated category. }, '404': { description: Unknown id. } }
+  /api/admin/catalog/products:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: List products (keyset pages; filters: search/category-subtree/brand/type/price-window/inStock; active filter explicit).
+      responses: { '200': { description: Product page. } }
+    post:
+      tags: [admin-catalog]
+      x-permission: products.create
+      summary: Create product (weight shape enforced; audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, categoryId, productType, unit]
+              properties:
+                name: { type: string }
+                categoryId: { $ref: '#/components/schemas/UUID' }
+                brandId: { $ref: '#/components/schemas/UUID', nullable: true }
+                productType: { type: string, enum: [PIECE, WEIGHT] }
+                unit: { type: string, enum: [PIECE, KG, GRAM] }
+      responses:
+        '201': { description: Created product. }
+        '422': { description: Weight-shape violation. }
+  /api/admin/catalog/products/{id}:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: Get one product.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Product. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Patch product (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated product. }, '404': { description: Unknown id. } }
+  /api/admin/catalog/products/{id}/variants:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: List a product's variants.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Variant list. } }
+  /api/admin/catalog/products/{id}/images:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: List a product's media rows (gallery shape).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: '{ data: { primary, gallery } }.' }, '404': { description: Unknown product. } }
+    post:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Register image metadata (https URL, mime allowlist incl. no-SVG, dims paired; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, description: Absolute https URL (no javascript:/data:). }
+                altText: { type: string, maxLength: 200 }
+                mimeType: { type: string, enum: [image/jpeg, image/png, image/webp, image/gif, image/avif] }
+      responses:
+        '201': { description: Created image row. }
+        '400': { description: Invalid URL/mime/dims. }
+        '404': { description: Unknown product. }
+  /api/admin/catalog/images/{id}:
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Patch alt/sort or promote to primary (atomic switch, audited as images.primary/update).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated row. }, '404': { description: Unknown id. } }
+    delete:
+      tags: [admin-catalog]
+      x-permission: products.delete
+      summary: Hard-delete metadata row (audited; physical objects belong to the future provider).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: '{ data: { deleted: true } }.' } }
+    post:
+      tags: [admin-catalog]
+      x-permission: products.create
+      summary: Create variant (audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, price]
+              properties:
+                name: { type: string }
+                price: { $ref: '#/components/schemas/DecimalString' }
+      responses: { '201': { description: Created variant. }, '422': { description: Shape violation. } }
+  /api/admin/catalog/variants/{id}:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: Get one variant.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Variant. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Patch variant (price excluded — use /price; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated variant. }, '404': { description: Unknown id. } }
+  /api/admin/catalog/variants/{id}/price:
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Change price + history row + audit in one tx.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [price]
+              properties:
+                price: { $ref: '#/components/schemas/DecimalString' }
+                reason: { type: string, nullable: true }
+      responses:
+        '200': { description: Updated variant. }
+        '404': { description: Unknown id. }
+        '422': { description: Exceeds compare-at price. }
+  /api/admin/catalog/codes:
+    post:
+      tags: [admin-catalog]
+      x-permission: products.create
+      summary: Create product code (audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productVariantId, code, type]
+              properties:
+                productVariantId: { $ref: '#/components/schemas/UUID' }
+                code: { type: string }
+                type: { type: string, enum: [BARCODE, INTERNAL_CODE] }
+      responses: { '201': { description: Created code. }, '409': { description: Duplicate code. } }
+  /api/admin/catalog/codes/{id}:
+    get:
+      tags: [admin-catalog]
+      x-permission: products.view
+      summary: Get one code.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Code. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-catalog]
+      x-permission: products.update
+      summary: Patch code / switch primary (atomic; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated code. }, '404': { description: Unknown id. } }
+    delete:
+      tags: [admin-catalog]
+      x-permission: products.delete
+      summary: Hard-delete code (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+  # ---------------- admin: inventory (inventory.view|adjust) ----------------
+  /api/admin/inventory:
+    get:
+      tags: [admin-inventory]
+      x-permission: inventory.view
+      summary: List inventory rows.
+      responses: { '200': { description: Inventory page. } }
+  /api/admin/inventory/{variantId}:
+    get:
+      tags: [admin-inventory]
+      x-permission: inventory.view
+      summary: Get one inventory row.
+      parameters:
+        - name: variantId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses: { '200': { description: Inventory row. }, '404': { description: Unknown variant. } }
+    patch:
+      tags: [admin-inventory]
+      x-permission: inventory.adjust
+      summary: Edit low-stock threshold (audited, no movement).
+      parameters:
+        - name: variantId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses: { '200': { description: Updated row. }, '404': { description: Unknown variant. } }
+  /api/admin/inventory/adjust:
+    post:
+      tags: [admin-inventory]
+      x-permission: inventory.adjust
+      summary: Quantity delta + paired movement + audit, one tx (STOCK_IN|ADJUSTMENT|WASTE|RETURN).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productVariantId, delta, movementType]
+              properties:
+                productVariantId: { $ref: '#/components/schemas/UUID' }
+                delta: { $ref: '#/components/schemas/DecimalString' }
+                movementType: { type: string, enum: [STOCK_IN, ADJUSTMENT, WASTE, RETURN] }
+      responses:
+        '201': { description: Adjustment + movement ids. }
+        '404': { description: Unknown variant. }
+        '409': { description: Predicate failure (insufficient / reserved breach). }
+  /api/admin/inventory/reserve:
+    post:
+      tags: [admin-inventory]
+      x-permission: inventory.adjust
+      summary: Reserved-only bump, no movement (audited).
+      responses: { '201': { description: New reserved/available. }, '409': { description: Insufficient availability. } }
+  /api/admin/inventory/release:
+    post:
+      tags: [admin-inventory]
+      x-permission: inventory.adjust
+      summary: Release a hold, no movement (audited).
+      responses: { '201': { description: New reserved/available. }, '409': { description: Nothing to release. } }
+  /api/admin/inventory/commit:
+    post:
+      tags: [admin-inventory]
+      x-permission: inventory.adjust
+      summary: Picking commit (qty-=actual, reserved-=requested + SALE movement + audit; R3/R7 enforced).
+      responses:
+        '201': { description: Commit + movement ids. }
+        '422': { description: Envelope breach. }
+        '409': { description: Stock-predicate failure. }
+  /api/admin/inventory/movements:
+    get:
+      tags: [admin-inventory]
+      x-permission: inventory.view
+      summary: List movements (append-only ledger reads).
+      responses: { '200': { description: Movement page. } }
+  /api/admin/inventory/movements/{id}:
+    get:
+      tags: [admin-inventory]
+      x-permission: inventory.view
+      summary: Get one movement.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Movement. }, '404': { description: Unknown id. } }
+  # ---------------- admin: customers (customers.view) ----------------
+  /api/admin/customers:
+    get:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: List customers (filters).
+      responses: { '200': { description: Customer page. } }
+  /api/admin/customers/{id}:
+    get:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Customer detail + address book.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Customer. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Limited edit (phone immutable; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated customer. }, '404': { description: Unknown id. }, '409': { description: Email in use. } }
+  /api/admin/customers/{id}/register:
+    post:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Staff-assisted guest→registered upgrade (hash never logged/audited; audited fact only).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '200': { description: Registered customer. }
+        '404': { description: Unknown id. }
+        '409': { description: Already registered/raced. }
+        '422': { description: Policy violation or inactive. }
+  /api/admin/customers/{id}/addresses:
+    get:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: List a customer's addresses.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Address list. } }
+    post:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Add address (default switch atomic; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '201': { description: Created address. }, '404': { description: Unknown customer. }, '409': { description: Default race lost. } }
+  /api/admin/customers/{id}/addresses/{addressId}:
+    get:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Get one address (owner-scoped, else 404).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: addressId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
+      responses: { '200': { description: Address. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Patch address (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: addressId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
+      responses: { '200': { description: Updated address. }, '404': { description: Unknown id. } }
+    delete:
+      tags: [admin-customers]
+      x-permission: customers.view
+      summary: Hard-delete address (orders keep snapshots; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: addressId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
+      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+  # ---------------- admin: orders / replacements ----------------
+  /api/admin/orders:
+    get:
+      tags: [admin-orders]
+      x-permission: orders.view
+      summary: List orders.
+      responses: { '200': { description: Order page. } }
+  /api/admin/orders/{id}:
+    get:
+      tags: [admin-orders]
+      x-permission: orders.view
+      summary: Order detail.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Order. }, '404': { description: Unknown id. } }
+  /api/admin/orders/{id}/cancel:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.cancel
+      summary: Staff cancel (unpicked; releases holds, counters, history; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: CANCELLED order. }
+        '404': { description: Unknown id. }
+        '409': { description: Picked/further state. }
+  /api/admin/orders/{id}/replacements:
+    get:
+      tags: [admin-orders]
+      x-permission: orders.view
+      summary: List an order's proposals.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Proposal list. } }
+  /api/admin/orders/{id}/items/{itemId}/replacements:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Staff propose substitute (PROPOSED; optional UNAVAILABLE flip; audited).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: itemId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [replacementVariantId, replacementQuantity]
+              properties:
+                replacementVariantId: { $ref: '#/components/schemas/UUID' }
+                replacementQuantity: { $ref: '#/components/schemas/DecimalString' }
+      responses:
+        '201': { description: Created proposal. }
+        '404': { description: Unknown order/item. }
+        '409': { description: Open proposal exists / line ineligible. }
+        '422': { description: Substitute unsellable. }
+  /api/admin/replacements/{id}/withdraw:
+    post:
+      tags: [admin-replacements]
+      x-permission: orders.update
+      summary: Staff withdraw → CUSTOMER_REJECTED, no inventory effect (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: Rejected proposal. }
+        '404': { description: Unknown id. }
+        '409': { description: No longer PROPOSED. }
+  /api/admin/replacements/{id}/auto-accept:
+    post:
+      tags: [admin-replacements]
+      x-permission: orders.update
+      summary: SYSTEM approval under pre-consent caps + R10 materialization (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: AUTO_ACCEPTED proposal. }
+        '404': { description: Unknown id. }
+        '409': { description: No longer open / substitute short. }
+        '422': { description: Pre-consent does not cover. }
+  # ---------------- admin: promotions / coupons ----------------
+  /api/admin/promotions:
+    get:
+      tags: [admin-promotions]
+      x-permission: promotions.view
+      summary: List promotions.
+      responses: { '200': { description: Promotion page. } }
+    post:
+      tags: [admin-promotions]
+      x-permission: promotions.create
+      summary: Create promotion (DRAFT; ACTIVE rejected without targets; audited).
+      responses: { '201': { description: Created promotion. }, '422': { description: Shape/window/activation violation. } }
+  /api/admin/promotions/{id}:
+    get:
+      tags: [admin-promotions]
+      x-permission: promotions.view
+      summary: Promotion detail.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Promotion. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-promotions]
+      x-permission: promotions.update
+      summary: Edit (status flips need promotions.disable; referenced values immutable; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: Updated promotion. }
+        '404': { description: Unknown id. }
+        '422': { description: Referenced immutability / activation gate. }
+    delete:
+      tags: [admin-promotions]
+      x-permission: promotions.disable
+      summary: Hard-delete (RESTRICT→409 when referenced; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: '{ data: { deleted: true } }'. }, '409': { description: Referenced by history. } }
+  /api/admin/promotions/{id}/rules:
+    put:
+      tags: [admin-promotions]
+      x-permission: promotions.update
+      summary: Upsert 1:1 rule row (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Rule row. }, '404': { description: Unknown id. }, '422': { description: Referenced immutable. } }
+  /api/admin/promotions/{id}/buy-get:
+    put:
+      tags: [admin-promotions]
+      x-permission: promotions.update
+      summary: Upsert BXGY params (BXGY promos only; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Buy-get row. }, '404': { description: Unknown id. }, '422': { description: Wrong type / referenced. } }
+  /api/admin/promotions/{id}/targets:
+    post:
+      tags: [admin-promotions]
+      x-permission: promotions.update
+      summary: Add target (liveness-checked; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType, targetId]
+              properties:
+                targetType: { type: string, enum: [VARIANT, PRODUCT, BRAND, CATEGORY] }
+                targetId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '201': { description: Created target. }
+        '404': { description: Unknown promotion. }
+        '409': { description: Duplicate target. }
+        '422': { description: Target not live / referenced immutable. }
+  /api/admin/promotions/{id}/targets/{targetId}:
+    delete:
+      tags: [admin-promotions]
+      x-permission: promotions.update
+      summary: Remove target (audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: targetId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
+      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+  /api/admin/coupons:
+    get:
+      tags: [admin-coupons]
+      x-permission: coupons.view
+      summary: List coupons.
+      responses: { '200': { description: Coupon page. } }
+    post:
+      tags: [admin-coupons]
+      x-permission: coupons.create
+      summary: Create coupon (code normalized UPPER/trim; audited).
+      responses: { '201': { description: Created coupon. }, '409': { description: Duplicate code. }, '422': { description: Window violation. } }
+  /api/admin/coupons/{id}:
+    get:
+      tags: [admin-coupons]
+      x-permission: coupons.view
+      summary: Coupon detail.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Coupon. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-coupons]
+      x-permission: coupons.update
+      summary: Edit (isActive flips need coupons.disable; code/promotion immutable; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Updated coupon. }, '404': { description: Unknown id. } }
+    delete:
+      tags: [admin-coupons]
+      x-permission: coupons.disable
+      summary: Hard-delete (RESTRICT→409 when referenced; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: '{ data: { deleted: true } }'. }, '409': { description: Referenced by history. } }
+  # ---------------- admin: users / roles / permissions / settings / audit / session ----------------
+  /api/admin/users:
+    get:
+      tags: [admin-users]
+      x-permission: users.view
+      summary: List admin users (no secrets in shapes).
+      responses: { '200': { description: User page. } }
+    post:
+      tags: [admin-users]
+      x-permission: users.manage
+      summary: Create admin user (audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                email: { type: string }
+                phone: { type: string, nullable: true }
+      responses: { '201': { description: Created user (no roles). }, '409': { description: Email/phone in use. } }
+  /api/admin/users/{id}:
+    get:
+      tags: [admin-users]
+      x-permission: users.view
+      summary: Get one admin user.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: User. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-users]
+      x-permission: users.manage
+      summary: Patch user (self-deactivation 403; last-holder 409; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: Updated user. }
+        '403': { description: Self-deactivation. }
+        '404': { description: Unknown id. }
+        '409': { description: Would leave zero active SUPER_ADMINs / email clash. }
+  /api/admin/users/{id}/password:
+    post:
+      tags: [admin-users]
+      x-permission: users.manage
+      summary: Set password (Argon2id + lockout reset + revoke-all + audit, one tx; hash never logged).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '200': { description: Credential set. }
+        '404': { description: Unknown id. }
+        '422': { description: Policy violation. }
+  /api/admin/users/{id}/roles:
+    post:
+      tags: [admin-users]
+      x-permission: roles.manage
+      summary: Assign role (ceiling: role effective ⊆ actor set; inactive role 409; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roleId]
+              properties:
+                roleId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '201': { description: Mapping created. }
+        '403': { description: Ceiling violation. }
+        '404': { description: Unknown user/role. }
+        '409': { description: Duplicate mapping / inactive role. }
+  /api/admin/users/{id}/roles/{roleId}:
+    delete:
+      tags: [admin-users]
+      x-permission: roles.manage
+      summary: Remove mapping (last-holder removal 409; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: roleId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
+      responses:
+        '200': { description: '{ data: { removed: true } }'. }
+        '404': { description: Unknown mapping. }
+        '409': { description: Would leave zero active SUPER_ADMINs. }
+  /api/admin/roles:
+    get:
+      tags: [admin-roles]
+      x-permission: roles.view
+      summary: List roles.
+      responses: { '200': { description: Role page. } }
+    post:
+      tags: [admin-roles]
+      x-permission: roles.manage
+      summary: Create role (zero grants — no auto-join; audited).
+      responses: { '201': { description: Created role. }, '409': { description: Name in use. } }
+  /api/admin/roles/{id}:
+    get:
+      tags: [admin-roles]
+      x-permission: roles.view
+      summary: Get one role.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Role. }, '404': { description: Unknown id. } }
+    patch:
+      tags: [admin-roles]
+      x-permission: roles.manage
+      summary: Patch role (SUPER_ADMIN rename/deactivate-with-holders 403/409; row-locked; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: Updated role. }
+        '403': { description: SUPER_ADMIN rename. }
+        '404': { description: Unknown id. }
+        '409': { description: Name clash / SUPER_ADMIN-holders exist. }
+    delete:
+      tags: [admin-roles]
+      x-permission: roles.manage
+      summary: Delete role (SUPER_ADMIN 403; granted 409; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+  /api/admin/roles/{id}/grants:
+    post:
+      tags: [admin-roles]
+      x-permission: roles.manage
+      summary: Grant permission (ceiling: key ∈ actor set, else 403 atomic; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissionId]
+              properties:
+                permissionId: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '201': { description: Grant created. }
+        '403': { description: Ceiling violation. }
+        '404': { description: Unknown role/permission. }
+        '409': { description: Duplicate grant. }
+  /api/admin/roles/{id}/grants/{permissionId}:
+    delete:
+      tags: [admin-roles]
+      x-permission: roles.manage
+      summary: Revoke grant (SUPER_ADMIN 403; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: permissionId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
+      responses:
+        '200': { description: '{ data: { removed: true } }'. }
+        '403': { description: SUPER_ADMIN grant protection. }
+        '404': { description: Unknown mapping. }
+  /api/admin/permissions:
+    get:
+      tags: [admin-permissions]
+      x-permission: roles.view
+      summary: List the 31-key registry (read-only).
+      responses: { '200': { description: Permission list. } }
+  /api/admin/permissions/{id}:
+    get:
+      tags: [admin-permissions]
+      x-permission: roles.view
+      summary: Get one permission.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Permission. }, '404': { description: Unknown id. } }
+  /api/admin/settings:
+    get:
+      tags: [admin-settings]
+      x-permission: settings.view
+      summary: List store settings.
+      responses: { '200': { description: Setting list. } }
+  /api/admin/settings/{key}:
+    get:
+      tags: [admin-settings]
+      x-permission: settings.view
+      summary: Get one setting.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses: { '200': { description: Setting. }, '404': { description: Unknown key. } }
+    patch:
+      tags: [admin-settings]
+      x-permission: settings.manage
+      summary: Set value (DB-typed CHECK mirrors; audited).
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string, maxLength: 4000 }
+      responses:
+        '200': { description: Updated setting. }
+        '404': { description: Unknown key. }
+        '422': { description: Type violation. }
+  /api/admin/audit-logs:
+    get:
+      tags: [admin-audit]
+      x-permission: audit_logs.view
+      summary: Query the append-only audit trail (filters + cursor paging; immutable).
+      responses: { '200': { description: Audit page. } }
+  /api/admin/audit-logs/{id}:
+    get:
+      tags: [admin-audit]
+      x-permission: audit_logs.view
+      summary: Get one audit row.
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Audit row. }, '404': { description: Unknown id. } }
+  /api/admin/session:
+    post:
+      tags: [admin-session]
+      summary: Login (same-origin enforced; rate buckets + lockout; generic 401; sets HttpOnly cookie; 201 + admin identity).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, minLength: 1, maxLength: 160 }
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        '201': { description: '{ data: { admin: { name, email } } } + Set-Cookie.' }
+        '400': { description: Malformed body. }
+        '401': { description: Generic failure (unknown/inactive/locked/bad password indistinguishable). }
+        '403': { description: Cross-origin credential submission. }
+    get:
+      tags: [admin-session]
+      summary: Inspect current session (identity + roles + effective permissions).
+      responses:
+        '200': { description: '{ data: { admin, roles, permissions } }'. }
+        '401': { description: No/invalid/expired/revoked session. }
+    delete:
+      tags: [admin-session]
+      summary: Logout (revoke server-side + clear cookie; idempotent).
+      responses:
+        '200': { description: '{ data: { revoked: true } }'. }

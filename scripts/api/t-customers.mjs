@@ -152,11 +152,11 @@ async function main() {
 
     // ---------- auth matrix (identify is public by guest-flow necessity) ----------
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
-    t("owner-login-ok", owner.status === 200 && !!owner.cookie);
+    t("owner-login-ok", owner.status === 201 && !!owner.cookie);
     const store = await loginAs(STORE_EMAIL, STORE_PW);
-    t("store-login-ok", store.status === 200 && !!store.cookie);
+    t("store-login-ok", store.status === 201 && !!store.cookie);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
-    t("bare-login-ok", bare.status === 200 && !!bare.cookie);
+    t("bare-login-ok", bare.status === 201 && !!bare.cookie);
     const anonList = await get(`/api/admin/customers?limit=5`);
     t("anon-list-401", anonList.status === 401);
     const bareList = await get(`/api/admin/customers?limit=5`, bare.cookie);

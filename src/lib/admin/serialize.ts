@@ -4,8 +4,7 @@
 // boundary (omitted by construction — the interfaces below have no such
 // fields; suites assert their absence). DateTimes as ISO strings.
 import type { Permission, Prisma, Role, StoreSetting, User } from "@prisma/client";
-
-const iso = (v: Date | null): string | null => (v ? v.toISOString() : null);
+import { iso } from "@/lib/api/serialize";
 
 export interface AdminUserShape {
   id: string;

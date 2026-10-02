@@ -5,12 +5,9 @@
 // display strings (authoritative money is BA-6 checkout's job). Ownership
 // exposes customerId or guest:true — never the session hash, never the raw
 // token except once at creation (see route).
-import type { Cart, CartItem, Prisma, Product, ProductVariant } from "@prisma/client";
+import type { Cart, CartItem, Product, ProductVariant } from "@prisma/client";
+import { dec, iso } from "@/lib/api/serialize";
 import { cartSubtotalPiastres, formatPiastres, lineTotalPiastres } from "./totals";
-
-const dec = (v: Prisma.Decimal | null | undefined): string | null =>
-  v === null || v === undefined ? null : v.toString();
-const iso = (v: Date | null): string | null => (v ? v.toISOString() : null);
 
 export interface CartLineShape {
   productVariantId: string;

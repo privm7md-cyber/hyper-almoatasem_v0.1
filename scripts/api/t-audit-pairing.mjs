@@ -163,8 +163,8 @@ async function main() {
   try {
     const store = await loginAs(STORE_EMAIL, STORE_PW);
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
-    t("logins-ok", store.status === 200 && owner.status === 200);
-    if (store.status !== 200 || owner.status !== 200 || !store.cookie || !owner.cookie) {
+    t("logins-ok", store.status === 201 && owner.status === 201);
+    if (store.status !== 201 || owner.status !== 201 || !store.cookie || !owner.cookie) {
       console.error(`REFUSED_LOGIN: store=${store.status} owner=${owner.status} (rate buckets may be exhausted — retry after rollover)`);
       await db.end().catch(() => {});
       process.exit(1);

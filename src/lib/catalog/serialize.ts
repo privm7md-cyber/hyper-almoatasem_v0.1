@@ -8,16 +8,12 @@
 import type {
   Brand,
   Category,
-  Prisma,
   Product,
   ProductCode,
   ProductVariant,
 } from "@prisma/client";
-
-const dec = (v: Prisma.Decimal | null): string | null =>
-  v === null || v === undefined ? null : v.toString();
-const decReq = (v: Prisma.Decimal): string => v.toString();
-const iso = (v: Date | null): string | null => (v ? v.toISOString() : null);
+import { dec, decReq, iso } from "@/lib/api/serialize";
+import type { MediaRow } from "@/lib/catalog/media";
 
 export interface CategoryShape {
   id: string;
@@ -100,6 +96,20 @@ export function toProductListItem(p: ProductWithTaxonomy): ProductListItem {
   };
 }
 
+/**
+ * Product DETAIL shape (BA-B1): list-item fields + description. Variants,
+ * stock, gallery, and promos stay on their dedicated endpoints (separate
+ * concerns, separate permissions — see docs/backend-integration.md BA-B).
+ * Additive only: list shapes are byte-identical.
+ */
+export interface ProductDetail extends ProductListItem {
+  description: string | null;
+}
+
+export function toProductDetail(p: ProductWithTaxonomy & { description: string | null }): ProductDetail {
+  return { ...toProductListItem(p), description: p.description };
+}
+
 export interface VariantShape {
   id: string;
   productId: string;
@@ -156,3 +166,49 @@ export function toCodeResolution(c: CodeWithGraph): CodeResolution {
 }
 
 export { iso };
+
+/**
+ * Media shapes (BA-B4): public delivery references only (url/alt/mime/
+ * dimensions/order/primary + ISO timestamps). Never storage internals,
+ * never binary content. Gallery order is (sort_order, id); primary is
+ * the is_primary row else the first gallery row else null — deterministic
+ * fallback, never a broken URL.
+ */
+export interface MediaShape {
+  id: string;
+  url: string;
+  altText: string | null;
+  mimeType: string | null;
+  byteSize: number | null;
+  width: number | null;
+  height: number | null;
+  sortOrder: number;
+  isPrimary: boolean;
+  createdAt: string;
+}
+
+export function toMediaImage(r: MediaRow): MediaShape {
+  return {
+    id: r.id,
+    url: r.url,
+    altText: r.altText,
+    mimeType: r.mimeType,
+    byteSize: r.byteSize,
+    width: r.width,
+    height: r.height,
+    sortOrder: r.sortOrder,
+    isPrimary: r.isPrimary,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
+export interface GalleryShape {
+  primary: MediaShape | null;
+  gallery: MediaShape[];
+}
+
+export function toGallery(rows: MediaRow[]): GalleryShape {
+  const gallery = rows.map(toMediaImage);
+  const primary = gallery.find((g) => g.isPrimary) ?? gallery[0] ?? null;
+  return { primary, gallery };
+}

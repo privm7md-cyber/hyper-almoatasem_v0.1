@@ -1,9 +1,11 @@
 // BA-8 checkout promotion integration (runs INSIDE BA-6's creation tx).
 //
 // Position in the frozen order (matches the Phase 4 doubles): after line
-// revalidation, before inventory locks — coupon row → promo rows →
-// inventory ASC. Read-only inputs (effective promos, tree) load OUTSIDE
-// the tx like the doubles; every lock/bump/count/mutation is in-tx.
+// revalidation, before inventory locks — coupon row — promo rows —
+// inventory ASC. Effective promos + category tree load INSIDE the
+// creation tx (orders/writes owns the tx; single atomic unit —
+// behaviorally equivalent to the doubles' outside load, but race-safe
+// against concurrent promo edits); every lock/bump/count/mutation is in-tx.
 // Layers: line-autos → order-autos → ONE coupon (bases read running nets).
 // Coupon-gated promos (≥1 coupon row) never auto-apply: the seed intent
 // ("reached via coupons") plus single-coupon economics forbid the

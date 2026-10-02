@@ -5,7 +5,21 @@
 // Business semantics (weight rules, step mirrors, price history) live in
 // domain services (writes.ts), not here.
 import { z } from "zod";
-import { uuidSchema, paginationSchema } from "@/lib/api/validation";
+import { strictObject, uuidSchema, opaqueCursorSchema, paginationSchema } from "@/lib/api/validation";
+
+/** Price-window wire shape: positive decimal text (domain binds semantics). */
+const priceFilterSchema = z
+  .string()
+  .regex(/^\d+(\.\d{1,2})?$/, { message: "Invalid price." })
+  .refine((s) => Number(s) > 0, { message: "Invalid price." })
+  .nullish();
+
+/** Same pagination bounds as the shared schema, but with the BA-B2 opaque
+ * keyset cursor instead of a raw UUID (cursor semantics live in
+ * api/pagination.ts; malformed cursors answer 400 downstream). */
+const catalogPageSchema = paginationSchema.extend({
+  cursor: opaqueCursorSchema.nullish(),
+});
 
 const nameSchema = z.string().trim().min(1).max(160);
 const slugInputSchema = z
@@ -51,29 +65,56 @@ const sortSchema = z.object({
   dir: z.enum(SORT_DIRS).default("desc"),
 });
 
-export const categoryListQuerySchema = paginationSchema.extend({
+/** Variant listing: limit + opaque keyset cursor (fixed name-asc order). */
+export const variantListQuerySchema = catalogPageSchema;
+
+const SEARCH_SORTS = ["relevance", "newest"] as const;
+
+/**
+ * Storefront search query (BA-B3). q is required (empty → 400, never
+ * list-all); min raw length 2 keeps single-char noise out. relevance
+ * needs no separate flag — it is the default whenever q is present.
+ * Cursor is the search keyset token (v:2), NOT the list cursor.
+ */
+export const searchQuerySchema = z.object({
+  q: z.string().trim().min(2).max(120),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  cursor: opaqueCursorSchema.nullish(),
+  sort: z.enum(SEARCH_SORTS).default("relevance"),
+  category: uuidSchema.nullish(),
+  brand: uuidSchema.nullish(),
+  type: productTypeSchema.nullish(),
+  minPrice: priceFilterSchema,
+  maxPrice: priceFilterSchema,
+  inStock: queryBoolSchema,
+});
+
+export const categoryListQuerySchema = catalogPageSchema.extend({
   ...sortSchema.shape,
   search: z.string().trim().max(120).nullish(),
   parent: z.union([uuidSchema, z.literal("null")]).nullish(),
   active: queryBoolSchema,
 });
 
-export const brandListQuerySchema = paginationSchema.extend({
+export const brandListQuerySchema = catalogPageSchema.extend({
   ...sortSchema.shape,
   search: z.string().trim().max(120).nullish(),
   active: queryBoolSchema,
 });
 
-export const productListQuerySchema = paginationSchema.extend({
+export const productListQuerySchema = catalogPageSchema.extend({
   ...sortSchema.shape,
   search: z.string().trim().max(160).nullish(),
   category: uuidSchema.nullish(),
   brand: uuidSchema.nullish(),
   type: productTypeSchema.nullish(),
   active: queryBoolSchema,
+  minPrice: priceFilterSchema,
+  maxPrice: priceFilterSchema,
+  inStock: queryBoolSchema,
 });
 
-export const categoryInputSchema = z.object({
+export const categoryInputSchema = strictObject({
   name: nameSchema.max(120),
   slug: slugInputSchema.max(140).nullish(),
   description: z.string().max(2000).nullish(),
@@ -83,14 +124,14 @@ export const categoryInputSchema = z.object({
   isActive: z.boolean().nullish(),
 });
 
-export const brandInputSchema = z.object({
+export const brandInputSchema = strictObject({
   name: nameSchema.max(120),
   slug: slugInputSchema.max(140).nullish(),
   logo: z.string().trim().max(500).nullish(),
   isActive: z.boolean().nullish(),
 });
 
-export const productInputSchema = z.object({
+export const productInputSchema = strictObject({
   name: nameSchema,
   slug: slugInputSchema.max(180).nullish(),
   description: z.string().max(4000).nullish(),
@@ -102,7 +143,7 @@ export const productInputSchema = z.object({
   isActive: z.boolean().nullish(),
 });
 
-export const productPatchSchema = z.object({
+export const productPatchSchema = strictObject({
   name: nameSchema.nullish(),
   slug: slugInputSchema.max(180).nullish(),
   description: z.string().max(4000).nullish(),
@@ -111,7 +152,7 @@ export const productPatchSchema = z.object({
   isActive: z.boolean().nullish(),
 });
 
-export const variantInputSchema = z.object({
+export const variantInputSchema = strictObject({
   productId: uuidSchema,
   name: z.string().trim().min(1).max(120),
   sizeValue: z.string().regex(/^\d+(\.\d{1,3})?$/).nullish(),
@@ -122,7 +163,7 @@ export const variantInputSchema = z.object({
   isActive: z.boolean().nullish(),
 });
 
-export const variantPriceInputSchema = z.object({
+export const variantPriceInputSchema = strictObject({
   price: z.string().regex(/^\d+(\.\d{1,2})?$/),
   reason: z.string().trim().max(500).nullish(),
 });
@@ -137,14 +178,14 @@ export const codeStringSchema = z
   .max(64)
   .refine((s) => !/\s/.test(s), { message: "Invalid code." });
 
-export const codeInputSchema = z.object({
+export const codeInputSchema = strictObject({
   productVariantId: uuidSchema,
   code: codeStringSchema,
   type: codeTypeSchema,
   isPrimary: z.boolean().nullish(),
 });
 
-export const codePatchSchema = z.object({
+export const codePatchSchema = strictObject({
   type: codeTypeSchema.nullish(),
   isPrimary: z.boolean().nullish(),
 });
@@ -153,8 +194,48 @@ export const codeLookupQuerySchema = z.object({
   code: codeStringSchema,
 });
 
-export const activePatchSchema = z.object({
+export const activePatchSchema = strictObject({
   isActive: z.boolean(),
+});
+
+const IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"] as const;
+
+/**
+ * Media reference wire shape (BA-B4): metadata ONLY, never binary. URL must
+ * be absolute https (blocks javascript:/data:/http injection + bare paths —
+ * storage internals never leak to clients). SVG excluded at the DB CHECK.
+ */
+export const imageUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2000)
+  .refine(
+    (s) => {
+      try {
+        return new URL(s).protocol === "https:";
+      } catch {
+        return false;
+      }
+    },
+    { message: "Invalid image URL." },
+  );
+
+export const imageInputSchema = strictObject({
+  url: imageUrlSchema,
+  altText: z.string().trim().max(200).nullish(),
+  mimeType: z.enum(IMAGE_MIMES).nullish(),
+  byteSize: z.number().int().positive().nullish(),
+  width: z.number().int().positive().nullish(),
+  height: z.number().int().positive().nullish(),
+  sortOrder: z.number().int().nullish(),
+  isPrimary: z.boolean().nullish(),
+});
+
+export const imagePatchSchema = strictObject({
+  altText: z.string().trim().max(200).nullish(),
+  sortOrder: z.number().int().nullish(),
+  isPrimary: z.boolean().nullish(),
 });
 
 export type CategoryInput = z.infer<typeof categoryInputSchema>;

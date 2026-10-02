@@ -246,8 +246,12 @@ export function evaluateOrderLayer(lines: EvalLine[], promos: EvalPromo[]): { ro
     .filter((p) => p.scope === "ORDER")
     .sort((a, b) => b.priority - a.priority || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1));
   for (const p of oautos) {
-    if (p.minimumAmountC !== null && grossAllC < p.minimumAmountC) continue;
     const elig = lines.map((_, i) => i).filter((i) => p.targets.length === 0 || matchLine(lines[i].ctx, p) > 0);
+    // Frozen minimum_amount semantics (phase4-schema: eligible-lines GROSS
+    // pre-discount — NOT cart-wide gross): targeted ORDER promos qualify on
+    // eligible lines only. Targetless promos see all lines (identical).
+    const eligGrossC = elig.reduce((s, i) => s + lines[i].grossC, 0);
+    if (p.minimumAmountC !== null && eligGrossC < p.minimumAmountC) continue;
     const base = elig.reduce((s, i) => s + lines[i].netC, 0);
     if (base <= 0) continue;
     let amt =

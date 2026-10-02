@@ -159,8 +159,18 @@ sequences, views). No other data layer exists.
   re-add aggregates. 9-step binding merge on login (detect→resolve→reassign
   or per-line sum + live reprice, dead lines dropped + reported; ASC locks;
   checkout serializes on same locks).
-- `[OPEN — NON-BLOCKING]`: exact guest TTL value and sweeper cadence (state
-  machine frozen; numbers are config).
+- Guest TTL enforced at resolution (BA-A): operable-cart lookups require
+  `status = 'ACTIVE' AND (expires_at IS NULL OR expires_at > now())`
+  (SQL `now()`, never a JS clock); expired guest carts behave as absent
+  (mutations 404, merge/checkout reject as unavailable, POST mints fresh).
+  Customer carts (`expires_at NULL`) are unaffected. Implemented default
+  remains +30d guest / persistent registered (matches frozen seed).
+- Sweeper (BA-B): manual runner `scripts/maintenance/sweep-expired-carts.mjs`
+  flips logically-expired ACTIVE guest carts to the frozen EXPIRED terminal
+  (single conditional UPDATE, idempotent, row-local; dry-run default;
+  scratch-only allowlist). Scheduling remains `[OPEN — NON-BLOCKING]`
+  (no cron/provider wired; script claims none). Exact TTL number stays
+  config-level (+30d default).
 
 ## 8. Orders contract `[FROZEN]`
 
@@ -234,7 +244,7 @@ sequences, views). No other data layer exists.
   finalize writes finals from ROW data only (never re-reads live promos);
   deterministic pro-rata allocation with largest-remainder dust.
 
-## 11. Admin application contract (future, classified, NOT built)
+## 11. Admin application contract `[BUILT in BA-9]` (was future/classified)
 
 - Catalog management (categories/brands/products/variants/barcodes),
   inventory (stock/adjustments/movements), pricing (changes + history),
@@ -259,31 +269,37 @@ sequences, views). No other data layer exists.
 - Normalization at the boundary (lowercase emails/keys, trim, phone
   canonicalization) before any DB contact.
 
-## 13. Response contract `[PROPOSAL]` (no existing convention — route
-returns ad-hoc `{ok,...}` shapes)
+## 13. Response contract `[LOCKED in BA-A]` (was proposal; all routes conform)
 
 - Success: `{ "data": {}, "meta": {} }` (`meta`: paging, request id,
-  estimate-vs-final markers where relevant).
+  estimate-vs-final markers where relevant). Creation answers 201
+  (orders, replacements, coupons, users, roles, grants, login session).
 - Error: `{ "error": { "code": "...", "message": "...", "details": {} } }`
-  with stable snake_case codes (`VALIDATION`, `UNAUTHENTICATED`,
-  `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `LOCKED`,
-  `CHECKOUT_FAILED`, `INTERNAL`).
-- Recorded as proposal (NON-BLOCKING) to be locked before BA-2 routes.
+  with the locked taxonomy below. The legacy `{ok,...}` session shape was
+  migrated in BA-A (`src/app/api/admin/session/route.ts`); no route keeps
+  an ad-hoc envelope.
+- Machine-readable companion: `docs/openapi.yaml` (coverage validated by
+  `scripts/api/t-ba-a-contract.mjs`).
 
-## 14. HTTP status contract `[PROPOSAL]` (extends existing 400/401/403 usage)
+## 14. HTTP status contract `[LOCKED in BA-A]` (extends existing 400/401/403 usage)
 
-- 200 read/success; 201 created (orders, replacements lines, usages);
-  204 logout-equivalent no-content where applicable; 400 malformed/shape;
-  401 unauthenticated (incl. locked/expired — never distinguish);
-  403 forbidden (permission or disabled); 404 unknown ids (never leak
-  existence across privilege boundaries); 409 conflict (idempotency-key
-  reuse with different terms, double-submit races, state-transition races);
-  422 semantically unprocessable (weight-step violation, envelope breach,
-  cap exceeded — business-rule failures distinct from malformed input);
-  429 rate-limit/lockout-adjacent throttles; 500 unexpected only (no stack,
-  no SQL).
+- 200 read/success (replays answer 200 with `meta.replay`); 201 created;
+  204 reserved (logout answers 200 + `{data:{revoked:true}}` — no 204 in
+  use); 400 malformed/shape; 401 unauthenticated (incl. locked/expired —
+  never distinguish); 403 forbidden (permission, disabled, ceiling
+  violation, cross-origin credential submission); 404 unknown ids (never
+  leak existence across privilege boundaries); 409 conflict
+  (idempotency-key reuse with different terms, double-submit races,
+  state-transition races, inactive-role assignment); 422 semantically
+  unprocessable (weight-step violation, envelope breach, cap exceeded,
+  coupon/window/type violations — business-rule failures distinct from
+  malformed input); 429 rate-limit/lockout-adjacent throttles; 500
+  unexpected only, always `{error:{code:"INTERNAL",
+  message:"Unexpected error.",details:null}}`.
+- Single mapping `src/lib/api/http-status.ts statusForCode`; single
+  builders `ok/created/fail` in `src/lib/api/respond.ts`.
 
-## 15. Error architecture `[PROPOSAL]`
+## 15. Error architecture `[LOCKED in BA-A]` (taxonomy = existing 8 codes)
 
 - Domain → 422/409 with code; validation → 400; authn → 401 generic;
   authz → 403; not-found → 404; DB unexpected → 500 generic; concurrency
@@ -335,7 +351,7 @@ returns ad-hoc `{ok,...}` shapes)
   (expiry, lockout, windows) decided IN SQL (`now()`), never in JS —
   mandatory on this stack (proven decode shift).
 
-## 19. Idempotency contract `[FROZEN]`
+## 19. Idempotency contract `[FROZEN]` + BA-A transport `[LOCKED in BA-A]`
 
 - Needs it: order creation (`idempotency_key` UNIQUE + pre-check + replay
   path; price drift = new key), same-cart double submit (cart guard +
@@ -347,6 +363,20 @@ returns ad-hoc `{ok,...}` shapes)
 - No blanket `ON CONFLICT DO NOTHING` anywhere in product paths (allowed
   ONLY inside the single-statement atomic rate-limit bump, which is a
   counter, not business state).
+- BA-A transport (order creation only; other surfaces evaluated — none
+  needs a key): canonical `Idempotency-Key` HTTP header, validated by the
+  shared `idempotencyKeySchema` (1..64 chars, trimmed, no spaces).
+  Precedence: header wins ties with body `idempotencyKey`; both present
+  but different → 400; neither present → 400. Fingerprint for
+  same/different-terms comparison is `(idempotencyKey, cartId)` — stored
+  key + owning cart, no secret hashing, no timestamps, no transport data.
+  Case table: new key → execute; same key + same cart → replay (200 +
+  `meta.replay`); same key + different cart → 409 `CONFLICT`; concurrent
+  same key → UQ arbitrates exactly one execution, loser reselects +
+  same-cart rule; failed (rolled-back) tx → key NOT consumed (nothing
+  committed); internal failure → sanitized 500, safely retryable.
+  Concurrency protection is the DB UNIQUE + row locks + reselect — never
+  application SELECT-then-INSERT.
 
 ## 20. Concurrency contract `[FROZEN]` (proven: 240 + 120 + coupon/inventory races)
 
@@ -401,13 +431,14 @@ returns ad-hoc `{ok,...}` shapes)
 - Regression: Phase 1/2/4/5 suites stay green (77+65+50+240+120 baselines).
 - Matrix per module in its BA phase; no suite may weaken frozen asserts.
 
-## 24. API versioning `[OPEN — NON-BLOCKING]`
+## 24. API versioning `[LOCKED in BA-A: unversioned namespaces]`
 
-No versioning exists (`/api/admin/session` unversioned). `[PROPOSAL]`: stay
-unversioned under the stable `/api/admin/*` + future `/api/store/*`
-namespaces while the surface is pre-launch and single-client; adopt `/v1`
-only on first breaking change. Human may overrule; either way record the
-decision before BA-2 routes.
+No versioning exists. Decision (as built across BA-2..BA-11): stay
+unversioned under the stable `/api/admin/*` + `/api/store/*` namespaces
+while the surface is pre-launch and single-client; adopt `/v1` only on
+first breaking change. The session-envelope migration (BA-A) is the first
+breaking change and was absorbed pre-launch with test updates instead of
+a version bump — consistent with this rule.
 
 ## 25. Pagination/filtering/sorting `[PROPOSAL]`
 
@@ -434,7 +465,7 @@ decision before BA-2 routes.
 | Replacements | under Orders (`…/replacements`) | POST/PATCH | role-dependent | TBD | PLANNED |
 | Coupons | under checkout recompute | POST (checkout) | customer context | — | PLANNED |
 | RBAC admin | `/api/admin/users|roles …` | GET/POST/PATCH | session + `users.manage`/`roles.manage` | TBD | PLANNED |
-| Health | `/api/health` (DB ping, no secrets) | GET | none | — | PLANNED (BA-1) |
+| Health | `/api/health` (DB ping, no secrets) | GET | none | — | IMPLEMENTED (BA-A closure: public liveness + readiness probe, single `SELECT 1`, canonical envelope, sanitized 500; OpenAPI + `t-ba-a-contract` health asserts) |
 
 Exact paths/keys beyond EXISTING rows are PLANNED (shapes above are
 illustrative, locked in their BA phase, not here). Nothing is BLOCKED.
@@ -492,3 +523,42 @@ illustrative, locked in their BA phase, not here). Nothing is BLOCKED.
 ## 30. Definition-of-Done checklist for BA-0 (self-check)
 
 Audit complete (frozen SQL via targeted extraction, all auth/session/RBAC code read, arch docs read) · modules + order fixed · API conventions proposed · auth/RBAC boundaries locked from implementation · validation/error architecture proposed · transaction boundaries from frozen flows · Prisma/raw-SQL boundaries from gaps doc · concurrency/idempotency from proven suites · known business rules recorded · conflicts CC-1..CC-4 recorded · open decisions recorded, none blocking BA-1 · roadmap fixed · zero assumptions hidden (every rule tagged) · zero DB mutations (no connection was opened in this phase) · zero production changes · zero frontend implementation.
+
+## 31. BA-A implementation record `[LOCKED]`
+
+- Shared modules (single implementations, `src/lib/api/`): `errors.ts`
+  (taxonomy + `businessRule/conflict/normalizeError`), `http-status.ts`
+  (`statusForCode`), `respond.ts` (`ok/created/fail`), `validation.ts`
+  (uuid/strict/idempotency-key/quantity/pagination), `serialize.ts`
+  (`dec/decReq/iso/isoReq/pageMeta` — all domain serializers import it;
+  no local copies remain), `route-auth.ts` (`denyUnless/adminOrDeny`),
+  `audit.ts` (`auditInTx`), `concurrency.ts` (ASC order + classifier),
+  `idempotency.ts` (contract helper), `log.ts` (secret redaction).
+  Phone ladder: single service `src/lib/customers/phone.ts`
+  (identity + contact; staff-contact shape stays a digits-only wire
+  check — different domain, documented).
+- Correlation IDs: evaluated — NOT introduced (audit rows + sanitized
+  server logs suffice; no business column stores one; never a substitute
+  for idempotency).
+- Time contract: business gates in SQL `now()` (login lockout, session
+  expiry, promo/coupon windows, cart expiry); transport instants as
+  ISO-8601 UTC (`toISOString`); no JS `Date` on decoded DB timestamps in
+  any gate (statically asserted); boundary tests winter/summer instants +
+  exact-boundary (`== now()`) semantics in auth suites.
+- Machine-readable contract: `docs/openapi.yaml` (all routes; validated
+  bidirectionally against `src/app/api` by `t-ba-a-contract.mjs`).
+- Contract tests: `scripts/api/t-ba-a-contract.mjs` (envelope, 201,
+  error, safe-500, strict validation, pagination, decimal strings, ISO
+  instants, idempotency 6-case matrix on real PG, time boundaries,
+  phone ladder + concurrent identity, guest-token lifecycle incl.
+  expired-token rejection).
+- BA-B catalog/search/media record: `docs/backend-integration.md` BA-B
+  section. Search engine decision: pg_trgm + `hyper_norm_ar` + functional
+  GIN indexes (`db/future/search-trgm.sql`, scratch-verified, never
+  production-applied, never in `prisma/migrations`); FTS rejected (no
+  Arabic stemmer shipped). Keyset pagination: opaque cursors over
+  (sort-field, id) with direction-matched tiebreaks (raw UUID cursors
+  rejected); price/availability/subtree filters live; price-sort and
+  promotion-filter documented unsupported. Media: product-level gallery
+  metadata (`db/future/product-images.sql`), raw-SQL CRUD, no provider;
+  primary/gallery/fallback semantics in `docs/backend-integration.md`.

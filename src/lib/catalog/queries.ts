@@ -1,26 +1,55 @@
-// BA-2 catalog read domain (Prisma queries only, no writes).
+// BA-2 catalog read domain (Prisma queries only, no writes) + BA-B2 keyset.
 //
 // Every read states its visibility contract explicitly: storefront reads
 // force active-only rows (is_active AND deleted_at IS NULL); admin reads
-// take an explicit active filter. Sorting is stable (requested field + id
-// tiebreak); pagination is cursor-over-id with a bounded limit.
+// take an explicit active filter. Sorting is stable (requested field +
+// direction-matched id tiebreak); pagination is exact keyset over
+// (sort-field, id) via opaque server-minted cursors (api/pagination.ts) —
+// no duplicates, no skips under static data. Availability/price filters
+// use live relations (variants → inventory GENERATED available).
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import {
+  decodeCursor,
+  encodeCursor,
+  pageOrder,
+  pageWhereCreatedAt,
+  pageWhereName,
+  type PageDir,
+  type PageSort,
+} from "@/lib/api/pagination";
 
 export interface ListParams {
   limit: number;
+  /** Opaque keyset cursor (server-minted); malformed → 400 VALIDATION. */
   cursor: string | null;
-  sort: "name" | "created_at";
-  dir: "asc" | "desc";
+  sort: PageSort;
+  dir: PageDir;
+}
+
+export interface Page<T> {
+  rows: T[];
+  /** Opaque cursor for the next page, or null at the end. */
+  nextCursor: string | null;
 }
 
 const ACTIVE_ONLY: Prisma.CategoryWhereInput = { isActive: true, deletedAt: null };
 
-function cursorClause(cursor: string | null): { id: { gt: string } } | object {
-  return cursor ? { id: { gt: cursor } } : {};
+/** Slice take+1 rows to a page + mint the next cursor from the last kept row. */
+function toPage<T extends { id: string }>(
+  rows: T[],
+  limit: number,
+  sortValue: (row: T) => string,
+): Page<T> {
+  if (rows.length <= limit) return { rows, nextCursor: null };
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return { rows: page, nextCursor: encodeCursor(sortValue(last), last.id) };
 }
 
 export async function listCategories(params: ListParams & { search: string | null; parent: string | null | undefined; active: boolean | null }) {
+  const cursor = decodeCursor(params.cursor);
+  const keyset = params.sort === "name" ? pageWhereName(cursor, params.dir) : pageWhereCreatedAt(cursor, params.dir);
   const where: Prisma.CategoryWhereInput = {
     ...(params.active === null || params.active === undefined ? ACTIVE_ONLY : params.active ? { isActive: true } : { isActive: false }),
     ...(params.search ? { name: { contains: params.search, mode: "insensitive" } } : {}),
@@ -29,16 +58,16 @@ export async function listCategories(params: ListParams & { search: string | nul
       : params.parent === "null"
         ? { parentId: null }
         : { parentId: params.parent }),
-    ...cursorClause(params.cursor),
+    ...keyset,
   };
-  return prisma.category.findMany({
+  const rows = await prisma.category.findMany({
     where,
-    orderBy:
-      params.sort === "name"
-        ? [{ name: params.dir }, { id: "asc" as const }]
-        : [{ createdAt: params.dir }, { id: "asc" as const }],
+    orderBy: pageOrder(params.sort, params.dir) as Prisma.CategoryOrderByWithRelationInput[],
     take: params.limit + 1,
   });
+  return toPage(rows, params.limit, (r) =>
+    params.sort === "name" ? r.name : r.createdAt.toISOString(),
+  );
 }
 
 export function getCategory(id: string, includeInactive: boolean) {
@@ -48,19 +77,21 @@ export function getCategory(id: string, includeInactive: boolean) {
 }
 
 export async function listBrands(params: ListParams & { search: string | null; active: boolean | null }) {
+  const cursor = decodeCursor(params.cursor);
+  const keyset = params.sort === "name" ? pageWhereName(cursor, params.dir) : pageWhereCreatedAt(cursor, params.dir);
   const where: Prisma.BrandWhereInput = {
     ...(params.active === null || params.active === undefined ? { isActive: true, deletedAt: null } : params.active ? { isActive: true } : { isActive: false }),
     ...(params.search ? { name: { contains: params.search, mode: "insensitive" } } : {}),
-    ...cursorClause(params.cursor),
+    ...keyset,
   };
-  return prisma.brand.findMany({
+  const rows = await prisma.brand.findMany({
     where,
-    orderBy:
-      params.sort === "name"
-        ? [{ name: params.dir }, { id: "asc" as const }]
-        : [{ createdAt: params.dir }, { id: "asc" as const }],
+    orderBy: pageOrder(params.sort, params.dir) as Prisma.BrandOrderByWithRelationInput[],
     take: params.limit + 1,
   });
+  return toPage(rows, params.limit, (r) =>
+    params.sort === "name" ? r.name : r.createdAt.toISOString(),
+  );
 }
 
 export function getBrand(id: string, includeInactive: boolean) {
@@ -75,9 +106,49 @@ export type ProductListFilter = ListParams & {
   brandId: string | null;
   productType: "PIECE" | "WEIGHT" | null;
   active: boolean | null;
+  /** Price window applied to sellable variant prices (any-match). */
+  minPrice: string | null;
+  maxPrice: string | null;
+  /** Stock gate: true → only products with a sellable in-stock variant. */
+  inStock: boolean | null;
 };
 
+/**
+ * Expand a category to itself + all descendants (single recursive CTE).
+ * Subtree filtering keeps storefront semantics ("browse this department")
+ * without N+1 queries. Unknown/deleted roots yield [] (no rows match).
+ */
+export async function expandCategorySubtree(rootId: string): Promise<string[]> {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    WITH RECURSIVE sub AS (
+      SELECT id FROM categories WHERE id = ${rootId}::uuid
+      UNION ALL
+      SELECT c.id FROM categories c JOIN sub s ON c.parent_id = s.id
+    )
+    SELECT id::text AS id FROM sub`;
+  return rows.map((r) => r.id);
+}
+
 export async function listProducts(filter: ProductListFilter) {
+  const cursor = decodeCursor(filter.cursor);
+  const keyset = filter.sort === "name" ? pageWhereName(cursor, filter.dir) : pageWhereCreatedAt(cursor, filter.dir);
+  const categoryIds =
+    filter.categoryId === null || filter.categoryId === undefined
+      ? null
+      : await expandCategorySubtree(filter.categoryId);
+  // Sellable-variant scope shared by price + stock filters (active,
+  // non-deleted variants; stock additionally requires available > 0 on the
+  // GENERATED inventory column — live relations, never snapshots). Price
+  // bounds constrain ONE variant (single `some`), never two different ones.
+  const sellableVariant: Prisma.ProductVariantWhereInput = { isActive: true, deletedAt: null };
+  const priceWindow =
+    filter.minPrice === null || filter.minPrice === undefined
+      ? filter.maxPrice === null || filter.maxPrice === undefined
+        ? null
+        : { lte: filter.maxPrice }
+      : filter.maxPrice === null || filter.maxPrice === undefined
+        ? { gte: filter.minPrice }
+        : { gte: filter.minPrice, lte: filter.maxPrice };
   const where: Prisma.ProductWhereInput = {
     ...(filter.active === null || filter.active === undefined
       ? { isActive: true, deletedAt: null }
@@ -85,24 +156,50 @@ export async function listProducts(filter: ProductListFilter) {
         ? { isActive: true }
         : { isActive: false }),
     ...(filter.search ? { name: { contains: filter.search, mode: "insensitive" } } : {}),
-    ...(filter.categoryId ? { categoryId: filter.categoryId } : {}),
+    ...(categoryIds === null ? {} : { categoryId: { in: categoryIds } }),
     ...(filter.brandId ? { brandId: filter.brandId } : {}),
     ...(filter.productType ? { productType: filter.productType } : {}),
-    ...cursorClause(filter.cursor),
+    ...(priceWindow !== null
+      ? { variants: { some: { ...sellableVariant, price: priceWindow } } }
+      : {}),
+    // inStock=true: at least one sellable in-stock variant; false: NO
+    // sellable variant is in stock (both directions are real filters —
+    // never a silently-ignored parameter).
+    ...(filter.inStock === true
+      ? {
+          variants: {
+            some: {
+              ...sellableVariant,
+              inventory: { availableQuantity: { gt: 0 } },
+            },
+          },
+        }
+      : filter.inStock === false
+        ? {
+            NOT: {
+              variants: {
+                some: {
+                  ...sellableVariant,
+                  inventory: { availableQuantity: { gt: 0 } },
+                },
+              },
+            },
+          }
+        : {}),
+    ...keyset,
   };
-  const orderBy: Prisma.ProductOrderByWithRelationInput[] =
-    filter.sort === "name"
-      ? [{ name: filter.dir }, { id: "asc" }]
-      : [{ createdAt: filter.dir }, { id: "asc" }];
-  return prisma.product.findMany({
+  const rows = await prisma.product.findMany({
     where,
     include: {
       category: { select: { id: true, name: true, slug: true } },
       brand: { select: { id: true, name: true, slug: true } },
     },
-    orderBy,
+    orderBy: pageOrder(filter.sort, filter.dir) as Prisma.ProductOrderByWithRelationInput[],
     take: filter.limit + 1,
   });
+  return toPage(rows, filter.limit, (r) =>
+    filter.sort === "name" ? r.name : r.createdAt.toISOString(),
+  );
 }
 
 export function getProduct(id: string, includeInactive: boolean) {
@@ -115,16 +212,19 @@ export function getProduct(id: string, includeInactive: boolean) {
   });
 }
 
-export function listVariantsByProduct(productId: string, includeInactive: boolean, limit: number, cursor: string | null) {
-  return prisma.productVariant.findMany({
+export async function listVariantsByProduct(productId: string, includeInactive: boolean, limit: number, cursor: string | null) {
+  // Fixed name-asc order: keyset on (name, id) via the shared helper.
+  const key = decodeCursor(cursor);
+  const rows = await prisma.productVariant.findMany({
     where: {
       productId,
       ...(includeInactive ? {} : { isActive: true, deletedAt: null }),
-      ...cursorClause(cursor),
+      ...pageWhereName(key, "asc"),
     },
-    orderBy: [{ name: "asc" }, { id: "asc" }],
+    orderBy: pageOrder("name", "asc") as Prisma.ProductVariantOrderByWithRelationInput[],
     take: limit + 1,
   });
+  return toPage(rows, limit, (r) => r.name);
 }
 
 export function getVariant(id: string, includeInactive: boolean) {

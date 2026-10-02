@@ -13,7 +13,9 @@ export const orderCreateSchema = z
   .object({
     customerId: uuidSchema,
     addressId: uuidSchema,
-    idempotencyKey: idempotencyKeySchema,
+    // Optional when the canonical `Idempotency-Key` header carries the key
+    // (BA-A contract); the route enforces at-least-one + no-conflict.
+    idempotencyKey: idempotencyKeySchema.nullish(),
     /** Optional coupon code (server-normalized + validated; absent = autos only). */
     couponCode: z.string().trim().min(1).max(64).nullish(),
   })

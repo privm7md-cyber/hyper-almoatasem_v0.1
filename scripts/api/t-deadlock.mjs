@@ -102,7 +102,7 @@ async function main() {
 
   try {
     const store = await loginAs(STORE_EMAIL, STORE_PW);
-    if (store.status !== 200 || !store.cookie) {
+    if (store.status !== 201 || !store.cookie) {
       console.error(`REFUSED_LOGIN: store=${store.status}`);
       process.exit(1);
     }

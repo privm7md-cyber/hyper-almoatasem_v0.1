@@ -1,10 +1,11 @@
 // Shared API error architecture (BA-1 foundation).
 //
-// Stable snake_case codes for every future route. Transport mapping lives in
+// Stable snake_case codes for every route (BA-A locked taxonomy — see
+// docs/backend-application-contract.md §13/§15). Transport mapping lives in
 // http-status.ts. This module never touches the network, the database, or
 // secrets: messages are fixed strings and details carry only caller-supplied,
-// already-sanitized data. Existing routes (e.g. /api/admin/session) keep
-// their own shapes; new routes adopt these codes from BA-2 onward.
+// already-sanitized data. All routes including /api/admin/session use these
+// codes (session migrated in BA-A).
 //
 // Deliberately absent: no LOCKED code (lockout stays 401-generic per the
 // frozen login behavior — never distinguish locked accounts) and no separate

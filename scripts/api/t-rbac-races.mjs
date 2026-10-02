@@ -122,8 +122,8 @@ async function main() {
 
   try {
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
-    t("logins-owner-ok", owner.status === 200 && !!owner.cookie, String(owner.status));
-    if (owner.status !== 200 || !owner.cookie) {
+    t("logins-owner-ok", owner.status === 201 && !!owner.cookie, String(owner.status));
+    if (owner.status !== 201 || !owner.cookie) {
       console.error(`REFUSED_LOGIN: owner=${owner.status} (retry after rollover)`);
       await db.end().catch(() => {});
       process.exit(1);

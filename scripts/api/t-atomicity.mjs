@@ -134,7 +134,7 @@ async function main() {
   try {
     const store = await loginAs(STORE_EMAIL, STORE_PW);
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
-    if (store.status !== 200 || !store.cookie || owner.status !== 200 || !owner.cookie) {
+    if (store.status !== 201 || !store.cookie || owner.status !== 201 || !owner.cookie) {
       console.error(`REFUSED_LOGIN: store=${store.status} owner=${owner.status}`);
       process.exit(1);
     }

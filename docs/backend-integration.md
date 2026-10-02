@@ -187,3 +187,62 @@ untouched). `db/` + `prisma/` zero diff; no migrations added.
 - One route bug fixed (minimal, tied to verification): role-mapping
   DELETE lacked try/catch so the 409 guard escaped as 500 — same class
   as the earlier grants-route fix; full matrix re-greened after.
+
+---
+
+# BA-B — Catalog + Search + Product Media (verification record)
+
+> No frozen-schema change. New DB objects live in `db/future/`
+> (scratch-verified, never production-applied, never in
+> `prisma/migrations`). No frontend. Full matrix green (below).
+
+## BA-B.1 Pagination (corrected + proven)
+
+Catalog lists used `id > cursor` under name/created_at sorts (wrong rows
+— proven by counterexample). Replaced with exact keyset over
+(sort-field, id): opaque base64url cursors, direction-matched tiebreaks,
+malformed → 400 (`src/lib/api/pagination.ts`; catalog migrated; other
+modules audited — all id-anchored, correct as-is). Suite
+`t-bab-catalog.mjs`: duplicate-name walks (asc+desc), invalid cursors,
+mid-walk deactivation — zero duplicates, full coverage.
+
+## BA-B.2 Filters
+
+Price window (single-variant `some`, inverted → 400), `inStock`
+tri-state (both directions real), category subtree (recursive CTE),
+existing search/category/brand/type. Promotion filter UNSUPPORTED;
+price sort deferred via documented OPEN_DECISION (no product-level price
+in schema; sellable-min-price recommended basis).
+
+## BA-B.3 Search
+
+Engine: pg_trgm + `hyper_norm_ar()` + functional GIN indexes; FTS
+rejected (no Arabic stemmer). Normalization folds + strips per-token ال
+(chr()-spelled, RTL-proof; two live bugs caught this way: digit-eating
+alignment + U+0668/U+0670 mixup). Tiers: exact-code pin (4) > exact (3)
+> prefix (2) > similarity ≥ 0.2 (1) > brand/category (0); keyset pages
+on (tier, sim, id). 20k-row evidence: Bitmap Index Scan proven by
+EXPLAIN; API latencies recorded in-suite. LIKE wildcards escaped;
+dangling-bind 42P18 found + fixed (per-branch param ownership).
+
+## BA-B.4 Media
+
+`product_images` (product-level gallery metadata only; mime allowlist
+excl. SVG; paired dims; partial-UQ single primary). Raw-SQL CRUD (no
+Prisma model change); admin register/update/delete audited; public
+gallery with deterministic fallback. Primary switch: pre-lock +
+clear-then-set (single-statement flips race to deterministic 500 —
+reproduced, fixed, 6/6 clean rounds). No provider, no binary upload.
+Endpoints fail LOUD without migration objects (deployment prerequisite).
+
+## BA-B.5 Regression
+
+`t-bab-catalog` 46/46 · `t-ba-a-contract` 45/45 (incl. OpenAPI coverage
+of search/media/health) · full BA-0..BA-11 matrix re-green (catalog 53
+through races 53, CC-1 8, Phase 2/5 77/50, Phase-4 65/65 post-harness
+fix) · `tsc`/`eslint`/`build` PASS. Scale seed
+(`scripts/api/seed-bab-scale.mjs`, deterministic 20k) inserted,
+benchmarked, then `--clean` removed; residue zero verified. One
+transient: single latency-bound failure on cold start, green on all
+subsequent runs (reported, not hidden). Pre-existing 09-26 residue
+(BA11A products, idempotency customer) found + removed.

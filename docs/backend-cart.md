@@ -37,6 +37,20 @@ cart endpoints (none are in the frozen contract, so none were invented).
 | DELETE | `/api/store/cart/items/[variantId]` | remove line → 200 / 404 |
 | DELETE | `/api/store/cart/items` | clear all lines (row + ACTIVE status untouched) → 200 |
 | POST | `/api/store/cart/merge` | bind guest cart to customer (explicit R1 trigger) → 200 + report |
+| POST | `/api/store/cart/reprice` | **BA-C** — server-side reprice + persist: refresh every live snapshot, repoint dead variants, drop unsellable lines → 200 cart + report (see §5.1) |
+
+### 3.1 `POST /api/store/cart/reprice` (added by BA-C)
+
+| Aspect | Behavior |
+|---|---|
+| Ownership | same XOR as every other cart write: guest cart via `x-guest-token`, or customer cart via body `customerId`. Both → 400; neither → 400; unknown/foreign/expired/consumed → 404 (never resurrected, no existence leak) |
+| Body | `{ customerId? }` — **strict**; any other field (`price`, `quantity`, `discountTotal`, `lines`, …) → 400 |
+| Effects | one tx under the existing `SELECT … FOR UPDATE` cart lock, lines processed `id ASC`: for each line re-read the live variant price into `unit_price_snapshot` + `price_checked_at = now()`; if the variant (or its product) is now inactive/deleted the line is **dropped** and reported. Quantities are never touched |
+| Never | never invents a price, never trusts a client amount, never reserves/releases inventory, never evaluates promotions or coupons, never bumps coupon usage |
+| Response | `{ cart, reprice: { repriced: <count>, dropped: [{ lineId, variantId }] } }` in the canonical `{data,meta}` envelope |
+| Idempotency | inherently idempotent — a pure function of live catalog state + cart contents; no `Idempotency-Key` |
+| Why explicit | repricing is a **persisted** mutation, not a read: it is deliberately NOT folded into `GET /cart` (reads must not write) nor into add/update (quantity edits must not silently change money). Checkout still re-validates and re-prices independently — the cart snapshot is never the checkout authority (§5) |
+
 
 ## 4. Item semantics
 

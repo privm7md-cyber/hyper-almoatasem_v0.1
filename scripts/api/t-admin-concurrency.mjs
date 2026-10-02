@@ -81,7 +81,7 @@ async function main() {
   });
   const match = (loginRes.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
   const cookie = match ? `__Host-admin-session=${match[1]}` : null;
-  if (loginRes.status !== 200 || !cookie) {
+  if (loginRes.status !== 201 || !cookie) {
     console.error("REFUSED_LOGIN: owner login failed");
     process.exit(1);
   }

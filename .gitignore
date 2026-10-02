@@ -42,3 +42,12 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# local-only artifacts — never part of the repository:
+# /_recovery/ holds production pg_dump backups (local recovery evidence only)
+/_recovery/
+# agent tooling folders created per-developer, not project source
+/.agents/
+/.claude/
+/.cursor/
+/.devin/

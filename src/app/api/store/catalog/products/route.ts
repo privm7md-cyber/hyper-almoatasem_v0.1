@@ -3,7 +3,7 @@
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
-import { productListQuerySchema} from "@/lib/catalog/validation";
+import { productListQuerySchema, queryBool } from "@/lib/catalog/validation";
 import { listProducts } from "@/lib/catalog/queries";
 import { toProductListItem } from "@/lib/catalog/serialize";
 
@@ -14,22 +14,39 @@ export async function GET(request: Request) {
     return NextResponse.json(r.body, { status: r.status });
   }
   const q = parsed.data;
-  const rows = await listProducts({
-    limit: q.limit,
-    cursor: q.cursor ?? null,
-    sort: q.sort,
-    dir: q.dir,
-    search: q.search ?? null,
-    categoryId: q.category ?? null,
-    brandId: q.brand ?? null,
-    productType: q.type ?? null,
-    active: null,
-  });
-  const page = rows.length > q.limit ? rows.slice(0, q.limit) : rows;
-  const r = ok(
-    page.map(toProductListItem),
-    { limit: q.limit, nextCursor: rows.length > q.limit ? page[page.length - 1].id : null },
-  );
-  return NextResponse.json(r.body, { status: r.status });
+  if (
+    q.minPrice !== null &&
+    q.minPrice !== undefined &&
+    q.maxPrice !== null &&
+    q.maxPrice !== undefined &&
+    Number(q.maxPrice) < Number(q.minPrice)
+  ) {
+    const r = fail(new ApiError("VALIDATION", "Invalid price window."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  try {
+    const { rows, nextCursor } = await listProducts({
+      limit: q.limit,
+      cursor: q.cursor ?? null,
+      sort: q.sort,
+      dir: q.dir,
+      search: q.search ?? null,
+      categoryId: q.category ?? null,
+      brandId: q.brand ?? null,
+      productType: q.type ?? null,
+      active: null,
+      minPrice: q.minPrice ?? null,
+      maxPrice: q.maxPrice ?? null,
+      inStock: queryBool(q.inStock),
+    });
+    const r = ok(
+      rows.map(toProductListItem),
+      { limit: q.limit, nextCursor },
+    );
+    return NextResponse.json(r.body, { status: r.status });
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
 }
 

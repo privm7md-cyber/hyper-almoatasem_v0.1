@@ -83,7 +83,7 @@ async function main() {
       body: JSON.stringify({ email, password: pw }),
     });
     const body = await r.json().catch(() => ({}));
-    return { status: r.status, ok: body.ok === true };
+    return { status: r.status, ok: r.status === 201 && body.data?.admin?.email === email };
   };
   const setLock = (attempts, lockedSql) =>
     db.query(`UPDATE users SET failed_login_attempts = $2, locked_until = ${lockedSql} WHERE id = $1`, [userId, attempts]);

@@ -16,7 +16,7 @@ export async function run(ctx) {
   async function loginAs(creds) {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: creds.email, password: creds.password });
-    if (r.res.status !== 200) throw new Error(`setup login failed for ${creds.email}`);
+    if (r.res.status !== 201) throw new Error(`setup login failed for ${creds.email}`);
     return c;
   }
 
@@ -34,7 +34,7 @@ export async function run(ctx) {
     await pg(`UPDATE users SET failed_login_attempts = 4, locked_until = now() WHERE email=$1`, [owner.email]);
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("time_lockout_exact_boundary", r.res.status === 200, `status=${r.res.status}`);
+    t("time_lockout_exact_boundary", r.res.status === 201, `status=${r.res.status}`);
   }
   // ---- TIME-3: token exact expiry (expires_at == now -> rejected) ----
   {
@@ -86,7 +86,7 @@ export async function run(ctx) {
     for (let i = 0; i < 11; i++) await c.post("/api/admin/session", { email: victim, password: "Wrong-Password-000!" });
     const ok = makeClient(baseUrl);
     const r = await ok.post("/api/admin/session", { email: store.email, password: store.password });
-    t("rate_account_isolation", r.res.status === 200, `status=${r.res.status}`);
+    t("rate_account_isolation", r.res.status === 201, `status=${r.res.status}`);
     await pg(`DELETE FROM users WHERE email=$1`, [victim]);
     await pg(`DELETE FROM admin_auth_rate_limits WHERE bucket_key = 'login:acct:' || $1`, [victim]);
   }
@@ -129,13 +129,18 @@ export async function run(ctx) {
     t("deploy_build_exists", buildId.length > 0, `build=${buildId.slice(0, 12)}`);
   }
   // ---- MIGRATION: catalog counts on the hardening DB ----
+  // Frozen baseline (35 tables / 41 FKs / 165 CHECKs / 11 partials) PLUS the
+  // BA-B product_images objects when present (db/future, scratch-only: +1
+  // table, +1 FK media→products, +6 CHECKs, +1 one-primary partial). Exact
+  // values stay pinned either way, so any OTHER drift still fails.
   {
     const q = async (s, p = []) => Number((await pg(s, p)).rows[0].n);
+    const hasMedia = Number((await pg(`SELECT count(*) n FROM pg_tables WHERE schemaname='public' AND tablename='product_images'`)).rows[0].n) === 1 ? 1 : 0;
     const checks = [
-      ["mig_tables_35", await q(`SELECT count(*) n FROM pg_tables WHERE schemaname='public'`), 35],
-      ["mig_fks_41", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace`), 41],
-      ["mig_checks_165", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace`), 165],
-      ["mig_partials_11", await q(`SELECT count(*) n FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indpred IS NOT NULL`), 11],
+      ["mig_tables", await q(`SELECT count(*) n FROM pg_tables WHERE schemaname='public'`), 35 + hasMedia],
+      ["mig_fks", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace`), 41 + hasMedia],
+      ["mig_checks", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace`), 165 + 6 * hasMedia],
+      ["mig_partials", await q(`SELECT count(*) n FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indpred IS NOT NULL`), 11 + hasMedia],
       ["mig_triggers_23", await q(`SELECT count(*) n FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal`), 23],
       ["mig_functions_6", await q(`SELECT count(*) n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('set_updated_at','prevent_category_cycle','check_cart_transition','check_order_item_transition','check_replacement_transition','check_order_status_audited')`), 6],
       ["mig_views_1", await q(`SELECT count(*) n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='v'`), 1],
@@ -156,7 +161,7 @@ export async function run(ctx) {
     async function loginAsStore() {
       const cc = makeClient(baseUrl);
       const r = await cc.post("/api/admin/session", { email: store.email, password: store.password });
-      if (r.res.status !== 200) throw new Error("store login failed");
+      if (r.res.status !== 201) throw new Error("store login failed");
       return cc;
     }
     const pid = (await pg(`SELECT id FROM permissions WHERE key='products.view'`)).rows[0].id;
@@ -165,7 +170,7 @@ export async function run(ctx) {
     await pg(`DELETE FROM role_permissions WHERE role_id=$1 AND permission_id=$2`, [rid, pid]);
     const g = await c.get("/api/admin/session");
     const body = JSON.parse(g.text);
-    const lost = !body.permissions.includes("products.view");
+    const lost = !body.data.permissions.includes("products.view");
     await pg(`INSERT INTO role_permissions (role_id, permission_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [rid, pid]);
     t("grant_strip_immediate", g.res.status === 200 && lost === true, "");
   }

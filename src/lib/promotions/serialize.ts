@@ -7,18 +7,12 @@ import type {
   Coupon,
   CouponUsage,
   OrderDiscount,
-  Prisma,
   Promotion,
   PromotionBuyGetRule,
   PromotionRule,
   PromotionTarget,
 } from "@prisma/client";
-
-const dec = (v: Prisma.Decimal | null | undefined): string | null =>
-  v === null || v === undefined ? null : v.toString();
-const decReq = (v: Prisma.Decimal): string => v.toString();
-const iso = (v: Date | null | undefined): string | null =>
-  v === null || v === undefined ? null : v.toISOString();
+import { dec, decReq, iso } from "@/lib/api/serialize";
 
 export interface TargetShape {
   id: string;

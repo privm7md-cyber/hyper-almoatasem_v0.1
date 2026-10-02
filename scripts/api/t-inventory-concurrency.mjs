@@ -89,7 +89,7 @@ async function main() {
   const setCookie = loginRes.headers.get("set-cookie") || "";
   const match = setCookie.match(/__Host-admin-session=([^;]+)/);
   const cookie = match ? `__Host-admin-session=${match[1]}` : null;
-  if (loginRes.status !== 200 || !cookie) {
+  if (loginRes.status !== 201 || !cookie) {
     console.error("REFUSED_LOGIN: store test user login failed");
     process.exit(1);
   }

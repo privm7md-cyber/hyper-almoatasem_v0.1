@@ -4,10 +4,8 @@
 // names, or inventory. Decimals as exact strings; money already exact from
 // the writer (integer-piastres → "d.cc"). Exposes no inventory internals,
 // no idempotency internals beyond the key echo, no auth secrets.
-import type { Order, OrderItem, OrderStatusHistory, Prisma } from "@prisma/client";
-
-const decReq = (v: Prisma.Decimal): string => v.toString();
-const iso = (v: Date | null): string | null => (v ? v.toISOString() : null);
+import type { Order, OrderItem, OrderStatusHistory } from "@prisma/client";
+import { decReq, iso } from "@/lib/api/serialize";
 
 export interface OrderItemShape {
   id: string;

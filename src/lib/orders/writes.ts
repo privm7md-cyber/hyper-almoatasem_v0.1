@@ -172,9 +172,13 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
 
   try {
     const orderId = await prisma.$transaction(async (tx) => {
-      const carts = await tx.$queryRaw<Array<{ id: string; status: string }>>`
-        SELECT id::text AS id, status FROM carts WHERE id = ${subjectHint.id}::uuid FOR UPDATE`;
-      if (carts.length === 0 || carts[0].status !== "ACTIVE") throw new CartConsumedError(subjectHint.id);
+      const carts = await tx.$queryRaw<Array<{ id: string; status: string; expired: boolean }>>`
+        SELECT id::text AS id, status,
+          (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+          FROM carts WHERE id = ${subjectHint.id}::uuid FOR UPDATE`;
+      if (carts.length === 0 || carts[0].status !== "ACTIVE" || carts[0].expired) {
+        throw new CartConsumedError(subjectHint.id);
+      }
 
       const customer = await tx.customer.findUnique({ where: { id: args.customerId } });
       if (!customer) throw new ApiError("NOT_FOUND", "Customer not found.", null);

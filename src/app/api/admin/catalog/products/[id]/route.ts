@@ -9,7 +9,7 @@ import { uuidSchema } from "@/lib/api/validation";
 import { productPatchSchema } from "@/lib/catalog/validation";
 import { getProduct } from "@/lib/catalog/queries";
 import { patchProduct } from "@/lib/catalog/writes";
-import { toProductListItem } from "@/lib/catalog/serialize";
+import { toProductDetail, toProductListItem } from "@/lib/catalog/serialize";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("products.view");
@@ -24,7 +24,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const r = fail(new ApiError("NOT_FOUND", "Product not found."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const r = ok(toProductListItem(row));
+  const r = ok(toProductDetail(row));
   return NextResponse.json(r.body, { status: r.status });
 }
 

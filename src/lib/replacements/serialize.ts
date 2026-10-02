@@ -5,9 +5,8 @@
 // snapshots/rows (never live catalog prices beyond the frozen proposal
 // price, which IS the stored replacement_unit_price). No auth secrets,
 // no inventory internals.
-import type { OrderItem, OrderItemReplacement, Prisma, Product, ProductVariant } from "@prisma/client";
-
-const decReq = (v: Prisma.Decimal): string => v.toString();
+import type { OrderItem, OrderItemReplacement, Product, ProductVariant } from "@prisma/client";
+import { decReq } from "@/lib/api/serialize";
 
 export interface ReplacementLineSummary {
   orderItemId: string;

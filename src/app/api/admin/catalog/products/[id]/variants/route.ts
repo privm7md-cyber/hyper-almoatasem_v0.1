@@ -4,8 +4,8 @@ import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
 import { adminOrDeny, denyUnless } from "@/lib/api/route-auth";
-import { paginationSchema, uuidSchema } from "@/lib/api/validation";
-import { variantInputSchema } from "@/lib/catalog/validation";
+import { uuidSchema } from "@/lib/api/validation";
+import { variantInputSchema, variantListQuerySchema } from "@/lib/catalog/validation";
 import { getProduct, listVariantsByProduct } from "@/lib/catalog/queries";
 import { createVariant as insertVariant } from "@/lib/catalog/writes";
 import { toAdminVariant } from "@/lib/catalog/serialize";
@@ -23,18 +23,22 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const r = fail(new ApiError("NOT_FOUND", "Product not found."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const parsed = paginationSchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+  const parsed = variantListQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
   if (!parsed.success) {
     const r = fail(new ApiError("VALIDATION", "Invalid query."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const rows = await listVariantsByProduct(productId, true, parsed.data.limit, parsed.data.cursor ?? null);
-  const page = rows.length > parsed.data.limit ? rows.slice(0, parsed.data.limit) : rows;
-  const r = ok(
-    page.map(toAdminVariant),
-    { limit: parsed.data.limit, nextCursor: rows.length > parsed.data.limit ? page[page.length - 1].id : null },
-  );
-  return NextResponse.json(r.body, { status: r.status });
+  try {
+    const { rows, nextCursor } = await listVariantsByProduct(productId, true, parsed.data.limit, parsed.data.cursor ?? null);
+    const r = ok(
+      rows.map(toAdminVariant),
+      { limit: parsed.data.limit, nextCursor },
+    );
+    return NextResponse.json(r.body, { status: r.status });
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {

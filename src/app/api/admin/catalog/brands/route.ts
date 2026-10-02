@@ -22,20 +22,24 @@ export async function GET(request: Request) {
     return NextResponse.json(r.body, { status: r.status });
   }
   const q = parsed.data;
-  const rows = await listBrands({
-    limit: q.limit,
-    cursor: q.cursor ?? null,
-    sort: q.sort,
-    dir: q.dir,
-    search: q.search ?? null,
-    active: queryBool(q.active),
-  });
-  const page = rows.length > q.limit ? rows.slice(0, q.limit) : rows;
-  const r = ok(
-    page.map(toBrand),
-    { limit: q.limit, nextCursor: rows.length > q.limit ? page[page.length - 1].id : null },
-  );
-  return NextResponse.json(r.body, { status: r.status });
+  try {
+    const { rows, nextCursor } = await listBrands({
+      limit: q.limit,
+      cursor: q.cursor ?? null,
+      sort: q.sort,
+      dir: q.dir,
+      search: q.search ?? null,
+      active: queryBool(q.active),
+    });
+    const r = ok(
+      rows.map(toBrand),
+      { limit: q.limit, nextCursor },
+    );
+    return NextResponse.json(r.body, { status: r.status });
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
 }
 
 export async function POST(request: Request) {

@@ -11,7 +11,7 @@ export async function run(ctx) {
   async function loginAs(creds) {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: creds.email, password: creds.password });
-    if (r.res.status !== 200) throw new Error(`setup login failed for ${creds.email}: ${r.res.status}`);
+    if (r.res.status !== 201) throw new Error(`setup login failed for ${creds.email}: ${r.res.status}`);
     return c;
   }
 
@@ -69,7 +69,7 @@ export async function run(ctx) {
     const c = await loginAs(owner);
     const g = await c.get("/api/admin/session");
     const body = JSON.parse(g.text);
-    t("super_has_manage", body.permissions.includes("users.manage") && body.roles.includes("SUPER_ADMIN"), `perms=${body.permissions.length}`);
+    t("super_has_manage", body.data.permissions.includes("users.manage") && body.data.roles.includes("SUPER_ADMIN"), `perms=${body.data.permissions.length}`);
   }
   await resetAuthState(dbName);
   return results;

@@ -178,7 +178,7 @@ async function main() {
     const store = await loginAs(STORE_EMAIL, STORE_PW);
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
-    t("logins-ok", store.status === 200 && owner.status === 200 && bare.status === 200);
+    t("logins-ok", store.status === 201 && owner.status === 201 && bare.status === 201);
     sc = store.cookie;
     const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Promo1" });
     const c2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Promo2" });

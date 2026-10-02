@@ -35,6 +35,12 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     await db.exec(sql);
   };
   const q = (s, p) => db.query(s, p);
+  // Driver compat (BA-A closure, harness-only): PGlite 0.4.3 query results
+  // carry `affectedRows` (exact: 1 on match, 0 on no-match — proven live)
+  // and NO `rowCount` (node-pg field; always undefined here). Conditional
+  // bumps must read affectedRows, else every guard misfires as failure.
+  // The `??` keeps node-pg compatibility if ever run under real pg.
+  const rowsHit = (r) => (r.rowCount ?? r.affectedRows ?? 0);
   await db.exec(shimGen);
   for (const f of ['phase1-schema.sql', 'phase1-seed-example.sql', 'phase2-schema.sql',
     'phase2-seed-example.sql', 'phase4-schema.sql', 'phase4-seed-example.sql']) await load(f);
@@ -399,14 +405,14 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
           await q(`SELECT * FROM coupons WHERE id=$1 FOR UPDATE`, [cp.id]);
           const bump = await q(`UPDATE coupons SET used_count = used_count + 1 WHERE id=$1
             AND (usage_limit IS NULL OR used_count < usage_limit)`, [cp.id]);
-          if (!bump.rowCount) throw new Error('COUPON_EXHAUSTED');
+          if (!rowsHit(bump)) throw new Error('COUPON_EXHAUSTED');
           const cnt = await q(`SELECT COUNT(*) c FROM coupon_usages u JOIN orders o ON o.id=u.order_id
             WHERE u.coupon_id=$1 AND u.customer_id=$2 AND o.status <> 'CANCELLED'`, [cp.id, custId]);
           if (cp.per_customer_limit != null && Number(cnt.rows[0].c) >= cp.per_customer_limit) throw new Error('COUPON_PER_CUSTOMER');
           await q(`SELECT * FROM promotions WHERE id=$1 FOR UPDATE`, [cp.promotion_id]);
           const pbump = await q(`UPDATE promotions SET used_count = used_count + 1 WHERE id=$1
             AND (usage_limit IS NULL OR used_count < usage_limit)`, [cp.promotion_id]);
-          if (!pbump.rowCount) throw new Error('COUPON_PROMO_EXHAUSTED');
+          if (!rowsHit(pbump)) throw new Error('COUPON_PROMO_EXHAUSTED');
           couponElig = lines.map((l, i) => i).filter(i => cp.targets.length === 0 || matchLine(lines[i].ctx, cp) > 0);
           couponBase = R2(couponElig.reduce((s, i) => s + lines[i].net, 0));
           couponAmt = cp.ptype === 'PERCENTAGE' ? R2(couponBase * Number(cp.pdp) / 100) : Math.min(Number(cp.pda), couponBase);
@@ -420,7 +426,7 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
         for (const l of lines) {
           const rr = await q(`UPDATE inventory SET reserved_quantity = reserved_quantity + $2
             WHERE product_variant_id=$1 AND (quantity - reserved_quantity) >= $2`, [l.variant, l.qty]);
-          if (!rr.rowCount) throw new Error('INSUFFICIENT:' + l.variant);
+          if (!rowsHit(rr)) throw new Error('INSUFFICIENT:' + l.variant);
         }
         // assemble order
         const lineDisc = {};
@@ -737,7 +743,7 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
       try {
         const rr = await q(`UPDATE inventory SET reserved_quantity = reserved_quantity + 1 WHERE product_variant_id=$1
           AND (quantity - reserved_quantity) >= 1 RETURNING 1`, [P1L]);
-        if (!rr.rowCount) throw new Error('FREE_SHORT');
+        if (!rowsHit(rr)) throw new Error('FREE_SHORT');
         const fl = (await q(`INSERT INTO order_items (order_id, product_variant_id, product_name_snapshot,
           variant_name_snapshot, unit_snapshot, product_type_snapshot, unit_price, requested_quantity,
           estimated_total, discount_amount) VALUES ($1,$2,'Pepsi','1 L','PIECE','PIECE',30.00,'1.000',30.00,30.00) RETURNING id`, [co.orderId, P1L])).rows[0].id;

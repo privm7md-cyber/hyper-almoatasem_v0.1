@@ -71,21 +71,21 @@ export async function validateSessionToken(
     return null;
   }
   const tokenHash = hashToken(rawToken);
-  // Expiry is gated INSIDE the database (single clock source — the ONLY truth
-  // here). The JS re-check below is harmless redundancy over whatever Date
-  // decoding the driver returns; it can never wrongly reject a row the SQL
-  // gate already accepted, because any decode shift on this stack moves the
-  // instant later, never earlier — and acceptance was already decided by SQL.
+  // Expiry is gated INSIDE the database (single clock source — the ONLY
+  // truth here). No JS re-check on the decoded timestamp: Prisma 7.10
+  // TIMESTAMPTZ decoding shifts instants on this stack (proven,
+  // DST-varying — CC-1 class), so any JS comparison here could wrongly
+  // reject valid sessions or (worse) mask the SQL decision. The SQL
+  // predicate above is necessary AND sufficient.
   const rows = await prisma.$queryRaw<SessionRow[]>`
     SELECT id, user_id, expires_at, revoked_at
       FROM admin_sessions
      WHERE token_hash = ${tokenHash}::text
        AND revoked_at IS NULL
        AND expires_at > now()
-  `;
+   `;
   const row = rows[0];
   if (!row) return null;
-  if (row.expires_at.getTime() <= Date.now()) return null;
   await prisma.$executeRaw`
     UPDATE admin_sessions SET last_seen_at = now() WHERE id = ${row.id}::uuid
   `;

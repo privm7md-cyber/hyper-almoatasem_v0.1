@@ -48,4 +48,12 @@ export const cartMergeSchema = z
   })
   .strict();
 
+/** Reprice body: owner reference only (XOR with the header token, same as
+ * every cart mutation — quantities/prices are never client-supplied). */
+export const cartRepriceSchema = z
+  .object({
+    customerId: uuidSchema.nullish(),
+  })
+  .strict();
+
 export type CartItemAdd = z.infer<typeof cartItemAddSchema>;

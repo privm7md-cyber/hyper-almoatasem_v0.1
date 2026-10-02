@@ -155,11 +155,11 @@ async function main() {
 
     // ---------- logins ----------
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
-    t("owner-login-ok", owner.status === 200 && !!owner.cookie);
+    t("owner-login-ok", owner.status === 201 && !!owner.cookie);
     const store = await loginAs(STORE_EMAIL, STORE_PW);
-    t("store-login-ok", store.status === 200 && !!store.cookie);
+    t("store-login-ok", store.status === 201 && !!store.cookie);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
-    t("bare-login-ok", bare.status === 200 && !!bare.cookie);
+    t("bare-login-ok", bare.status === 201 && !!bare.cookie);
 
     // ---------- roleless: reads public ok, admin forbidden ----------
     const bareAdmin = await get("/api/admin/catalog/products?limit=5", bare.cookie);

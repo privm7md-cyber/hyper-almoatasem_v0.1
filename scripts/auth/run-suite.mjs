@@ -39,3 +39,22 @@ const results = await mod.run(ctx, serverLogs);
 const failures = results.filter((r) => !r.pass);
 console.log(JSON.stringify({ suite, total: results.length, failures: failures.length, failed: failures, passed: results.filter((r) => r.pass).map((r) => r.name) }, null, 2));
 process.exitCode = failures.length === 0 ? 0 : 2;
+// Hygiene (BA-A): remove the run-local users so repeated runs leave zero
+// residue (sessions → mappings → audit pins → rows, best-effort).
+try {
+  const { Client } = await import("pg");
+  const cu = new URL(process.env.MIGRATION_DATABASE_URL);
+  cu.pathname = `/${dbName}`;
+  const c = new Client({ connectionString: cu.toString(), connectionTimeoutMillis: 8000 });
+  await c.connect();
+  try {
+    for (const em of [creds.owner.email, creds.store.email]) {
+      await c.query(`DELETE FROM audit_logs WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [em]).catch(() => {});
+      await c.query(`DELETE FROM admin_sessions WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [em]).catch(() => {});
+      await c.query(`DELETE FROM user_roles WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [em]).catch(() => {});
+      await c.query(`DELETE FROM users WHERE email = $1`, [em]).catch(() => {});
+    }
+  } finally {
+    await c.end().catch(() => {});
+  }
+} catch { /* scratch hygiene best-effort */ }
