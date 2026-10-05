@@ -141,20 +141,31 @@ export async function createCategory(input: CategoryInput, actorId: string) {
 export async function patchCategory(id: string, input: Partial<CategoryInput>, actorId: string) {
   return catalogWrite("Category", () =>
     prisma.$transaction(async (tx) => {
-      const updated = await tx.category.update({
-        where: { id },
-        data: {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.slug !== undefined
-            ? { slug: input.slug === null ? undefined : resolveSlug(input.slug, input.name ?? "") }
-            : {}),
-          ...(input.description !== undefined ? { description: input.description } : {}),
-          ...(input.image !== undefined ? { image: input.image } : {}),
-          ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
-          ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        },
-      });
+      // Explicit assignments (not conditional spreads): the spread-union form
+      // defeats Prisma's Without<> conditional input type under strict mode.
+      // Null passes through only to nullable columns; non-nullable columns
+      // treat stray null as absent (the API boundary already rejects null
+      // there with 400 — see categoryPatchSchema).
+      const data: {
+        name?: string;
+        slug?: string;
+        description?: string | null;
+        image?: string | null;
+        parentId?: string | null;
+        sortOrder?: number;
+        isActive?: boolean;
+      } = {};
+      if (input.name !== undefined) data.name = input.name;
+      if (input.slug !== undefined) {
+        const resolved = input.slug === null ? undefined : resolveSlug(input.slug, input.name ?? "");
+        if (resolved !== undefined) data.slug = resolved;
+      }
+      if (input.description !== undefined) data.description = input.description;
+      if (input.image !== undefined) data.image = input.image;
+      if (input.parentId !== undefined) data.parentId = input.parentId;
+      if (input.sortOrder != null) data.sortOrder = input.sortOrder;
+      if (input.isActive != null) data.isActive = input.isActive;
+      const updated = await tx.category.update({ where: { id }, data });
       await auditInTx(tx, {
         action: "categories.update",
         userId: actorId,
@@ -196,17 +207,25 @@ export async function createBrand(input: BrandInput, actorId: string) {
 export async function patchBrand(id: string, input: Partial<BrandInput>, actorId: string) {
   return catalogWrite("Brand", () =>
     prisma.$transaction(async (tx) => {
-      const updated = await tx.brand.update({
-        where: { id },
-        data: {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.slug !== undefined
-            ? { slug: input.slug === null ? undefined : resolveSlug(input.slug, input.name ?? "") }
-            : {}),
-          ...(input.logo !== undefined ? { logo: input.logo } : {}),
-          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        },
-      });
+      // Explicit assignments (not conditional spreads): the spread-union form
+      // defeats Prisma's Without<> conditional input type under strict mode.
+      // Null passes through only to nullable columns; non-nullable columns
+      // treat stray null as absent (the API boundary already rejects null
+      // there with 400 — see brandPatchSchema).
+      const data: {
+        name?: string;
+        slug?: string;
+        logo?: string | null;
+        isActive?: boolean;
+      } = {};
+      if (input.name !== undefined) data.name = input.name;
+      if (input.slug !== undefined) {
+        const resolved = input.slug === null ? undefined : resolveSlug(input.slug, input.name ?? "");
+        if (resolved !== undefined) data.slug = resolved;
+      }
+      if (input.logo !== undefined) data.logo = input.logo;
+      if (input.isActive != null) data.isActive = input.isActive;
+      const updated = await tx.brand.update({ where: { id }, data });
       await auditInTx(tx, {
         action: "brands.update",
         userId: actorId,
@@ -465,7 +484,13 @@ export async function setCodePrimary(variantId: string, codeId: string): Promise
   return Number(n);
 }
 
-export async function patchCode(id: string, input: { type?: "BARCODE" | "INTERNAL_CODE"; isPrimary?: boolean }, actorId: string) {
+export async function patchCode(
+  id: string,
+  // isPrimary accepts null: only `true` triggers the primary switch, every
+  // other value (false/null/absent) means "don't switch" — same runtime rule.
+  input: { type?: "BARCODE" | "INTERNAL_CODE"; isPrimary?: boolean | null },
+  actorId: string,
+) {
   const row = await prisma.productCode.findUnique({ where: { id }, select: { id: true, productVariantId: true } });
   if (!row) return null;
   return catalogWrite("ProductCode", () =>

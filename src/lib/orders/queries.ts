@@ -53,6 +53,8 @@ export interface AdminOrderListFilter {
   status: string | null;
   customerId: string | null;
   search: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
 }
 
 export async function listOrdersAdmin(filter: AdminOrderListFilter) {
@@ -62,6 +64,14 @@ export async function listOrdersAdmin(filter: AdminOrderListFilter) {
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.customerId ? { customerId: filter.customerId } : {}),
       ...(filter.search ? { orderNumber: { contains: filter.search, mode: "insensitive" as const } } : {}),
+      ...((filter.dateFrom ?? null) !== null || (filter.dateTo ?? null) !== null
+        ? {
+            createdAt: {
+              ...(filter.dateFrom ? { gte: new Date(filter.dateFrom) } : {}),
+              ...(filter.dateTo ? { lte: new Date(filter.dateTo) } : {}),
+            },
+          }
+        : {}),
     },
     include: { _count: { select: { items: true } } },
     orderBy: [{ id: "asc" as const }],

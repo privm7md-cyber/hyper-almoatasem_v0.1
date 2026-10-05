@@ -106,9 +106,6 @@ async function main() {
   const variantIds = new Set();
   const catIds = new Set();
   const brandIds = new Set();
-  const noSecrets = (o) => !JSON.stringify(o).includes("passwordHash") && !JSON.stringify(o).includes("password_hash")
-    && !JSON.stringify(o).includes("argon2") && !JSON.stringify(o).includes("token_hash")
-    && !JSON.stringify(o).includes("__Host-admin-session");
   const auditIdsBefore = new Set((await q(`SELECT id::text AS id FROM audit_logs`)).map((r) => r.id));
 
   // Guest cart helper (tracks for cleanup).
@@ -167,7 +164,6 @@ async function main() {
       process.exit(1);
     }
     const ck = store.cookie;
-    const cko = owner.cookie;
     // Second, stronger identity check (runs after login because it needs the
     // admin cookie): prove the server and THIS connection address the same
     // database by round-tripping one row through both. Catches the case where

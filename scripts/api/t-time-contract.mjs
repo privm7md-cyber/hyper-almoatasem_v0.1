@@ -1,5 +1,5 @@
 // BA-C closure — time-contract verification (real PostgreSQL, scratch-only).
-// Usage: node scripts/api/t-time-contract.mjs --db <scratch> [--port <port>]
+// Usage: node scripts/api/t-time-contract.mjs --db <scratch>
 //
 // Proves the session-timezone root cause and the central fix:
 //   BEFORE  a client built exactly like src/lib/db.ts was before the fix
@@ -18,9 +18,7 @@ import { withUtcSession } from "../../src/lib/db-url.ts";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
-const portFlag = args.indexOf("--port");
 const dbName = dbFlag === -1 ? null : args[dbFlag + 1];
-const port = portFlag === -1 ? null : args[portFlag + 1];
 
 const ALLOWED = [
   "hyper_almoatasem_scratch",

@@ -8,7 +8,13 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    // BA-H1: strict null/function checking enabled (2026-10-03). The 11
+    // strict errors were fixed at their root (Zod PATCH schemas tightened to
+    // match service contracts; dead-defensive null checks; explicit Prisma
+    // data assignments) — no `any`, no `!`, no ts-ignore/ts-expect-error.
+    // Deferred (documented roadmap, not silent): noUncheckedIndexedAccess,
+    // exactOptionalPropertyTypes.
+    "strict": true,
     "noEmit": true,
     "incremental": true,
     "module": "esnext",

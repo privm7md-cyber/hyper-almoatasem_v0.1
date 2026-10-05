@@ -144,12 +144,48 @@ export const productInputSchema = strictObject({
 });
 
 export const productPatchSchema = strictObject({
-  name: nameSchema.nullish(),
+  // name/categoryId/isActive are optional-only: explicit null has no
+  // clear-semantic on non-nullable columns (it 500s in Prisma), so the
+  // boundary rejects it with 400. Nullable columns keep nullish (null clears).
+  name: nameSchema.optional(),
   slug: slugInputSchema.max(180).nullish(),
   description: z.string().max(4000).nullish(),
-  categoryId: uuidSchema.nullish(),
+  categoryId: uuidSchema.optional(),
   brandId: uuidSchema.nullish(),
-  isActive: z.boolean().nullish(),
+  isActive: z.boolean().optional(),
+});
+
+/** Variant PATCH shape: name/isActive are optional-only (non-nullable
+ * columns); size/compare/cost stay nullish (null clears the nullable column). */
+export const variantPatchSchema = strictObject({
+  name: z.string().trim().min(1).max(120).optional(),
+  sizeValue: z.string().regex(/^\d+(\.\d{1,3})?$/).nullish(),
+  sizeUnit: sizeUnitSchema.nullish(),
+  compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
+  costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
+  isActive: z.boolean().optional(),
+});
+
+/** Category PATCH shape: name/sortOrder/isActive are optional-only
+ * (non-nullable columns); slug null leaves the slug untouched, nullable
+ * columns clear on null. */
+export const categoryPatchSchema = strictObject({
+  name: nameSchema.max(120).optional(),
+  slug: slugInputSchema.max(140).nullish(),
+  description: z.string().max(2000).nullish(),
+  image: z.string().trim().max(500).nullish(),
+  parentId: uuidSchema.nullish(),
+  sortOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+
+/** Brand PATCH shape: name/isActive are optional-only (non-nullable
+ * columns); slug null leaves the slug untouched, logo clears on null. */
+export const brandPatchSchema = strictObject({
+  name: nameSchema.max(120).optional(),
+  slug: slugInputSchema.max(140).nullish(),
+  logo: z.string().trim().max(500).nullish(),
+  isActive: z.boolean().optional(),
 });
 
 export const variantInputSchema = strictObject({
@@ -186,7 +222,9 @@ export const codeInputSchema = strictObject({
 });
 
 export const codePatchSchema = strictObject({
-  type: codeTypeSchema.nullish(),
+  // type is optional-only: null has no rename-semantic on the non-nullable
+  // enum column (it 500s in Prisma), so the boundary rejects it with 400.
+  type: codeTypeSchema.optional(),
   isPrimary: z.boolean().nullish(),
 });
 

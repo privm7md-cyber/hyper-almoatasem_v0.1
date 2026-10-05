@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
 import { adminOrDeny, denyUnless } from "@/lib/api/route-auth";
 import { uuidSchema } from "@/lib/api/validation";
-import { categoryInputSchema } from "@/lib/catalog/validation";
+import { categoryPatchSchema } from "@/lib/catalog/validation";
 import { getCategory } from "@/lib/catalog/queries";
 import { patchCategory } from "@/lib/catalog/writes";
 import { toCategory } from "@/lib/catalog/serialize";
@@ -42,7 +42,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid request body."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const parsed = categoryInputSchema.partial().safeParse(body);
+  const parsed = categoryPatchSchema.safeParse(body);
   if (!parsed.success) {
     const r = fail(new ApiError("VALIDATION", "Invalid category."));
     return NextResponse.json(r.body, { status: r.status });

@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "pg";
+import { checkRouteCoverage } from "./route-coverage.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -44,33 +45,11 @@ const ROOT = process.cwd();
 
 async function main() {
   // ---------- static S1: openapi ⇄ routes bidirectional coverage ----------
+  // Logic lives in ./route-coverage.mjs (shared with the CI drift gate).
   try {
-    const yaml = fs.readFileSync(path.join(ROOT, "docs/openapi.yaml"), "utf8");
-    const docPaths = new Set([...yaml.matchAll(/^  (\/api\/[^:\s]+):/gm)].map((m) => m[1]));
-    const routeFiles = [];
-    const walk = (dir) => {
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, e.name);
-        if (e.isDirectory()) walk(p);
-        else if (e.name === "route.ts") routeFiles.push(p);
-      }
-    };
-    walk(path.join(ROOT, "src/app/api"));
-    const implPaths = new Set(routeFiles.map((f) => {
-      let rel = path.relative(path.join(ROOT, "src/app/api"), path.dirname(f)).replace(/\\/g, "/");
-      rel = "/api/" + rel;
-      rel = rel.replace(/\[id\]/g, "{id}").replace(/\[variantId\]/g, "{variantId}")
-        .replace(/\[addressId\]/g, "{addressId}").replace(/\[itemId\]/g, "{itemId}")
-        .replace(/\[roleId\]/g, "{roleId}").replace(/\[permissionId\]/g, "{permissionId}")
-        .replace(/\[targetId\]/g, "{targetId}").replace(/\[replacementId\]/g, "{replacementId}")
-        .replace(/\[key\]/g, "{key}");
-      return rel;
-    }));
-    const missingInDoc = [...implPaths].filter((p) => !docPaths.has(p));
-    const missingInImpl = [...docPaths].filter((p) => !implPaths.has(p));
+    const { docPaths, missingInDoc, missingInImpl } = checkRouteCoverage();
     t("s1-openapi-covers-routes", missingInDoc.length === 0, missingInDoc.slice(0, 5).join(","));
     t("s1-routes-cover-openapi", missingInImpl.length === 0, missingInImpl.slice(0, 5).join(","));
-    const adminOps = [...yaml.matchAll(/^  \/api\/admin\/[^:\s]+:\n((?:    (?:get|post|patch|put|delete):[^\n]*\n(?:.*\n)*?)*)/gm)];
     t("s1-doc-present", docPaths.size >= 70, String(docPaths.size));
   } catch (e) {
     t("s1-openapi-covers-routes", false, String(e.message).slice(0, 120));
@@ -169,7 +148,6 @@ async function main() {
       process.exit(1);
     }
     const ck = store.cookie;
-    const cko = owner.cookie;
     t("login-envelope-201", owner.body.data?.admin?.email === OWNER_EMAIL && owner.body.meta !== undefined);
     const badLogin = await loginAs(STORE_EMAIL, "Wrong-Pass-000!");
     t("login-error-envelope", badLogin.status === 401 && badLogin.body.error?.code === "UNAUTHENTICATED" && noSecrets(badLogin.body));
@@ -254,7 +232,6 @@ async function main() {
     });
     const crossBody = await cross.json().catch(() => ({}));
     const bCart = await get(`/api/store/cart`, null, { "x-guest-token": tokB });
-    const bLines = bCart.body.data?.cart?.items ?? bCart.body.data?.items ?? [];
     t("g-ownership", cross.status === 200 && JSON.stringify(bCart.body).includes(P330) && crossBody.data?.cart?.id !== bCart.body.data?.cart?.id,
       `${cross.status}`);
     const gMerge = await post(`/api/store/cart/merge`, { customerId: idCu }, null, { "x-guest-token": tokA });

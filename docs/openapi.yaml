@@ -1005,7 +1005,7 @@ paths:
     get:
       tags: [admin-orders]
       x-permission: orders.view
-      summary: List orders.
+      summary: List orders (status/customer/number/dateFrom/dateTo filters; inverted range 400).
       responses: { '200': { description: Order page. } }
   /api/admin/orders/{id}:
     get:
@@ -1184,6 +1184,13 @@ paths:
       summary: Hard-delete (RESTRICT→409 when referenced; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: '{ data: { deleted: true } }'. }, '409': { description: Referenced by history. } }
+  /api/admin/coupons/{id}/usages:
+    get:
+      tags: [admin-coupons]
+      x-permission: coupons.view
+      summary: Usage ledger for one coupon (read-only; reads never bump counters).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Usage page. }, '404': { description: Unknown id. } }
   # ---------------- admin: users / roles / permissions / settings / audit / session ----------------
   /api/admin/users:
     get:
@@ -1307,6 +1314,13 @@ paths:
       summary: Delete role (SUPER_ADMIN 403; granted 409; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: '{ data: { deleted: true } }'. } }
+  /api/admin/roles/{id}/members:
+    get:
+      tags: [admin-roles]
+      x-permission: roles.view
+      summary: Users holding a role (read-only observability for delete-held 409).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses: { '200': { description: Member page. }, '404': { description: Unknown id. } }
   /api/admin/roles/{id}/grants:
     post:
       tags: [admin-roles]

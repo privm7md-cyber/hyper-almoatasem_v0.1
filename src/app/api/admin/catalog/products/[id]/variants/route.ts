@@ -63,6 +63,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   try {
     const row = await insertVariant({ ...parsed.data, productId }, gate.admin.user.id);
+    if (!row) {
+      const r = fail(new ApiError("NOT_FOUND", "Variant not found."));
+      return NextResponse.json(r.body, { status: r.status });
+    }
     const r = created(toAdminVariant(row));
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {

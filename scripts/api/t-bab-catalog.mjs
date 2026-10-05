@@ -33,7 +33,7 @@ const OWNER_EMAIL = "owner@hyper-al-moatasem.local";
 const OWNER_PW = "Cat-Test-Owner-Pass-0001!";
 const STORE_EMAIL = "store-cat-test@example.com";
 const STORE_PW = "Cat-Test-Store-Pass-0002!";
-const P330 = "01800000-0000-7000-8000-000000000201";
+
 
 async function main() {
   if (!dbName || !ALLOWED.includes(dbName)) {
@@ -112,7 +112,6 @@ async function main() {
       process.exit(1);
     }
     const ck = store.cookie;
-    const cko = owner.cookie;
 
     // Scale marker: 20k seed must be present (seeded separately; suite is
     // read-only over it except its own prefixed rows).

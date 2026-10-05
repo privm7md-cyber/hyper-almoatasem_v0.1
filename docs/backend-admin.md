@@ -19,7 +19,7 @@ them.
 | Domain | New routes | Permission |
 |---|---|---|
 | users | GET list, GET one, POST create, PATCH edit, POST `[id]/password`, POST `[id]/roles`, DELETE `[id]/roles/[roleId]` | `users.view` reads, `users.manage` writes, `roles.manage` grants |
-| roles | GET list, GET one, POST create, PATCH edit, DELETE, POST `[id]/grants`, DELETE `[id]/grants/[permissionId]` | `roles.view` reads, `roles.manage` writes |
+| roles | GET list, GET one, POST create, PATCH edit, DELETE, POST `[id]/grants`, DELETE `[id]/grants/[permissionId]`, GET `[id]/members` (BA-F: read-only member listing for the delete-held constraint) | `roles.view` reads, `roles.manage` writes |
 | permissions | GET list, GET one (reads only — no write key exists) | `roles.view` (documented mapping) |
 | settings | GET list, GET one, PATCH value | `settings.view` / `settings.manage` |
 | audit_logs | GET list, GET one (immutable — no PATCH/DELETE routes) | `audit_logs.view` |

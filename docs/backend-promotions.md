@@ -86,6 +86,7 @@ Admin (frozen keys; status/isActive flips need `*.disable`, fields need
 | PUT | `/api/admin/promotions/[id]/buy-get` | update | 1:1 BXGY params (BXGY only) |
 | GET/POST | `/api/admin/coupons` | view / create | list + create |
 | GET/PATCH/DELETE | `/api/admin/coupons/[id]` | view / update+disable / disable | detail, edits, guarded delete |
+| GET | `/api/admin/coupons/[id]/usages` | view | usage ledger (BA-F: read-only reporting; reads never bump counters) |
 
 Value/target/rule columns reject edits once order rows reference the
 promo (422, A21); activation requires LINE targets (+BXGY rule row).

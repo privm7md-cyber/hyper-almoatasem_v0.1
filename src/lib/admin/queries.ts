@@ -75,6 +75,29 @@ export function getRole(id: string) {
   });
 }
 
+export interface RoleMembersFilter {
+  limit: number;
+  cursor: string | null;
+}
+
+/** Users holding a role (read-only observability; delete constraint surfaces as 409). */
+export async function listRoleMembers(roleId: string, filter: RoleMembersFilter) {
+  const rows = await prisma.userRole.findMany({
+    where: {
+      roleId,
+      ...(filter.cursor ? { id: { gt: filter.cursor } } : {}),
+    },
+    include: {
+      user: {
+        include: { userRoles: { include: { role: { select: { name: true } } } } },
+      },
+    },
+    orderBy: [{ id: "asc" as const }],
+    take: filter.limit + 1,
+  });
+  return rows;
+}
+
 export async function listPermissions(filter: { limit: number; cursor: string | null; search: string | null }) {
   const rows = await prisma.permission.findMany({
     where: {
@@ -111,14 +134,19 @@ export interface AuditListFilter {
 }
 
 /**
- * Audit feed, newest first (UUIDv7 ids are time-ordered — id DESC is the
- * stable cursor). All predicates are plain equality/range on indexed
- * columns (no FTS, no materializations). Date strings are validated at
- * the boundary; comparison happens in SQL (CC-1 rule).
+ * Audit feed, newest first. Ordering is (created_at DESC, id DESC): audit
+ * row ids are DB-default random UUIDv4 (auditInTx supplies no id), so id
+ * order is NOT time order and `ORDER BY id DESC` returned an arbitrary feed
+ * (pagination could skip/duplicate rows). The uuid cursor wire contract is
+ * preserved — the cursor position resolves through its row's created_at.
+ * Served by idx_audit_time / idx_audit_action_time / idx_audit_user_time.
  */
 export async function listAudit(filter: AuditListFilter): Promise<AuditRow[]> {
   const conds: Prisma.Sql[] = [];
-  if (filter.cursor) conds.push(Prisma.sql`id < ${filter.cursor}::uuid`);
+  if (filter.cursor)
+    conds.push(
+      Prisma.sql`(created_at, id) < ((SELECT created_at FROM audit_logs WHERE id = ${filter.cursor}::uuid), ${filter.cursor}::uuid)`,
+    );
   if (filter.userId) conds.push(Prisma.sql`user_id = ${filter.userId}::uuid`);
   if (filter.action) conds.push(Prisma.sql`action = ${filter.action}`);
   if (filter.entityType) conds.push(Prisma.sql`entity_type = ${filter.entityType}`);
@@ -131,7 +159,7 @@ export async function listAudit(filter: AuditListFilter): Promise<AuditRow[]> {
       entity_type, entity_id::text AS entity_id, old_values, new_values,
       ip_address::text AS ip_address, user_agent, created_at
       FROM audit_logs ${where}
-     ORDER BY id DESC LIMIT ${filter.limit + 1}`;
+     ORDER BY created_at DESC, id DESC LIMIT ${filter.limit + 1}`;
 }
 
 export async function getAudit(id: string): Promise<AuditRow | null> {

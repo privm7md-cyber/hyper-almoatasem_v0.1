@@ -1,4 +1,4 @@
-// Admin orders: list (status/customer/number filters, cursor pagination).
+// Admin orders: list (status/customer/number/date filters, cursor pagination).
 // Read permission: orders.view (frozen matrix key; inspection is the
 // contract §11 admin surface for orders).
 import { NextResponse } from "next/server";
@@ -24,6 +24,8 @@ export async function GET(request: Request) {
     status: q.status ?? null,
     customerId: q.customerId ?? null,
     search: q.search ?? null,
+    dateFrom: q.dateFrom ?? null,
+    dateTo: q.dateTo ?? null,
   });
   const page = rows.length > q.limit ? rows.slice(0, q.limit) : rows;
   const r = ok(

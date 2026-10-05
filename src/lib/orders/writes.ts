@@ -151,6 +151,11 @@ async function readDeliveryFeeCents(tx: Prisma.TransactionClient): Promise<numbe
  */
 export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderResult> {
   // Subject cart id for the key-hit comparison (outside tx, read-only).
+  // Latest cart regardless of status for BOTH owner kinds: a consumed cart
+  // still identifies "same cart" for idempotency replay (the tx re-checks
+  // ACTIVE and the CartConsumedError path replays the winner by cart).
+  // Restricting customers to ACTIVE here made post-checkout same-key replay
+  // answer 404 instead of 200-replay, unlike the guest path.
   const subjectHint =
     args.owner.kind === "guest"
       ? await prisma.cart.findFirst({
@@ -159,8 +164,9 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
           orderBy: [{ createdAt: "desc" as const }],
         })
       : await prisma.cart.findFirst({
-          where: { customerId: args.owner.customerId, status: "ACTIVE" },
+          where: { customerId: args.owner.customerId },
           select: { id: true },
+          orderBy: [{ createdAt: "desc" as const }],
         });
   if (!subjectHint) throw new ApiError("NOT_FOUND", "Active cart not found.", null);
 

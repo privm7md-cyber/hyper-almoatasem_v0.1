@@ -146,6 +146,24 @@ export function getCoupon(id: string) {
   });
 }
 
+export interface CouponUsageListFilter {
+  limit: number;
+  cursor: string | null;
+}
+
+/** Coupon usage ledger (read-only reporting; reads never bump counters). */
+export async function listCouponUsages(couponId: string, filter: CouponUsageListFilter) {
+  const rows = await prisma.couponUsage.findMany({
+    where: {
+      couponId,
+      ...(filter.cursor ? { id: { gt: filter.cursor } } : {}),
+    },
+    orderBy: [{ id: "asc" as const }],
+    take: filter.limit + 1,
+  });
+  return rows;
+}
+
 /**
  * Coupon validation read: normalized code + parent + rule in one row, with
  * BOTH windows and flags decided by SQL now(). Returns null for unknown

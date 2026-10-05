@@ -87,7 +87,7 @@ async function main() {
       return;
     }
     const rand = rng(20260930);
-    const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+
     // Categories + brands first (fixed small sets).
     const catIds = [];
     for (let i = 0; i < CATS.length; i++) {

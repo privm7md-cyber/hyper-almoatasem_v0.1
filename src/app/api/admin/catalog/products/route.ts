@@ -77,6 +77,10 @@ export async function POST(request: Request) {
   }
   try {
     const createdRow = await insertProduct(parsed.data, gate.admin.user.id);
+    if (!createdRow) {
+      const r = fail(new ApiError("NOT_FOUND", "Product not found."));
+      return NextResponse.json(r.body, { status: r.status });
+    }
     const row = await getProduct(createdRow.id, true);
     if (!row) {
       const r = fail(new ApiError("NOT_FOUND", "Product not found."));

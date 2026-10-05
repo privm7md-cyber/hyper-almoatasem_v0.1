@@ -60,10 +60,6 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const get = async (path, cookie = null) => {
-    const r = await fetch(`${baseUrl}${path}`, { headers: cookie ? { cookie } : {} });
-    return { status: r.status, body: await r.json().catch(() => ({})) };
-  };
   const post = async (path, data, cookie = null) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
@@ -97,7 +93,6 @@ async function main() {
   const stamp = Date.now().toString(36);
   const userIds = new Set();
   const roleIds = new Set();
-  const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || "");
   const noSecrets = (o) => !JSON.stringify(o).includes("passwordHash") && !JSON.stringify(o).includes("password_hash")
     && !JSON.stringify(o).includes("argon2") && !JSON.stringify(o).includes("token_hash")
     && !JSON.stringify(o).includes("__Host-admin-session");

@@ -25,11 +25,17 @@ export const orderListQuerySchema = paginationSchema.extend({
   customerId: uuidSchema,
 });
 
-export const adminOrderListQuerySchema = paginationSchema.extend({
-  status: orderStatusSchema.nullish(),
-  customerId: uuidSchema.nullish(),
-  search: z.string().trim().max(24).nullish(),
-});
+export const adminOrderListQuerySchema = paginationSchema
+  .extend({
+    status: orderStatusSchema.nullish(),
+    customerId: uuidSchema.nullish(),
+    search: z.string().trim().max(24).nullish(),
+    dateFrom: z.string().datetime({ offset: true }).nullish(),
+    dateTo: z.string().datetime({ offset: true }).nullish(),
+  })
+  .refine((q) => q.dateFrom == null || q.dateTo == null || q.dateFrom <= q.dateTo, {
+    message: "Invalid query.",
+  });
 
 export const orderCancelSchema = z
   .object({

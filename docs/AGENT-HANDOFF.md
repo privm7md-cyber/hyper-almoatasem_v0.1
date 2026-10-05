@@ -1,13 +1,512 @@
 # AGENT HANDOFF — Hyper Al-Moatasem / هايبر المعتصم (canonical, self-contained)
 
 > Read this file first. The authoritative CURRENT STATE is the block
-> "⚑ SESSION HANDOFF — CURRENT STATE (BA-D, 2026-10-02)" immediately below.
+> "⚑ SESSION HANDOFF — CURRENT STATE (BA-H refresh + BA-I gate, 2026-10-04)"
+> immediately below.
 > It supersedes any conflicting wording further down (including the BA-C
 > closeout block, which is preserved beneath it as history); the standing
 > reference sections (§ Project identity … § Human decisions) are preserved
 > and must not be deleted. Conversation history is NOT the source of truth —
 > the repository, the database and passing tests are. If anything here
 > conflicts with those, stop and investigate.
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (BA-H refresh + BA-I gate, 2026-10-04)
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. SESSION SUMMARY (this session: BA-H Security Refresh → BA-I gate)
+
+Work executed, in order: baseline snapshot (HEAD c61f4b2, master, 38 changed
+paths, Next 16.3.6 verified installed) → advisory verification from official
+sources (v16.3.8 is the later 16.3.x security release fixing 8 advisories:
+High SSRF GHSA-cjq9 + Medium ×5 + Low dev-MCP; trigger patterns verified
+absent from src) → authorized minimal upgrade next 16.3.6→16.3.8
+(package.json + package-lock.json only: 10 version bumps all next/@next/*,
+6 added nested tailwind-oxide WASI entries from npm tree resolution, inert)
+→ post-upgrade `npm audit` (0 critical, 9 high — identical 4-GHSA set) →
+per-vulnerability classification from the actual tree (all transitive
+dev/build tooling, bundle-import scan clean) → servers booted on scratch →
+full verification (tsc/eslint/build) → complete regression, all suites green
+→ production read-only verification (unchanged) → scratch cleanup (2
+leftovers, zero-ref verified then deleted) → servers stopped. No commit, no
+push, no production operation of any kind.
+
+## COMPLETED (DONE vs VERIFIED)
+
+* Next.js 16.3.8 upgrade — DONE + VERIFIED (installed = pin = lockfile;
+  tsc/eslint/build + full regression green on it).
+* Advisory review per-advisory with reachability evidence — DONE + VERIFIED
+  (official release/advisory pages read; repo-wide trigger scan clean).
+* npm audit re-classification from actual `npm ls` chains + bundle scan —
+  DONE + VERIFIED (4 GHSAs, all non-runtime; no P0/P1).
+* Full regression (all suites incl. E2E + security matrix) — DONE + VERIFIED
+  (every number below was observed this session).
+* Production read-only verification — DONE + VERIFIED (0 business rows;
+  telemetry residue unchanged; migrations as documented; future objects absent).
+* Scratch cleanup + server shutdown — DONE + VERIFIED (2 fixtures; both
+  servers stopped).
+* BA-I readiness gate assessment (17 areas) — DONE (assessment only, no
+  production action).
+
+## IN PROGRESS
+
+* None. All authorized work for this session is finished.
+
+## FAILED / BLOCKED
+
+* Nothing failed that remains unresolved. Transient environmental events
+  during the session (by-design 401 cascades — spaced across rollovers; one
+  orphaned P1L reservation reset after zero-row verification; two transient
+  single-assertion flakes then consecutive greens — P3) were all evidenced,
+  resolved, and re-greened. No BLOCKED engineering item exists.
+
+## IMPORTANT FINDINGS
+
+* v16.3.8 fixes 8 advisories beyond 16.3.6 (High SSRF GHSA-cjq9 + 5 Medium +
+  1 Low dev-MCP); all trigger patterns verified absent from src, but the
+  upgrade was executed per explicit authorization regardless.
+* The 9 remaining HIGH findings are unchanged in kind (transitive dev/build
+  tooling); their fixes demand breaking downgrades and were not executed.
+* Recurring pattern (3rd session): interrupted runs leave BA11A-product and
+  Idem2-customer residue plus orphaned P1L reservations on scratch. Always
+  zero-ref verified before reset/delete. Not a product defect.
+
+## DECISIONS (locked — do not reverse without authorization)
+
+* Next.js stays on the 16.3.x line; no `next@latest`, no major upgrade.
+* No `npm audit fix` / `--force`, no mass upgrades, no resolutions/overrides
+  to hide advisories.
+* Telemetry residue (audit 2 + ratelimit 3) stays preserved; never deleted.
+* No production operation of any kind without explicit per-step authorization.
+* No commit/push; working tree stays uncommitted for human review.
+
+## CURRENT PHASE
+
+`BA-H Security Refresh — COMPLETE` + `BA-I gate — ASSESSED: BLOCKED
+(operational gaps only, zero technical blockers)`.
+
+## EXACT STOPPING POINT
+
+* Last command of consequence: scratch residue audit + `DELETE` of 2
+  zero-ref-verified leftover rows (BA11A variant/product, Idem2 customer) →
+  `products=2 customers=0 orders=0 carts=0 promos=0 coupons=0`; then Node
+  processes stopped (0 remain) and PostgreSQL stopped (`server stopped`).
+* Last verification results: `tsc` PASS (strict) · ESLint PASS (0) ·
+  `npm run build` PASS (on 16.3.8) · full regression all-green (bag-e2e 50 ·
+  baf-admin 41 · bad 64 · bac 60 · ba-a 45 · orders 54+15 · promotions 58+13 ·
+  customers 66+8 · cart 50+13 · inventory 84+18 · replacements 54+12 ·
+  catalog 53 · foundation 26 · bab-catalog 46 · xmodule 17 · atomicity 18 ·
+  idempotency-matrix 9 · deadlock 2 · audit-pairing 101 · rbac-guards 49 ·
+  rbac-races 53 · admin 80+8 · auth 20+8+6+13+25 · cc1 8 · units (7 suites) ·
+  Phase-2/4/5 77/65/50).
+* Production: read-only verified unchanged (0 business rows; telemetry
+  audit 2 + ratelimit 3 intact; migrations baseline-finished +
+  auth-rolledback + auth-finished; pg_trgm 0; product_images 0). No DDL/DML.
+* Nothing is left half-done. The `audit-filter-action` and
+  customers-concurrency single-failure transients from this session both
+  re-greened consecutively and are classified P3 (environmental).
+* Must NOT be assumed done: commit, push, deployment, migration, backup,
+  monitoring wiring, go-live ceremony — all still require separate explicit
+  human authorization.
+
+## NEXT SESSION START POINT
+
+### Start Here
+
+1. Verify `git rev-parse HEAD` is still
+   `c61f4b24fe5eae5e9fccb6415552d22d0250b2c3` and `git status --short` shows
+   only the known 38 changed paths (30 modified + 8 untracked groups),
+   nothing staged. If HEAD differs: STOP, do not reset/rebase, report.
+2. If the next authorized step is commit review: the tree is as audited —
+   89→38 paths after the c61f4b2 push... (verify count fresh; BA-F/BA-G/BA-H
+   additions are the uncommitted remainder). Do NOT `git add -A` blindly:
+   `scripts/set-super-admin-password-local.ps1` must stay untracked, as must
+   `_recovery/`, `.agents/`, `.claude/`, `.cursor/`, `.devin/`, `.env*`.
+3. If the next authorized step is further verification: boot PostgreSQL
+   (`pg_ctl start -D C:\pgprov\data`; the Windows service wrapper is broken —
+   use `pg_ctl` via `Start-Process`), then Next dev with an explicit scratch
+   `DATABASE_URL` override on port 3131, confirm `/api/health` 200 + catalog
+   shows the 2 fixtures (proves scratch binding, not production).
+4. Rate-limit spacing is mandatory: login buckets are IP 30 / account 10 per
+   15 min, fail-closed 401s. Space login-heavy suites across rollovers; a
+   `REFUSED_LOGIN`/401 cascade means "wait", never a product defect.
+5. `t-bab-catalog` needs the 20k scale seed + `ANALYZE` first, `--clean` after.
+
+Do NOT execute any of the above now — this task ends at the handoff update.
+
+## DO NOT REPEAT
+
+* Next.js advisory review for 16.3.8 (done, all 8 advisories classified).
+* `npm audit` + per-vulnerability chain classification (done: 4 GHSAs,
+  all non-runtime with full parent chains + bundle scan).
+* The 16.3.8 upgrade itself (done once; re-running install risks churn).
+* Full regression just completed (all numbers above observed this session).
+* Production read-only verification just completed (state recorded above).
+* Session-timezone, ORDER-minimum, idempotency-replay, audit-ordering fixes
+  from earlier phases (all in-tree, all re-verified green — do not relitigate).
+* Scratch cleanup just completed (2 fixtures; verified zero unexpected rows).
+
+## OPEN ISSUES
+
+* None blocking. P2 (non-blocking technical debt): 9 high transitive audit
+  findings (breaking-downgrade fixes deferred); Next.js further-upgrade pass
+  only if a future advisory affects the runtime path. P3 (observations):
+  rate-bucket spacing discipline; scale-seed/ANALYZE preconditions; advanced
+  TS flags roadmap (noUncheckedIndexedAccess 375 lines,
+  exactOptionalPropertyTypes 93 lines); transient single-assertion flakes
+  (re-greened with evidence); BA11A/Idem2 residue pattern from interrupted
+  runs. OPERATIONAL GAPS (require separate authorization, not code): no
+  production deployment ever performed; no fresh pre-go-live backup executed
+  in/after this cycle; no monitoring/alerting wired; no production load
+  evidence (pool sizing, latency under concurrency unproven at scale).
+
+## DATABASE STATE
+
+* Scratch (`hyper_almoatasem_scratch`): CLEAN at session end — 2 fixture
+  products, 4 variants, inventory exact (P330 500/0), 0 orders/carts/
+  customers/promos/coupons/usages/discounts. Two leftover rows from
+  interrupted runs (BA11A product+variant, Idem2 customer) were zero-ref
+  verified and deleted during this session. No cleanup pending.
+* Production (`hyper_almoatasem`): READ-ONLY this session (SELECT-only
+  probes). Unchanged: 0 business rows; telemetry residue intact (audit 2 +
+  ratelimit 3, preserved per standing decision); migrations
+  baseline-finished + auth-rolledback + auth-finished; pg_trgm and
+  product_images absent. No DDL/DML performed.
+* Servers at session end: Node 0 processes, PostgreSQL stopped (verified).
+
+## GIT STATE
+
+* Branch: `master`. HEAD: `c61f4b24fe5eae5e9fccb6415552d22d0250b2c3`
+  (== origin/master; the pushed backend commit — unchanged all session).
+* Last important commit: `c61f4b2 feat: complete backend shopping foundation
+  through checkout` (already pushed; verified HEAD == origin/master).
+* Working tree: 38 changed paths (30 modified tracked + 8 untracked paths/
+  groups), nothing staged. Pre-existing changes (BA-F/BA-G/BA-H work) were
+  preserved untouched; this session ADDED: package.json + package-lock.json
+  (next 16.3.6→16.3.8 only — 10 version bumps all next/@next/*, 6 inert
+  nested tailwind-oxide WASI lockfile entries from npm tree resolution) and
+  this handoff update. No other files were modified by this session.
+* Untracked excluded (correctly left out): `scripts/set-super-admin-password-
+  local.ps1`, `_recovery/`, `.agents/`, `.claude/`, `.cursor/`, `.devin/`,
+  `.env*` (all ignored or intentionally untracked).
+
+## HUMAN AUTHORIZATION
+
+Still required explicitly (roadmap presence is not authorization) for: any
+commit or push · any production deployment, migration, seed, backup, or data
+change · Neon/Vercel plan or config changes · DNS/domain changes ·
+monitoring setup · go-live ceremony or any step of it · any dependency
+upgrade beyond what this session already did · any schema or RBAC change.
+
+## SAFETY CHECK (to be verified after this edit — see final report)
+
+---
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (BA-H Security Refresh, 2026-10-04)
+
+> Status labels are strict: **DONE** · **VERIFIED** (executed, output actually
+> seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED** · **NOT STARTED**.
+
+## 0. BA-H SECURITY REFRESH: COMPLETE (no upgrade needed; NO commit/push)
+
+* **Baseline verified from the tree (not assumed):** Next.js 16.3.6 installed
+  (= package.json pin) · React 19.2.8 · Prisma 7.10.0 triple · pg 8.23.0 ·
+  Node v24.21.0 · `strict: true` · HEAD c61f4b2, working tree uncommitted.
+* **Advisory review (official sources):** GHSA-vcvr-r3jv-pc5j (next/og RCE,
+  affected ≥16.2.0 <16.3.6, patched 16.3.6) → PATCHED (we are on 16.3.6).
+  Other Next.js advisories checked per-advisory: GHSA-p293 (Windows RCE,
+  needs <16.3.3) NOT AFFECTED · GHSA-mg66 (Cache-Components DoS, needs
+  <16.2.5 + PPR enabled — feature not enabled) NOT AFFECTED/UNREACHABLE ·
+  GHSA-gx5p (beforeInteractive XSS, <16.2.5, zero hits in src) NOT AFFECTED ·
+  GHSA-9qr9 (RSC RCE, Dec 2025, predates 16.3.x) NOT AFFECTED · GHSA-q4gf
+  (RSC DoS, <16.2.3), GHSA-ffhc (CSP nonces, <16.2.5), GHSA-h64f (image
+  DoS, <16.2.5), GHSA-3g8h (cache poisoning, <16.2.5) NOT AFFECTED. Reachability
+  verified by repo-wide scan (zero next/og|ImageResponse|satori hits; no
+  beforeInteractive scripts; PPR/Cache Components not enabled; proxy does
+  session-presence redirects only, no CDN in front).
+* **`npm audit` (fresh): 0 critical, 9 high** — identical set to the BA-H
+  baseline (GHSA-vfj7 braces→eslint-config-next dev-only;
+  GHSA-ggr8 deepmerge-ts→prisma CLI; GHSA-3f6p + GHSA-rgwj mysql2→prisma CLI).
+  All transitive dev/build tooling; fixes demand breaking downgrades —
+  documented P2, not executed. **No dependency change made.**
+* **Full regression re-run on 16.3.6 (spaced for login buckets):** bag-e2e 50 ·
+  baf-admin 41 · bad 64 · bac-shopping 60 · ba-a-contract 45 · orders 54+15 ·
+  promotions 58+13 · customers 66+8 · cart 50+13 · inventory 84+18 ·
+  replacements 54+12 · catalog 53 · foundation 26 · bab-catalog 46 (scale seed
+  + ANALYZE precondition, cleaned after) · xmodule 17 · atomicity 18 ·
+  idempotency-matrix 9 · deadlock 2 · audit-pairing 101 · rbac-guards 49 ·
+  rbac-races 53 · admin 80+8 · auth 20+8+6+13+25 · cc1 8 ·
+  units 28+17+40+34+34+24+22 · Phase 2/4/5 77/65/50. All 0 failures.
+  `tsc` (strict) / ESLint (0) / `npm run build`: PASS.
+* **Regression notes (environmental, not product):** by-design 401 cascades
+  (spaced across rollovers); one orphaned P1L reservation reset after
+  zero-row verification; two transient single-assertion flakes
+  (t-admin once, t-customers-concurrency once) then consecutive greens (P3).
+* **Production read-only (unchanged):** 0 business rows; users 1, sessions 0,
+  tokens 0; audit 2 + ratelimit 3 (disclosed residue); migrations
+  baseline-finished + auth-rolledback + auth-finished; pg_trgm 0,
+  product_images 0. NO DDL/DML.
+* **Scratch:** residue-free (2 fixtures; verified zero unexpected rows);
+  servers stopped.
+* **Production readiness: ENGINEERING READY — OPERATIONAL GAPS REMAIN**
+  (unchanged verdict; no P0; no unresolved P1). BA-I and beyond: DO NOT START.
+
+---
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. BA-H STATUS: COMPLETE (hardening; one security upgrade applied; NO commit/push)
+
+* **H1 (deps): Next.js 16.3.5 → 16.3.6 UPGRADED + VERIFIED** (minimal patched
+  version for critical GHSA-vcvr-r3jv-pc5j RCE in next/og ImageResponse;
+  reachability verified absent — zero imports/routes/SVG paths — but patched
+  anyway per policy; tsc/eslint/build + full regression green on 16.3.6).
+  `npm audit`: 0 critical remaining (9 high left, all transitive dev/build
+  tooling: braces/eslint-config-next, deepmerge-ts+mysql2/prisma-CLI — fixes
+  require breaking downgrades, documented P2, not executed).
+* **H2 (TypeScript): `strict: true` ENABLED, 0 errors.** 11 NULLABILITY errors
+  fixed honestly (Zod PATCH schemas tightened to service contracts —
+  explicit-null on non-nullable fields now 400, was 500, proven live;
+  dead-defensive null checks; explicit Prisma data assignments; one honest
+  type widening). Zero `any`/`!`/ts-ignore. Deferred with counts:
+  noUncheckedIndexedAccess (375), exactOptionalPropertyTypes (93).
+* **H3 (CI): `.github/workflows/ci.yml` created** (tsc + eslint zero-tolerance
+  + 7 unit suites + 3 PGlite suites + route-coverage drift gate + build with
+  never-dialed dummy URL; PR + master push triggers; no secrets, no DB).
+  Shared `scripts/api/route-coverage.mjs` (importable + directly executable)
+  wired into both t-ba-a-contract S1 and CI. YAML validated.
+* **H4/H5 (connections/security):** single factory confirmed (sole
+  `new PrismaClient`); UTC pin intact; pool defaults documented-unchanged (no
+  load evidence for retuning); PgBouncer tracks per-client `timezone` and
+  re-applies on activation — pin survives Neon transaction pooling
+  (vendor-documented). Cold starts healthy; DB-down → sanitized 500 proven
+  live with transparent pool recovery. 3 safe headers added + verified live
+  (nosniff, same-origin referrer, SAMEORIGIN framing; no CSP/HSTS by explicit
+  decision). Cookies complete; CORS absent by design; logging sanitized.
+* **H6 (auth migration): ALREADY APPLIED, NO ACTION.** Read-only preflight:
+  35 tables, 0 business rows; baseline finished + auth rolledback + finished;
+  users 1, sessions 0, tokens 0; pg_trgm/product_images absent.
+* **H7/H9:** `docs/backend-production-readiness.md` created (environment
+  boundary, DATABASE_URL/DIRECT_URL, UTC requirement, pool analysis, CI scope,
+  rate limits; go-live ≠ approved).
+* **Full regression green** (spaced for login buckets): bag-e2e 50 ·
+  baf-admin 41 · bad 64 · bac-shopping 60 · ba-a-contract 45 · orders 54+15 ·
+  promotions 58+13 · customers 66+8 · cart 50+13 · inventory 84+18 ·
+  replacements 54+12 · catalog 53 · foundation 26 · bab-catalog 46 · xmodule
+  17 · atomicity 18 · idempotency-matrix 9 · deadlock 2 · audit-pairing 101 ·
+  rbac-guards 49 · rbac-races 53 · admin 80+8 · auth 20+8+6+13+25 · cc1 8 ·
+  units 28+17+40+34+34+24+22 · Phase 2/4/5 77/65/50.
+  `tsc` (strict) / ESLint (0, src scripts) / `npm run build`: PASS.
+* **Regression notes (environmental, not product):** by-design 401 cascades;
+  one orphaned P1L reservation reset after zero-row verification; one
+  transient single `audit-filter-action` failure then 3× green (P3);
+  one transient single customers-concurrency failure then 4× green (P3);
+  bab-catalog needed scale seed + ANALYZE (precondition); `.next` corrupted
+  type file cleared (generated artifact, gitignored).
+* **Diff impact of BA-H:** strict flip, 11-error honest fix (6 validation +
+  3 routes + 2 writes), 6 dead vars removed, Next 16.3.6 (+lockfile),
+  3 safe headers, CI workflow, coverage module, readiness doc, handoff.
+  Uncommitted per standing rule (NO commit/push).
+* **Production readiness verdict: READY WITH EXPLICIT OPERATIONAL GAPS**
+  (no P0; no unresolved P1; go-live itself remains separately authorized).
+* **Deferred (unchanged):** advanced TS flags, settings immutable/bounds,
+  Next.js upgrade pass for remaining highs (P2), OTP/MFA, picking/fulfillment,
+  payments, delivery. BA-I and beyond: DO NOT START.
+
+---
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. BA-G STATUS: COMPLETE (verification + one minimal idempotency fix; NO commit/push)
+
+* **New suite `scripts/api/t-bag-e2e.mjs`: 50/50, 0 failures, 4 consecutive
+  runs.** ONE unbroken real journey (HTTP → route → validation → auth →
+  authorization → service → transaction → PostgreSQL): catalog discovery from
+  live API → product/variant/code/availability/search/pagination → identify
+  (201/200/equivalence) → address → guest cart → merge → 10% LINE promo +
+  20.00 coupon → estimate (70/23/67) → reprice → checkout 201 → snapshots,
+  reservations, coupon usage, promo rows, CHECKED_OUT, history → replay same
+  key → mutate catalog+address → order frozen → delete address → order intact
+  → propose + approve replacement (holds moved) → cancel (released, no double
+  release on replay, foreign cancel 404) → cross-domain concurrency gate
+  (coupon-race single winner, cancel+approve deterministic, same-cart double
+  single order) → final per-order consistency accounting.
+* **One minimal product fix found in verification (§61-allowed):**
+  `src/lib/orders/writes.ts` subjectHint for customer-kind owners required an
+  ACTIVE cart, so post-checkout same-key replay answered 404 instead of
+  200-replay (guest path already converged via any-status lookup +
+  CartConsumedError replay). Now latest-cart-any-status for both kinds —
+  same contract the guest path documents. Proven by `e2e-replay-same-order`;
+  full checkout-adjacent regression re-greened.
+* **Full regression green** (spaced for login buckets): bag-e2e 50 ·
+  baf-admin 41 · bad 64 · bac 60 · ba-a 45 · orders 54+15 · promotions 58+13 ·
+  customers 66+8 · cart 50+13 · inventory 84+18 · replacements 54+12 ·
+  catalog 53 · foundation 26 · bab-catalog 46 · xmodule 17 · atomicity 18 ·
+  idempotency 9 · deadlock 2 · audit-pairing 101 · rbac 49+53 · admin 80+8 ·
+  auth 20+8+6+13+25 · cc1 8 · units 28+17+40+34+34+24+22 · Phase 2/4/5 77/65/50.
+  `tsc` / ESLint (0 problems) / `npm run build`: PASS.
+* **Regression notes (environmental, not product):** by-design 401s forced
+  spacing; one orphaned P1L reservation reset after zero-row verification;
+  429 shape covered by unit mapping only (live trigger would poison buckets).
+* **Diff impact of BA-G:** +1 suite file, +1 handoff block, +1 minimal
+  subjectHint fix. Uncommitted per standing rule (NO commit/push).
+* **Deferred (unchanged):** everything from BA-F onward. BA-H: DO NOT START.
+
+---
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (BA-G, 2026-10-03/04)
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. BA-G STATUS: COMPLETE (verification + hardening; one minimal idempotency fix; NO commit/push)
+
+* **New suite `scripts/api/t-bag-e2e.mjs`: 50/50, 0 failures, 4 consecutive
+  runs.** ONE unbroken real journey (HTTP → route → validation → auth →
+  authorization → service → transaction → PostgreSQL): live catalog discovery
+  → product/variant/code/availability/search/pagination → identify →
+  address → guest cart → merge → 10% LINE promo + 20.00 coupon → estimate
+  (70/23/67) → reprice → checkout 201 → snapshots, reservations, coupon usage,
+  promo rows, CHECKED_OUT, history → same-key replay → mutate catalog+address
+  → order frozen → delete address → order intact → propose + approve
+  replacement (holds moved) → cancel (exact release, no double release on
+  replay, foreign cancel 404) → cross-domain concurrency gate (coupon-race
+  single winner, cancel+approve deterministic branch-exact, same-cart double
+  single order) → final per-order consistency accounting.
+* **One minimal product fix found in verification (§61-allowed):**
+  `src/lib/orders/writes.ts` subjectHint for customer-kind owners required an
+  ACTIVE cart, so post-checkout same-key replay answered 404 instead of
+  200-replay (guest path already converged via any-status lookup +
+  CartConsumedError replay). Now latest-cart-any-status for both kinds —
+  same contract the guest path documents. Proven by `e2e-replay-same-order`;
+  full checkout-adjacent regression re-greened.
+* **BA-H1 (TypeScript): `strict: true` ENABLED, 0 errors.** Baseline was 11
+  NULLABILITY errors (all catalog admin): Zod PATCH schemas tightened to match
+  service contracts (explicit-null on non-nullable fields now 400, was 500 —
+  proven live), dead-defensive null checks on create results, explicit Prisma
+  data assignments, one honest service-type widening where null is handled.
+  Zero `any`/`!`/ts-ignore. Deferred with counts: noUncheckedIndexedAccess
+  (375 lines), exactOptionalPropertyTypes (93 lines).
+* **Dead code removed (6 pre-existing unused vars)** across seed-bab-scale,
+  t-ba-a-contract, t-bab-catalog, t-bac-shopping, t-rbac-guards, t-rbac-races,
+  t-time-contract (incl. its dead `--port` flag). ESLint 0 problems on
+  `src scripts`.
+* **BA-H2 (CI): `.github/workflows/ci.yml` created** — hermetic only (tsc,
+  eslint zero-tolerance, 7 unit suites, 3 PGlite suites, route-coverage drift
+  gate, build with never-dialed dummy URL). No secrets, no production path.
+  Live-API matrix deliberately stays a local scratch gate (fixtures +
+  fail-closed rate limits make CI runs flaky by design) — documented in file.
+* **BA-H3 (contract): shared `scripts/api/route-coverage.mjs`** (importable +
+  directly executable, exit 2 on drift), wired into both t-ba-a-contract S1
+  and CI. Live: 85 doc paths, zero drift. Normative designation confirmed:
+  contract.md = human contract, openapi.yaml = machine companion (states it).
+* **BA-H4 (pooling): design-reviewed + vendor-verified.** Single factory
+  confirmed (sole `new PrismaClient`); no pool bounds changed (no load
+  evidence; arbitrary numbers refused). PgBouncer docs prove startup
+  `timezone` is tracked per-client and re-applied on activation — the UTC pin
+  survives Neon transaction pooling. Cold starts healthy; DB-down → sanitized
+  500 (proven live); pool reconnects transparently after outage.
+* **BA-H5 (security):** 3 safe headers added to `next.config.ts` (nosniff,
+  same-origin referrer, SAMEORIGIN framing — verified live; no CSP/HSTS by
+  explicit decision); CORS absent by design (same-origin); cookie flags
+  complete (HttpOnly/Secure-isProd/lax/Path/no-Domain); logging centrally
+  sanitized, zero console.* in src; rate limits login-scoped by design.
+  `npm audit`: 10 vulns (9 high, 1 critical) — all transitive dev/build
+  tooling except Next.js RCE in **unused** `next/og` (no ImageResponse
+  anywhere) → documented P2, upgrade deferred to a dedicated pass.
+* **BA-H6 (auth migration): ALREADY APPLIED, NO ACTION.** Read-only preflight:
+  35 tables, 0 business rows; baseline finished + auth rolledback + auth
+  finished(steps=1); users 1, sessions 0, tokens 0; pg_trgm/product_images
+  absent. Matches handoff §5.
+* **BA-H7/H8:** `docs/backend-production-readiness.md` created (environment
+  boundary, DATABASE_URL/DIRECT_URL, UTC requirement, pool analysis, CI
+  scope, rate limits, go-live ≠ approved).
+* **Full regression green** (spaced for login buckets): bag-e2e 50 ·
+  baf-admin 41 · bad 64 · bac-shopping 60 · ba-a-contract 45 · orders 54+15 ·
+  promotions 58+13 · customers 66+8 · cart 50+13 · inventory 84+18 ·
+  replacements 54+12 · catalog 53 · foundation 26 · bab-catalog 46 · xmodule
+  17 · atomicity 18 · idempotency-matrix 9 · deadlock 2 · audit-pairing 101 ·
+  rbac-guards 49 · rbac-races 53 · admin 80+8 · auth 20+8+6+13+25 · cc1 8 ·
+  units 28+17+40+34+34+24+22 · Phase 2/4/5 77/65/50.
+  `tsc` (strict) / ESLint (0) / `npm run build`: PASS.
+* **Regression notes (environmental, not product):** by-design 401 cascades
+  (spaced); one orphaned P1L reservation reset after zero-row verification;
+  `audit-filter-action` failed twice identically then green ×3 (transient,
+  P3 observation); bab-catalog needed scale seed + ANALYZE (precondition);
+  `.next` corrupted type file cleared (generated artifact, gitignored).
+* **Diff impact of BA-G:** +1 suite, +1 CI workflow, +1 coverage module,
+  +1 readiness doc, +3 safe headers, strict flip, 11-error honest fix,
+  6 dead vars removed. Uncommitted per standing rule (NO commit/push).
+* **Deferred (unchanged):** advanced TS flags (roadmap documented), settings
+  immutable/bounds, OTP/MFA, picking/fulfillment, payments, delivery,
+  storefront self-service. BA-H follow-ups: Next.js RCE upgrade pass (P2).
+  BA-I and beyond: DO NOT START.
+
+---
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (BA-F, 2026-10-02)
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. BA-F STATUS: COMPLETE (pushed backend commit c61f4b2; 3 genuine admin gaps closed; NO BA-F commit/push)
+
+* **PART 1 — PUSH: SUCCESS.** Backend commit
+  `c61f4b24fe5eae5e9fccb6415552d22d0250b2c3` pushed (`e108acc..c61f4b2
+  master → master`); verified HEAD == origin/master, ahead/behind 0/0.
+  Local-only `scripts/set-super-admin-password-local.ps1` still untracked.
+  No deployment triggered (git push only; no Vercel/Neon/production action).
+* **Audit verdict:** BA-9 admin surface is real (authenticated + authorized +
+  audited + validated + transaction-safe). Catalog/inventory/orders/customers/
+  promotions/coupons/users/roles/settings/audit all COMPLETE with locked RBAC
+  decisions intact (ceiling, serialization, per-request snapshot, no-auto-join,
+  SUPER_ADMIN protection). No production-code doubles exist.
+* **Genuine gaps closed (additive only, no contract breaks, no new
+  permissions):** `GET /api/admin/roles/[id]/members` (read-only member
+  listing, `roles.view`) · `GET /api/admin/coupons/[id]/usages` (read-only
+  usage ledger reusing dead `toUsage`, `coupons.view`, never bumps counters) ·
+  `dateFrom`/`dateTo` on `GET /api/admin/orders` (ISO datetime, inverted → 400;
+  composes with `idx_orders_status_time`). OpenAPI updated for all three.
+* **Deliberately NOT implemented (hard stops honored):** settings immutable /
+  bounds (needs schema column + invented rules — no frozen immutable
+  designation exists); anything needing migration, taxonomy redesign, RBAC
+  redesign, payments, delivery, frontend.
+* **New suite `scripts/api/t-baf-admin.mjs`: 41/41, 0 failures, 3 runs**
+  (both disable-vs-checkout race branches proven). Covers: members list +
+  pagination + 404/400/401/403; usages list + read-no-bump + pagination +
+  404/401/403; date filter (future-empty / past-empty / wide-contains-both /
+  inverted-400 / malformed-400); disable-vs-checkout race (exactly one branch
+  with consistent state); 10-path bare-403 isolation matrix + anon-401;
+  self-deactivation 403 spot; audit-pairs-role-create.
+* **Full regression green** (this session, spaced for login buckets):
+  baf-admin 41 · admin 80+8 · orders 54+15 · promotions 58+13 · bad 64 ·
+  bac-shopping 60 · ba-a-contract 45 · customers 66+8 · cart 50+13 ·
+  inventory 84+18 · replacements 54+12 · catalog 53 · foundation 26 ·
+  bab-catalog 46 (after documented scale seed + ANALYZE) · xmodule 17 ·
+  atomicity 18 · idempotency-matrix 9 · deadlock 2 · audit-pairing 101 ·
+  rbac-guards 49 · rbac-races 53 · auth flow/rbac/races/security/hardening
+  20/8/6/13/25 · cc1-lockout 8 · units 28+17+40+34+34+24+22 ·
+  Phase 2/4/5 77/65/50. `tsc` / ESLint (0 problems) / `npm run build`: PASS.
+* **Regression notes (environmental, not product):** login buckets forced
+  spacing (by-design 401s); replacements caught an orphaned P1L reservation
+  (reset after zero-row verification → green); bab-catalog needed scale seed +
+  ANALYZE (documented precondition).
+* **Diff impact of BA-F:** src additions (2 routes, 2 queries, 1 validation
+  extension, 1 route wiring) + t-baf-admin.mjs + 3 openapi entries + doc
+  table rows. Uncommitted per standing rule (NO BA-F commit/push).
+* **Deferred (unchanged):** settings immutable/bounds (needs arch decision +
+  schema), OTP/login, MFA, `customers.manage` split, picking/fulfillment,
+  payments, delivery, storefront address self-service. BA-G: DO NOT START.
+
+---
 
 # ⚑ SESSION HANDOFF — CURRENT STATE (BA-D, 2026-10-02)
 

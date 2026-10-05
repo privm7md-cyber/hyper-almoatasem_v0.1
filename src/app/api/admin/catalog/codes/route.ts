@@ -24,6 +24,10 @@ export async function POST(request: Request) {
   }
   try {
     const row = await createCode(parsed.data, gate.admin.user.id);
+    if (!row) {
+      const r = fail(new ApiError("NOT_FOUND", "Product code not found."));
+      return NextResponse.json(r.body, { status: r.status });
+    }
     const r = created({ id: row.id, code: row.code, type: row.type, isPrimary: row.isPrimary });
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {

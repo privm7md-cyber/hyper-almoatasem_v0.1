@@ -93,7 +93,7 @@ poisoned tx, never `ON CONFLICT DO NOTHING`).
 | GET | `/api/store/orders` | `?customerId=` (own) | list own, newest first |
 | GET | `/api/store/orders/[id]` | `?customerId=` (own) | snapshot detail + history |
 | POST | `/api/store/orders/[id]/cancel` | `{customerId}` (own) | unpicked cancel |
-| GET | `/api/admin/orders` | `orders.view` | list + status/customer/number filters |
+| GET | `/api/admin/orders` | `orders.view` | list + status/customer/number/date filters (`dateFrom`/`dateTo` ISO, inverted → 400) |
 | GET | `/api/admin/orders/[id]` | `orders.view` | full detail |
 | POST | `/api/admin/orders/[id]/cancel` | `orders.cancel` | staff cancel (same policy) |
 

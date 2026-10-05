@@ -6,12 +6,10 @@ import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
 import { adminOrDeny, denyUnless } from "@/lib/api/route-auth";
 import { uuidSchema } from "@/lib/api/validation";
-import { variantInputSchema } from "@/lib/catalog/validation";
+import { variantPatchSchema } from "@/lib/catalog/validation";
 import { getVariant } from "@/lib/catalog/queries";
 import { patchVariant } from "@/lib/catalog/writes";
 import { toAdminVariant } from "@/lib/catalog/serialize";
-
-const variantPatchSchema = variantInputSchema.omit({ productId: true, price: true }).partial();
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("products.view");

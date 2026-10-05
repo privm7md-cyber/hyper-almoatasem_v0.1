@@ -60,10 +60,6 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const get = async (path, cookie = null) => {
-    const r = await fetch(`${baseUrl}${path}`, { headers: cookie ? { cookie } : {} });
-    return { status: r.status, body: await r.json().catch(() => ({})) };
-  };
   const post = async (path, data, cookie = null) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",

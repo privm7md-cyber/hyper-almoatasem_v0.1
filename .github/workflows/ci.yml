@@ -1,0 +1,79 @@
+# Backend CI — hermetic checks only (no database server, no secrets).
+#
+# Scope rationale (documented, do not silently widen):
+# - typecheck + lint + unit suites + PGlite frozen-SQL suites + build are
+#   fully hermetic: they never open a network connection.
+# - The live-API matrix (scripts/api/t-*.mjs against a scratch PostgreSQL)
+#   stays a LOCAL gate: it needs provisioned fixtures (products, users with
+#   known test passwords) plus login-bucket spacing, neither of which belongs
+#   in CI. The suites themselves refuse any non-scratch database, so even a
+#   misconfiguration fails closed rather than touching production.
+# - `db/tests/*.js` are frozen CommonJS harnesses excluded from lint scope
+#   (see the lint step); they still RUN here via their own package.
+# - `npm run build` gets a dummy DATABASE_URL that is never dialed (Next
+#   prerenders static pages only; API routes are dynamic). If a future change
+#   made the build connect, it would fail closed (connection refused).
+
+name: backend-ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    # Pinned runtime: must match the supported local runtime (Node 24.x).
+    # No matrix: a second Node major is not a supported configuration.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (db harness)
+        run: npm ci --prefix db/tests
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint (zero-tolerance scope)
+        # src + scripts only: db/tests/*.js are frozen CommonJS and
+        # intentionally out of lint scope (see above).
+        run: npx eslint src scripts --max-warnings 0
+
+      - name: API contract drift gate (static, no DB)
+        # Fails on any undocumented route or stale doc entry. Method-level,
+        # envelope-level and permission-level governance live in the
+        # live suites (local scratch gate).
+        run: node scripts/api/route-coverage.mjs
+
+      - name: Unit suites (no DB, no server)
+        run: |
+          node scripts/api/t-cart-unit.mjs
+          node scripts/api/t-orders-unit.mjs
+          node scripts/api/t-customers-unit.mjs
+          node scripts/api/t-inventory-unit.mjs
+          node scripts/api/t-promotions-unit.mjs
+          node scripts/api/t-replacements-unit.mjs
+          node scripts/api/t-admin-unit.mjs
+
+      - name: Frozen-SQL suites (PGlite, no server)
+        run: |
+          node db/tests/run-tests.js
+          node db/tests/run-phase4-tests.js
+          node db/tests/run-phase5-tests.js
+
+      - name: Build
+        env:
+          # Dummy value: never dialed (see header comment). Present only so
+          # config evaluation has a value to read; no secret, no production.
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_nodb
+        run: npm run build

@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
 import { adminOrDeny, denyUnless } from "@/lib/api/route-auth";
 import { uuidSchema } from "@/lib/api/validation";
-import { brandInputSchema } from "@/lib/catalog/validation";
+import { brandPatchSchema } from "@/lib/catalog/validation";
 import { getBrand } from "@/lib/catalog/queries";
 import { patchBrand } from "@/lib/catalog/writes";
 import { toBrand } from "@/lib/catalog/serialize";
@@ -41,7 +41,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid request body."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const parsed = brandInputSchema.partial().safeParse(body);
+  const parsed = brandPatchSchema.safeParse(body);
   if (!parsed.success) {
     const r = fail(new ApiError("VALIDATION", "Invalid brand."));
     return NextResponse.json(r.body, { status: r.status });
