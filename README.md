@@ -1,3 +1,11 @@
+# Hyper Al-Moatasem / هايبر المعتصم — grocery e-commerce (Development / Testing)
+
+> Project status: backend API development is COMPLETE and verified; the
+> storefront frontend is NOT STARTED; production/go-live is a future stage.
+> The authoritative current state lives in `docs/AGENT-HANDOFF.md`
+> (read its top "CURRENT STATE" block first). The lines below are the
+> default Next.js template text, kept for tooling reference.
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

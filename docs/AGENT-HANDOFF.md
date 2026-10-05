@@ -1,14 +1,212 @@
 # AGENT HANDOFF — Hyper Al-Moatasem / هايبر المعتصم (canonical, self-contained)
 
 > Read this file first. The authoritative CURRENT STATE is the block
-> "⚑ SESSION HANDOFF — CURRENT STATE (BA-H refresh + BA-I gate, 2026-10-04)"
+> "⚑ SESSION HANDOFF — CURRENT STATE (DEV-SYNC audit + docs sync, 2026-10-06)"
 > immediately below.
 > It supersedes any conflicting wording further down (including the BA-C
-> closeout block, which is preserved beneath it as history); the standing
-> reference sections (§ Project identity … § Human decisions) are preserved
-> and must not be deleted. Conversation history is NOT the source of truth —
+> closeout block and the older "GO-LIVE EXECUTION" gate labels, which are
+> preserved beneath it as history); the standing reference sections
+> (§ Project identity … § Human decisions) are preserved and must not be
+> deleted. Conversation history is NOT the source of truth —
 > the repository, the database and passing tests are. If anything here
 > conflicts with those, stop and investigate.
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (DEV-SYNC audit + docs sync, 2026-10-06)
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+> Classification marks: ✅ COMPLETE · 🟡 CORE COMPLETE / NON-BLOCKING ·
+> 🔴 INCOMPLETE · ⚪ UNVERIFIED. Nothing below is claimed without evidence
+> from code, tests, or files present in this repository.
+
+## 0. SESSION SUMMARY (this session: full-repo audit + docs sync)
+
+Work executed, in order: baseline (HEAD 3277760 == origin/master, tree
+clean except intended local-only `scripts/set-super-admin-password-
+local.ps1`) → full-repo inspection (85 API routes, 34 Prisma models,
+3 migrations incl. prototype-never-apply, 40 test scripts, 28 docs) →
+drift scan (zero TODO/FIXME/HACK in src; zero .only/.skip; zero
+production-code doubles — the single "dummy hash" is the timing-safe
+unknown-user login feature) → fresh verification on 2026-10-06
+(tsc/eslint/route-coverage/units/PGlite/build/audit + 6 live suites
+270/270 on scratch) → classification → this handoff update + README
+pointer fix (docs-only changes; zero application-code, schema, migration,
+database, Neon, Vercel, env, or secret changes). No commit yet at the
+time of writing; commit + push follow as the authorized final step.
+
+## 1. CURRENT PHASE (single, authoritative)
+
+```text
+CURRENT PHASE: Backend Development COMPLETE — Storefront Frontend NOT STARTED.
+The project is in Development / Testing. Production / go-live is a FUTURE
+stage, not the current gate. Older "GO-LIVE EXECUTION" labels further down
+are history from an earlier framing and do NOT describe the current phase.
+```
+
+## 2. COMPLETED WORK (DONE + VERIFIED, with evidence)
+
+* Backend API: 85 routes implemented (`src/app/api`, route files counted
+  2026-10-06) covering catalog, search (Arabic pg_trgm), cart, repricing,
+  pricing, promotions, coupons, customers, addresses, checkout, orders,
+  replacements, admin (users/roles/permissions/settings/audit/session),
+  auth. OpenAPI ↔ routes drift gate: 85 doc paths, 0 missing either way
+  (VERIFIED 2026-10-06 via `route-coverage.mjs`).
+* Business logic: reserve-then-commit inventory, weighted products +
+  sale-step matrix, integer-piastre promo engine (priority→specificity,
+  sequential stacking, caps), coupon row-lock races + rollback, order
+  lifecycle + history-first, link-not-overwrite replacements, guest→
+  customer upgrade, snapshot immunity. All VERIFIED by live suites.
+* Auth/RBAC/audit: Argon2id, opaque 8h DB sessions, `__Host-` cookies,
+  lockout 5→15min, DB rate buckets (IP 30 + account 10 / 15min,
+  fail-closed), effective-permission ceiling, role-row serialization,
+  SUPER_ADMIN protection, same-tx mutation+audit pairing, sanitized
+  logging. VERIFIED (ba-a 45 + baf-admin 41 fresh 2026-10-06; guards 49,
+  races 53, pairing 101 green 2026-10-04/05 on identical code).
+* Hardening: `strict:true` (0 errors), CI hermetic workflow, 3 safe API
+  headers, UTC session pin from the single Prisma factory (sole
+  `new PrismaClient` at `src/lib/db.ts:26`), receipt docs.
+* Security refresh: Next.js 16.3.8 installed = pinned (VERIFIED
+  2026-10-06 via `npm list`); `npm audit` 0 critical / 9 high — the known
+  transitive dev/build-tooling set (fixes demand breaking downgrades,
+  deferred as P2 — VERIFIED 2026-10-06).
+* Minimal admin UI shell: login, dashboard, users pages + logout action,
+  all server-gated (`requireAdmin`). Functional shell, not a storefront.
+
+## 3. VERIFIED WORK — TEST STATUS (last verification: 2026-10-06)
+
+Fresh this session (executed, outputs seen):
+`tsc` PASS · ESLint PASS (0, `src scripts`) · route-coverage 85/0 PASS ·
+units 28+17+40+34+34+24+22 = 199 PASS · PGlite 77/65/50 PASS ·
+`npm run build` PASS · live on scratch: ba-a 45 · time 10 · bag-e2e 50 ·
+baf-admin 41 · bad 64 · bac 60 = 270/270, 0 failures · scratch
+residue-free after runs (2 fixtures; 0 orders/carts/customers/promos/
+coupons) · servers stopped afterwards.
+Prior VERIFIED on functionally identical code (2026-10-04/05, no src
+change since except a whitespace-only line): remaining live suites
+(cart/orders/inventory/promotions/customers/replacements/catalog/
+foundation/xmodule/atomicity/idempotency/deadlock/audit-pairing/
+rbac/admin/auth/cc1) + full BA-I gate assessment. Not re-run fresh
+today (rate-bucket spacing) — recorded as prior evidence, not fresh.
+
+## 4. KNOWN GAPS (honest, not hidden)
+
+* Storefront frontend: NOT STARTED (`src/app/page.tsx` is still the
+  create-next-app boilerplate). Not a backend defect.
+* Performance under production-like load: UNVERIFIED (no benchmark).
+* Connection-pool behavior under production concurrency: UNVERIFIED.
+* Fresh pre-go-live backup, production deployment, monitoring/alerting:
+  DEFERRED (future stage; forbidden without separate authorization).
+* Non-blocking roadmap (P2/P3): advanced TS flags
+  (noUncheckedIndexedAccess 375 lines, exactOptionalPropertyTypes
+  93 lines); price-sorted catalog listing (deferred by decision);
+  settings immutable/bounds (needs architecture decision + schema —
+  NOT started); OTP/MFA/password-reset routes; picking/fulfillment;
+  payments; delivery; the 6 designed-but-unimplemented ERD tables
+  (must only arrive via future reviewed migrations).
+
+## 5. BLOCKING ISSUES
+
+```text
+Development blockers: NONE (0).
+No technical, security, data-integrity, auth/RBAC, concurrency, or
+idempotency blocker exists. Production-stage items (deploy/backup/
+monitoring/load proof) are DEFERRED future work, not current blockers.
+```
+
+## 6. BUILD STATUS
+
+`npm run build` (prisma generate && next build) PASS on 2026-10-06 with
+a never-dialed dummy DATABASE_URL. TypeScript strict PASS. ESLint
+zero-tolerance PASS. Prisma client generates cleanly (7.10.0 triple).
+
+## 7. DEPLOYMENT STATE
+
+Preview-capable only. No production deployment has ever been performed
+and none is claimed. Vercel project exists for preview; no production
+cutover, no domain/TLS cutover, no production env wiring. B14 Neon
+hosted DB is provisioned on Free tier (NOT a production SLA; scale-to-
+zero cannot be disabled there) — present as an environment, not as a
+go-live.
+
+## 8. DATABASE ENVIRONMENT STATE
+
+* Local dev (`hyper_almoatasem`): present; `.env` points here (app +
+  migrator roles). NEVER run test suites against it.
+* Scratch (`hyper_almoatasem_scratch`): VERIFIED 2026-10-06 — 2 fixture
+  products, 0 business rows elsewhere; all destructive testing happens
+  here; disposable.
+* Production/hosted: NOT touched by this session in any way (no
+  connection, no reads, no writes). Documented state unchanged: auth
+  foundation applied 2026-09-24; 0 business rows; telemetry residue
+  (audit 2 + ratelimit 3) preserved per standing decision.
+* Future SQL (`db/future/*.sql`) exists in repo but is NOT applied
+  anywhere except scratch activations as documented. The prototype
+  migration dir (`00000000000000_*_PROTOTYPE_DO_NOT_APPLY`) must NEVER
+  enter production history.
+
+## 9. FRONTEND STATE
+
+```text
+Storefront frontend: NOT STARTED (boilerplate page.tsx).
+Admin UI shell: minimal but functional (login/dashboard/users, server-gated).
+Backend provides the complete API foundation required to start frontend work.
+Backend rating is NOT lowered by frontend state.
+```
+
+## 10. BACKEND VERDICT
+
+```text
+Backend for Development: ✅ COMPLETE.
+All domains implemented, contracted (OpenAPI), validated, authorized,
+audited, concurrency- and idempotency-proven, regression-green.
+Remaining items are non-blocking future work (§4), not incompleteness.
+```
+
+## 11. DOCUMENTATION DRIFT FOUND + FIXED THIS SESSION
+
+* `README.md` was the default create-next-app boilerplate describing a
+  template, not this project → prepended a factual project-status
+  header pointing at `docs/AGENT-HANDOFF.md` (no duplicate docs created).
+* Standing "GO-LIVE EXECUTION" gate labels (§4/§17 below) describe an
+  earlier framing; this block re-frames the project as Development /
+  Testing with production as a future stage. History preserved, not
+  deleted. No architecture decision changed; no conflict found between
+  locked decisions and the code (single factory, UTC pin, RBAC model,
+  audit pairing all verified present).
+
+## 12. NEXT SAFE ACTION (single)
+
+```text
+NEXT ACTION: Start storefront Frontend Development against the verified
+backend API (contract: docs/openapi.yaml + docs/backend-application-contract.md),
+when the human authorizes it. No backend blocker stands in the way.
+```
+
+## 13. HUMAN AUTHORIZATION (still required explicitly)
+
+Any production deployment, migration, seed, bootstrap, backup, or data
+change · Neon/Vercel plan or config changes · DNS/domain changes ·
+monitoring setup · go-live ceremony or any step of it · any commit or
+push (this session's docs-sync commit/push is the authorized exception)
+· any dependency upgrade · any schema, RBAC, or frozen-file change ·
+starting frontend (needs a go-ahead, not a blocker) · deleting any data
+or residue anywhere.
+
+## 14. IMPORTANT LOCKED DECISIONS (restated, not changed)
+
+Next.js stays on 16.3.x · no `npm audit fix --force`, no mass upgrades ·
+Prisma 7.10.0 triple locked · frozen SQL immutable without architecture
+decision · telemetry/audit residue never deleted · production is
+read-only without per-step authorization · rate limits fail-closed ·
+business clocks SQL-side · conversation history never authoritative.
+
+## 15. LAST VERIFICATION DATE
+
+2026-10-06 (hermetic + 6 live suites fresh; full-matrix remainder per
+2026-10-04/05 on identical code). Servers stopped; scratch clean.
+
+---
 
 # ⚑ SESSION HANDOFF — CURRENT STATE (BA-H refresh + BA-I gate, 2026-10-04)
 
