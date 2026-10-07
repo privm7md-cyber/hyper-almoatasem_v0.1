@@ -1,9 +1,11 @@
 // Public storefront: guest get-or-create by canonical phone.
 // Phone is the frozen identity (global UNIQUE); concurrent callers converge
 // onto one customer via the UNIQUE backstop (never duplicates). Existing →
-// 200, created → 201. No OTP/customer-auth exists in frozen scope — the
-// response carries identity fields only (never password_hash by
-// construction); customer self-service auth is deferred.
+// 200, created → 201. PHASE 2.5: this endpoint is a customer lookup / guest
+// bootstrap helper ONLY — it never mints an authenticated session (phone
+// alone is not a credential). Authenticated access requires register/login
+// with a password. The response carries identity fields only (never
+// password_hash by construction).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";

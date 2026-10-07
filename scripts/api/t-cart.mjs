@@ -65,34 +65,43 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const get = async (path, token = null, customerId = null) => {
-    const qs = customerId ? `?customerId=${customerId}` : "";
-    const r = await fetch(`${baseUrl}${path}${qs}`, { headers: token ? { "x-guest-token": token } : {} });
+  const get = async (path, token = null, extra = {}) => {
+    const r = await fetch(`${baseUrl}${path}`, { headers: { ...(token ? { "x-guest-token": token } : {}), ...extra } });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const post = async (path, data, token = null) => {
+  const post = async (path, data, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}) },
+      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}), ...extra },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const patch = async (path, data, token = null) => {
+  const patch = async (path, data, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}) },
+      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}), ...extra },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const del = async (path, token = null, customerId = null) => {
-    const qs = customerId ? `?customerId=${customerId}` : "";
-    const r = await fetch(`${baseUrl}${path}${qs}`, {
+  const del = async (path, token = null, extra = {}) => {
+    const r = await fetch(`${baseUrl}${path}`, {
       method: "DELETE",
-      headers: token ? { "x-guest-token": token } : {},
+      headers: { ...(token ? { "x-guest-token": token } : {}), ...extra },
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null, status: reg.status };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null, status: r.status };
   };
 
   const cartIds = new Set();
@@ -109,12 +118,14 @@ async function main() {
     const pmap = Object.fromEntries(px.map((r) => [r.id, r.p]));
     t("fixture-prices", pmap[P330] === "15.00" && pmap[ROMI_V] === "320.00", JSON.stringify(pmap));
 
-    // ---------- customers via BA-4 identify ----------
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Cart1" });
-    const c2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Cart2" });
-    const idC1 = c1.body.data.id;
-    const idC2 = c2.body.data.id;
-    t("customers-ready", c1.status <= 201 && c2.status <= 201 && !!idC1 && !!idC2);
+    // ---------- customers via session (PHASE 2 identity) ----------
+    const ss1 = await sess(P_C1, "Cart1");
+    const ss2 = await sess(P_C2, "Cart2");
+    const idC1 = ss1.id;
+    const idC2 = ss2.id;
+    const tC1 = ss1.tok;
+    const tC2 = ss2.tok;
+    t("customers-ready", !!idC1 && !!idC2 && !!tC1 && !!tC2);
 
     // ---------- guest create / resolve ----------
     const g1 = await post(`/api/store/cart`, {});
@@ -135,20 +146,20 @@ async function main() {
     t("guest-create-second-201", gNeither.status === 201 && gNeither.body.data.cart.id !== g1.body.data.cart.id);
     track(gNeither.body);
     const tok2 = gNeither.body.data.guestToken;
-    const bothSides = await post(`/api/store/cart`, { customerId: idC1 }, tok1);
+    const bothSides = await post(`/api/store/cart`, {}, tok1, H(tC1));
     t("owner-both-400", bothSides.status === 400);
 
     // ---------- customer create ----------
-    const cc1 = await post(`/api/store/cart`, { customerId: idC1 });
+    const cc1 = await post(`/api/store/cart`, {}, null, H(tC1));
     track(cc1.body);
     t("customer-create-201", cc1.status === 201 && cc1.body.data.cart.guest === false
       && cc1.body.data.cart.customerId === idC1 && cc1.body.data.cart.expiresAt === null);
-    const cc1b = await post(`/api/store/cart`, { customerId: idC1 });
+    const cc1b = await post(`/api/store/cart`, {}, null, H(tC1));
     t("customer-resolve-200", cc1b.status === 200 && cc1b.body.data.cart.id === cc1.body.data.cart.id);
-    const cMiss = await post(`/api/store/cart`, { customerId: UNKNOWN });
-    t("customer-unknown-404", cMiss.status === 404);
-    const cMal = await post(`/api/store/cart`, { customerId: "nope" });
-    t("customer-malformed-400", cMal.status === 400);
+    const cForged = await post(`/api/store/cart`, {}, null, H("v1.04800000-0000-7000-8000-000000009999.1790000000." + "ab".repeat(32)));
+    t("customer-forged-401", cForged.status === 401);
+    const cMal = await get(`/api/store/cart`, null, H("bad-token"));
+    t("customer-malformed-401", cMal.status === 401);
 
     // ---------- add items (guest cart) ----------
     const a1 = await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "2" }, tok1);
@@ -216,7 +227,7 @@ async function main() {
     track(g2.body);
     const tokR = g2.body.data.guestToken;
     await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "2" }, tokR);
-    const m1 = await post(`/api/store/cart/merge`, { customerId: idC2 }, tokR);
+    const m1 = await post(`/api/store/cart/merge`, {}, tokR, H(tC2));
     track(m1.body);
     t("merge-reassign-200", m1.status === 200 && m1.body.data.merge.mode === "reassigned"
       && m1.body.data.cart.customerId === idC2 && m1.body.data.cart.status === "ACTIVE"
@@ -225,20 +236,20 @@ async function main() {
     t("merge-token-retired-404", staleTok.status === 404);
 
     // ---------- merge: sum path ----------
-    await post(`/api/store/cart/items`, { customerId: idC1, productVariantId: P330, quantity: "1" });
+    await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "1" }, null, H(tC1));
     const g3 = await post(`/api/store/cart`, {});
     track(g3.body);
     const tokS = g3.body.data.guestToken;
     await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "2" }, tokS);
     await post(`/api/store/cart/items`, { productVariantId: ROMI_V, quantity: "0.250" }, tokS);
-    const m2 = await post(`/api/store/cart/merge`, { customerId: idC1 }, tokS);
+    const m2 = await post(`/api/store/cart/merge`, {}, tokS, H(tC1));
     track(m2.body);
     const mc = m2.body.data.cart;
     t("merge-sum-200", m2.status === 200 && m2.body.data.merge.mode === "merged"
       && num(lineOf(mc, P330).quantity) === 3 && num(lineOf(mc, ROMI_V).quantity) === 0.25
       && m2.body.data.merge.summed === 1 && m2.body.data.merge.inserted === 1);
     t("merge-repriced-live", num(lineOf(mc, P330).unitPriceSnapshot) === 15 && lineOf(mc, P330).priceCheckedAt !== null);
-    const m2dbl = await post(`/api/store/cart/merge`, { customerId: idC1 }, tokS);
+    const m2dbl = await post(`/api/store/cart/merge`, {}, tokS, H(tC1));
     t("merge-double-409", m2dbl.status === 409);
 
     // ---------- merge: dead-line drop ----------
@@ -247,25 +258,25 @@ async function main() {
     const tokD = g4.body.data.guestToken;
     await post(`/api/store/cart/items`, { productVariantId: P1L, quantity: "1" }, tokD);
     await db.query(`UPDATE product_variants SET is_active = FALSE WHERE id = $1`, [P1L]);
-    const m3 = await post(`/api/store/cart/merge`, { customerId: idC1 }, tokD);
+    const m3 = await post(`/api/store/cart/merge`, {}, tokD, H(tC1));
     t("merge-drop-dead", m3.status === 200 && m3.body.data.merge.dropped.length === 1
       && m3.body.data.merge.dropped[0].variantId === P1L
       && !lineOf(m3.body.data.cart, P1L));
     await db.query(`UPDATE product_variants SET is_active = TRUE WHERE id = $1`, [P1L]);
-    const mMiss = await post(`/api/store/cart/merge`, { customerId: idC1 }, "d".repeat(64));
+    const mMiss = await post(`/api/store/cart/merge`, {}, "d".repeat(64), H(tC1));
     t("merge-unknown-token-404", mMiss.status === 404);
-    const mMalT = await post(`/api/store/cart/merge`, { customerId: idC1 }, "bad");
+    const mMalT = await post(`/api/store/cart/merge`, {}, "bad", H(tC1));
     t("merge-malformed-token-400", mMalT.status === 400);
-    const mMalC = await post(`/api/store/cart/merge`, { customerId: "nope" }, tokD);
-    t("merge-malformed-customer-400", mMalC.status === 400);
-    const mNoCust = await post(`/api/store/cart/merge`, { customerId: UNKNOWN }, tok2);
-    t("merge-unknown-customer-404", mNoCust.status === 404);
+    const mNoSess = await post(`/api/store/cart/merge`, {}, tokD);
+    t("merge-no-session-401", mNoSess.status === 401);
+    const mForged = await post(`/api/store/cart/merge`, {}, tok2, H("v1.04800000-0000-7000-8000-000000009999.1790000000." + "ab".repeat(32)));
+    t("merge-forged-session-401", mForged.status === 401);
 
     // ---------- merge into inactive customer ----------
     await db.query(`UPDATE customers SET is_active = FALSE WHERE phone = $1`, [CANON(P_C2)]);
     const g5 = await post(`/api/store/cart`, {});
     track(g5.body);
-    const mInact = await post(`/api/store/cart/merge`, { customerId: idC2 }, g5.body.data.guestToken);
+    const mInact = await post(`/api/store/cart/merge`, {}, g5.body.data.guestToken, H(tC2));
     t("merge-inactive-customer-422", mInact.status === 422);
     await db.query(`UPDATE customers SET is_active = TRUE WHERE phone = $1`, [CANON(P_C2)]);
 
@@ -276,7 +287,7 @@ async function main() {
     t("get-no-owner-400", noOwner.status === 400);
 
     // ---------- read-back ----------
-    const rb = await get(`/api/store/cart`, null, idC1);
+    const rb = await get(`/api/store/cart`, null, H(tC1));
     t("read-customer-cart-200", rb.status === 200 && rb.body.data.cart.customerId === idC1
       && rb.body.data.cart.lines.length >= 2);
   } finally {
@@ -289,6 +300,7 @@ async function main() {
       for (const ph of [P_C1, P_C2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM carts WHERE customer_id = $1`, [r.id]).catch(() => {});
         }

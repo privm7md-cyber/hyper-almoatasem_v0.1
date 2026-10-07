@@ -5,9 +5,9 @@
 // expired carts are never operable; expired guest carts behave as absent
 // so callers 404 or mint fresh — BA-A guest-expiry contract). The expiry
 // gate is SQL now() (never a JS clock on decoded timestamps — CC-1 rule).
-// Variant sale context is variant-liveness only, mirroring the frozen
-// verification doubles (checkout + merge check the variant row;
-// product-level gating lives in listings, not line validation).
+// Variant sale context carries variant + product liveness (Phase 5: line
+// validation gates on both — reprice already dropped product-dead lines,
+// creation paths now match; listings gate discovery, not authority).
 import { prisma } from "@/lib/db";
 
 export type CartOwner =

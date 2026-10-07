@@ -64,13 +64,24 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const post = async (path, data, token = null) => {
+  const post = async (path, data, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}) },
+      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}), ...extra },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
   };
   const patch = async (path, data, token = null) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -95,13 +106,14 @@ async function main() {
   };
 
   try {
-    const rc = await post(`/api/store/customers/identify`, { phone: P_RACE, firstName: "Race" });
-    const idC = rc.body.data.id;
+    const ssR = await sess(P_RACE, "Race");
+    const idC = ssR.id;
+    const tCR = ssR.tok;
 
     // ---------- Race A: concurrent creation ----------
     const [a1, a2] = await Promise.all([
-      post(`/api/store/cart`, { customerId: idC }),
-      post(`/api/store/cart`, { customerId: idC }),
+      post(`/api/store/cart`, {}, null, H(tCR)),
+      post(`/api/store/cart`, {}, null, H(tCR)),
     ]);
     track(a1.body);
     track(a2.body);
@@ -156,8 +168,8 @@ async function main() {
     const tokE = gE.body.data.guestToken;
     await post(`/api/store/cart/items`, { productVariantId: ROMI_V, quantity: "0.250" }, tokE);
     const [e1, e2] = await Promise.all([
-      post(`/api/store/cart/merge`, { customerId: idC }, tokE),
-      post(`/api/store/cart/merge`, { customerId: idC }, tokE),
+      post(`/api/store/cart/merge`, {}, tokE, H(tCR)),
+      post(`/api/store/cart/merge`, {}, tokE, H(tCR)),
     ]);
     track(e1.body);
     track(e2.body);
@@ -187,6 +199,7 @@ async function main() {
       }
       const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [CANON(P_RACE)]).catch(() => ({ rows: [] }));
       for (const r of rows.rows) {
+        await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
         await db.query(`DELETE FROM cart_items WHERE cart_id IN (SELECT id FROM carts WHERE customer_id = $1)`, [r.id]).catch(() => {});
         await db.query(`DELETE FROM carts WHERE customer_id = $1`, [r.id]).catch(() => {});
       }

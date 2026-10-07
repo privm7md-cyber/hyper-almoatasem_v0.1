@@ -204,8 +204,12 @@ export interface AddressInput {
  * runs in ONE explicit transaction; the partial-UQ backstop turns a lost
  * default race into 409 (never two defaults). Contact phone canonicalizes
  * when mobile, passes landlines through (frozen address rule).
+ *
+ * actorId is the admin actor for the audit pair — or null for customer
+ * self-service (frozen rule: self-service paths stay unaudited; audit rows
+ * are ADMIN-actor rows and must never be misattributed to a customer).
  */
-export async function createAddress(customerId: string, input: AddressInput, actorId: string) {
+export async function createAddress(customerId: string, input: AddressInput, actorId: string | null) {
   let phone: string;
   try {
     phone = normalizeContactPhone(input.phoneRaw);
@@ -234,14 +238,16 @@ export async function createAddress(customerId: string, input: AddressInput, act
           isDefault: input.isDefault ?? false,
         },
       });
-      await auditInTx(tx, {
-        action: "addresses.create",
-        userId: actorId,
-        entityType: "customer_addresses",
-        entityId: created.id,
-        oldValues: null,
-        newValues: { customerId, city: created.city, isDefault: created.isDefault },
-      });
+      if (actorId !== null) {
+        await auditInTx(tx, {
+          action: "addresses.create",
+          userId: actorId,
+          entityType: "customer_addresses",
+          entityId: created.id,
+          oldValues: null,
+          newValues: { customerId, city: created.city, isDefault: created.isDefault },
+        });
+      }
       return created;
     });
   } catch (error) {
@@ -266,8 +272,9 @@ export interface AddressPatch {
   isDefault?: boolean | null;
 }
 
-/** Address update scoped to its owner (cross-customer → null → 404). */
-export async function patchAddress(customerId: string, addressId: string, patch: AddressPatch, actorId: string) {
+/** Address update scoped to its owner (cross-customer → null → 404).
+ * actorId null = customer self-service (unaudited per frozen rule). */
+export async function patchAddress(customerId: string, addressId: string, patch: AddressPatch, actorId: string | null) {
   const scoped = await prisma.customerAddress.findFirst({
     where: { id: addressId, customerId },
     select: { id: true },
@@ -303,14 +310,16 @@ export async function patchAddress(customerId: string, addressId: string, patch:
           ...(patch.isDefault !== undefined && patch.isDefault !== null ? { isDefault: patch.isDefault } : {}),
         },
       });
-      await auditInTx(tx, {
-        action: "addresses.update",
-        userId: actorId,
-        entityType: "customer_addresses",
-        entityId: addressId,
-        oldValues: null,
-        newValues: { customerId, city: updated.city },
-      });
+      if (actorId !== null) {
+        await auditInTx(tx, {
+          action: "addresses.update",
+          userId: actorId,
+          entityType: "customer_addresses",
+          entityId: addressId,
+          oldValues: null,
+          newValues: { customerId, city: updated.city },
+        });
+      }
       return updated;
     });
   } catch (error) {
@@ -324,8 +333,9 @@ export async function patchAddress(customerId: string, addressId: string, patch:
 }
 
 /** Hard delete scoped to the owner (frozen: addresses carry no deleted_at;
- * orders keep snapshots, never FKs here). Returns false when missing. */
-export async function deleteAddress(customerId: string, addressId: string, actorId: string): Promise<boolean> {
+ * orders keep snapshots, never FKs here). Returns false when missing.
+ * actorId null = customer self-service (unaudited per frozen rule). */
+export async function deleteAddress(customerId: string, addressId: string, actorId: string | null): Promise<boolean> {
   const scoped = await prisma.customerAddress.findFirst({
     where: { id: addressId, customerId },
     select: { id: true, city: true },
@@ -334,14 +344,16 @@ export async function deleteAddress(customerId: string, addressId: string, actor
   try {
     await prisma.$transaction(async (tx) => {
       await tx.customerAddress.delete({ where: { id: addressId } });
-      await auditInTx(tx, {
-        action: "addresses.delete",
-        userId: actorId,
-        entityType: "customer_addresses",
-        entityId: addressId,
-        oldValues: { customerId, city: scoped.city },
-        newValues: null,
-      });
+      if (actorId !== null) {
+        await auditInTx(tx, {
+          action: "addresses.delete",
+          userId: actorId,
+          entityType: "customer_addresses",
+          entityId: addressId,
+          oldValues: { customerId, city: scoped.city },
+          newValues: null,
+        });
+      }
     });
     return true;
   } catch (error) {

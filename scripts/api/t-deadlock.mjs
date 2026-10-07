@@ -66,10 +66,10 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const post = async (path, data, token = null) => {
+  const post = async (path, data, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}) },
+      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}), ...extra },
       body: JSON.stringify(data),
     });
     const body = await r.json().catch(() => ({}));
@@ -115,26 +115,43 @@ async function main() {
       });
       return { status: r.status, body: await r.json().catch(() => ({})) };
     };
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Dead1" });
-    const c2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Dead2" });
-    const idC1 = c1.body.data.id;
-    const idC2 = c2.body.data.id;
+    const H = (tok) => ({ "x-customer-token": tok });
+    const CPW = "Cust-Test-Pass-0001!";
+    const sess = async (phone, firstName) => {
+      // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+      const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+      if (reg.status === 201) {
+        return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+      }
+      const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+      return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+    };
+    const mergeTo = async (guestToken, sessTok) =>
+      post(`/api/store/cart/merge`, {}, guestToken, H(sessTok));
+    const orderAs = (sessTok, addrId, k) =>
+      post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k }, null, H(sessTok));
+    const ss1 = await sess(P_C1, "Dead1");
+    const ss2 = await sess(P_C2, "Dead2");
+    const idC1 = ss1.id;
+    const idC2 = ss2.id;
+    const tC1 = ss1.tok;
+    const tC2 = ss2.tok;
     const a1 = await admPost(`/api/admin/customers/${idC1}/addresses`, { city: "Cairo", phone: P_C1 });
     const a2 = await admPost(`/api/admin/customers/${idC2}/addresses`, { city: "Giza", phone: P_C2 });
     const idA1 = a1.body.data.id;
     const idA2 = a2.body.data.id;
-    const orderAs = (custId, addrId, tok, k) =>
-      post(`/api/store/orders`, { customerId: custId, addressId: addrId, idempotencyKey: k }, tok);
 
     // ---------- D1: opposed multi-line checkouts x5 ----------
     let d1ok = true;
     for (let i = 0; i < 5; i++) {
       const t1 = await mkCart([[P330, "1"], [P1L, "1"]]);
       const t2 = await mkCart([[P1L, "1"], [P330, "1"]]);
+      await mergeTo(t1, tC1);
+      await mergeTo(t2, tC2);
       const started = Date.now();
       const [d1, d2] = await Promise.all([
-        orderAs(idC1, idA1, t1, key(`d1a-${i}`)),
-        orderAs(idC2, idA2, t2, key(`d1b-${i}`)),
+        orderAs(tC1, idA1, key(`d1a-${i}`)),
+        orderAs(tC2, idA2, key(`d1b-${i}`)),
       ]);
       const elapsed = Date.now() - started;
       if (d1.status !== 201 || d2.status !== 201 || deadlocked([d1, d2]) || elapsed > 30000) {
@@ -150,13 +167,15 @@ async function main() {
       await db.query(`UPDATE inventory SET quantity = 1.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P1L]);
       const tOrder = await mkCart([[P1L, "1"]]);
       const gRep = await mkCart([[P330, "1"]]);
-      const ro = await orderAs(idC1, idA1, gRep, key(`d2o-${i}`));
-      const items = (await fetch(`${baseUrl}/api/store/orders/${ro.body.data.order.id}?customerId=${idC1}`).then((r) => r.json())).data.order.items;
+      await mergeTo(gRep, tC1);
+      const ro = await orderAs(tC1, idA1, key(`d2o-${i}`));
+      const items = (await fetch(`${baseUrl}/api/store/orders/${ro.body.data.order.id}`, { headers: H(tC1) }).then((r) => r.json())).data.order.items;
       const rp = await admPost(`/api/admin/orders/${ro.body.data.order.id}/items/${items[0].id}/replacements`,
         { replacementVariantId: P1L, replacementQuantity: "1" });
+      await mergeTo(tOrder, tC2);
       const [a, b] = await Promise.all([
-        post(`/api/store/orders/${ro.body.data.order.id}/replacements/${rp.body.data.id}/decide`, { customerId: idC1, action: "approve" }),
-        orderAs(idC2, idA2, tOrder, key(`d2c-${i}`)),
+        post(`/api/store/orders/${ro.body.data.order.id}/replacements/${rp.body.data.id}/decide`, { action: "approve" }, null, H(tC1)),
+        orderAs(tC2, idA2, key(`d2c-${i}`)),
       ]);
       const pair = [a.status, b.status].sort().join(",");
       const inv = await q(`SELECT reserved_quantity::text r, quantity::text qq FROM inventory WHERE product_variant_id = $1`, [P1L]);
@@ -195,6 +214,7 @@ async function main() {
       for (const ph of [P_C1, P_C2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

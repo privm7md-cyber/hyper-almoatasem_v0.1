@@ -1,10 +1,11 @@
 // BA-B4 product media write/read domain (raw SQL only).
 //
-// product_images lives OUTSIDE the frozen schema (db/future/product-images.sql
-// — scratch-verified, never production-applied, never in prisma/migrations to
-// avoid implicit deploy). No Prisma model exists by design, so Prisma owns
-// nothing here; raw SQL owns all reads/writes (same posture as inet-adjacent
-// paths). Metadata/reference ONLY — never binary content, never a storage
+// product_images is the official Phase-3 contract
+// (prisma/migrations/20261006_catalog_media_search — table + Prisma
+// ProductImage model + GIN/search objects; db/future/*.sql remain as
+// superseded history only). Reads/writes stay raw-SQL by design (same
+// posture as inet-adjacent paths); Prisma owns the model shape only.
+// Metadata/reference ONLY — never binary content, never a storage
 // provider (register flow; signed upload is a documented future).
 // Primary switch is one atomic UPDATE (partial UQ guards); concurrent
 // switches serialize to exactly one primary. Gallery order is

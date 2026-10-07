@@ -67,10 +67,10 @@ async function main() {
     const r = await fetch(`${baseUrl}${path}`, { headers: cookie ? { cookie } : {} });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const post = async (path, data, cookie = null) => {
+  const post = async (path, data, cookie = null, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...headers },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -143,17 +143,31 @@ async function main() {
     }
     return tok;
   };
-  const checkout = async (custId, addrId, lines, k) => {
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const mergeTo = async (guestToken, sessTok) =>
+    post(`/api/store/cart/merge`, {}, null, { "x-guest-token": guestToken, ...H(sessTok) });
+  const checkout = async (sessTok, addrId, lines, k) => {
     const tok = await mkCart(lines);
+    await mergeTo(tok, sessTok);
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-guest-token": tok },
-      body: JSON.stringify({ customerId: custId, addressId: addrId, idempotencyKey: k }),
+      headers: { "content-type": "application/json", ...H(sessTok) },
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k }),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const orderItemsOf = async (orderId, custId) =>
-    (await fetch(`${baseUrl}/api/store/orders/${orderId}?customerId=${custId}`).then((r) => r.json())).data.order.items;
+  const orderItemsOf = async (orderId, sessTok) =>
+    (await fetch(`${baseUrl}/api/store/orders/${orderId}`, { headers: H(sessTok) }).then((r) => r.json())).data.order.items;
   const invQty = async (v) => (await q(`SELECT quantity::text AS qq, reserved_quantity::text AS rr FROM inventory WHERE product_variant_id = $1`, [v]))[0];
   const auditIdsBefore = new Set((await q(`SELECT id::text AS id FROM audit_logs`)).map((r) => r.id));
   const movIdsBefore = new Set((await q(`SELECT id::text AS id FROM inventory_movements`)).map((r) => r.id));
@@ -279,6 +293,9 @@ async function main() {
     // ---------- customers A/B ----------
     const cu1 = await post(`/api/store/customers/identify`, { phone: P_A1, firstName: "Aud" });
     const idCu1 = cu1.body.data.id;
+    const ssA = await sess(P_A1, "Aud");
+    const tCu1 = ssA.tok;
+    t("session-ready", ssA.id === idCu1 && !!tCu1, `${ssA.id === idCu1}`);
     const cuPatch = await patch(`/api/admin/customers/${idCu1}`, { firstName: "Audited" }, ck);
     t("cus-patch-audit", cuPatch.status === 200 && (await auditCount("customers.update", idCu1)) === 1, String(cuPatch.status));
     const cu2 = await post(`/api/store/customers/identify`, { phone: P_A2, firstName: "Aud2" });
@@ -351,7 +368,7 @@ async function main() {
     couponIds.delete(idCp);
 
     // ---------- orders A/B (admin cancel pairs; customer cancel stays clean) ----------
-    const o1 = await checkout(idCu1, idAddr, [[P330, "1"]], key("o1"));
+    const o1 = await checkout(tCu1, idAddr, [[P330, "1"]], key("o1"));
     t("ord-checkout-201", o1.status === 201, String(o1.status));
     const idO1 = o1.body.data.order.id;
     const cxA = await post(`/api/admin/orders/${idO1}/cancel`, {}, cko);
@@ -360,16 +377,16 @@ async function main() {
     const cxB = await post(`/api/admin/orders/${idO1}/cancel`, {}, cko);
     t("ord-cancel-again-409", cxB.status === 409, String(cxB.status));
     t("ord-cancel-noaudit", (await auditCount("orders.cancel", idO1)) === 1);
-    const o1c = await checkout(idCu1, idAddr, [[P330, "1"]], key("o1c"));
+    const o1c = await checkout(tCu1, idAddr, [[P330, "1"]], key("o1c"));
     const idO1c = o1c.body.data.order.id;
-    const cxC = await post(`/api/store/orders/${idO1c}/cancel`, { customerId: idCu1 },);
+    const cxC = await post(`/api/store/orders/${idO1c}/cancel`, {}, null, H(tCu1));
     t("ord-cust-cancel-200", cxC.status === 200, String(cxC.status));
     t("ord-cust-cancel-clean", (await auditCount("orders.cancel", idO1c)) === 0);
 
     // ---------- replacements A/B ----------
-    const o2 = await checkout(idCu1, idAddr, [[P330, "1"]], key("o2"));
+    const o2 = await checkout(tCu1, idAddr, [[P330, "1"]], key("o2"));
     const idO2 = o2.body.data.order.id;
-    const itemsO2 = await orderItemsOf(idO2, idCu1);
+    const itemsO2 = await orderItemsOf(idO2, tCu1);
     const rpA = await post(`/api/admin/orders/${idO2}/items/${itemsO2[0].id}/replacements`, {
       replacementVariantId: P1L, replacementQuantity: "1",
     }, ck);
@@ -389,10 +406,10 @@ async function main() {
 
     // ---------- auto-accept A (own fixtures, negative delta => covered) ----------
     await patch(`/api/admin/customers/${idCu1}`, { autoAcceptReplacements: true }, ck);
-    const oAA = await checkout(idCu1, idAddr, [[idVHi, "1"]], key("oaa"));
+    const oAA = await checkout(tCu1, idAddr, [[idVHi, "1"]], key("oaa"));
     t("aa-checkout-201", oAA.status === 201, String(oAA.status));
     const idOAA = oAA.body.data.order.id;
-    const itemsAA = await orderItemsOf(idOAA, idCu1);
+    const itemsAA = await orderItemsOf(idOAA, tCu1);
     const rpAA = await post(`/api/admin/orders/${idOAA}/items/${itemsAA[0].id}/replacements`, {
       replacementVariantId: idVLo, replacementQuantity: "1",
     }, ck);
@@ -551,6 +568,7 @@ async function main() {
       for (const phone of [CANON(P_A1), CANON(P_A2)]) {
         const cust = await db.query(`SELECT id FROM customers WHERE phone = $1`, [phone]).catch(() => ({ rows: [] }));
         for (const r of cust.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

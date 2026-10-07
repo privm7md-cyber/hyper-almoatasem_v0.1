@@ -49,18 +49,20 @@ t("order-number-format", formatOrderNumber("20260926", 42) === "HM-20260926-0000
 // --- boundaries ---
 const { orderCreateSchema, orderListQuerySchema, adminOrderListQuerySchema, orderCancelSchema } = validation;
 const CID = "04800000-0000-7000-8000-000000000001";
-t("create-shape", orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k-0001" }).success);
-t("create-key-optional-for-header", orderCreateSchema.safeParse({ customerId: CID, addressId: CID }).success);
-t("create-rejects", !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "has space" }).success
-  && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "" }).success
-  && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k", notes: "x" }).success
-  && !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k", cartId: CID }).success);
-t("list-requires-customer", orderListQuerySchema.safeParse({ customerId: CID }).success
-  && !orderListQuerySchema.safeParse({}).success);
+t("create-shape", orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001" }).success);
+t("create-key-optional-for-header", orderCreateSchema.safeParse({ addressId: CID }).success);
+t("create-rejects-customer-claim", !orderCreateSchema.safeParse({ customerId: CID, addressId: CID, idempotencyKey: "k-0001" }).success);
+t("create-rejects", !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "has space" }).success
+  && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "" }).success
+  && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k", notes: "x" }).success
+  && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k", cartId: CID }).success);
+const parsedList = orderListQuerySchema.safeParse({ limit: 20, customerId: CID });
+t("list-claim-stripped", orderListQuerySchema.safeParse({}).success
+  && parsedList.success && parsedList.data.customerId === undefined);
 t("admin-status-enum", adminOrderListQuerySchema.safeParse({ status: "CONFIRMED" }).success
   && !adminOrderListQuerySchema.safeParse({ status: "PENDING" }).success
   && !adminOrderListQuerySchema.safeParse({ status: "COMPLETED" }).success);
-t("cancel-shape", orderCancelSchema.safeParse({ customerId: CID }).success
-  && !orderCancelSchema.safeParse({}).success);
+t("cancel-shape", orderCancelSchema.safeParse({}).success
+  && !orderCancelSchema.safeParse({ customerId: CID }).success);
 
 done();

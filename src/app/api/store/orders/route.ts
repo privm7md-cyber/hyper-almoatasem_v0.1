@@ -1,11 +1,13 @@
 // Storefront orders: create (POST) + own-order list (GET).
-// POST body { customerId, addressId, idempotencyKey? } + optional
-// `Idempotency-Key` header (BA-A contract: header wins when both carry the
-// same key; both present but different → 400; at least one required).
-// Cart resolved from the `x-guest-token` header (guest cart) or the
-// customer's ACTIVE cart. Creation is one tx (reserve + snapshots +
-// history + CHECKED_OUT); replays answer 200 with meta.replay, fresh
-// orders 201. No OTP/login invented.
+// PHASE 2 identity: the customer is the server-verified session —
+// customerId NEVER travels in body/query. Orders are customer-only:
+// guests identify (session) first, then merge + checkout. A guest token
+// alone answers 401; token + session answers 400.
+// POST body { addressId, idempotencyKey? } + optional `Idempotency-Key`
+// header (BA-A contract: header wins when both carry the same key; both
+// present but different → 400; at least one required). Creation is one tx
+// (reserve + snapshots + history + CHECKED_OUT); replays answer 200 with
+// meta.replay, fresh orders 201. No OTP/login invented.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
@@ -14,20 +16,13 @@ import { orderCreateSchema, orderListQuerySchema } from "@/lib/orders/validation
 import { getOrderFull, listCustomerOrders } from "@/lib/orders/queries";
 import { createOrder } from "@/lib/orders/writes";
 import { toOrder, toOrderListItem } from "@/lib/orders/serialize";
-import { GUEST_TOKEN_HEADER } from "@/lib/cart/owner";
-import { hashGuestToken, isGuestTokenShape } from "@/lib/cart/session";
-import type { CartOwner } from "@/lib/cart/queries";
+import { resolveStoreOwner } from "@/lib/cart/owner";
+import { requireCustomer } from "@/lib/customers/session";
 
 /** Canonical idempotency header name (BA-A contract). */
 export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
 
 export async function POST(request: Request) {
-  const rawToken = request.headers.get(GUEST_TOKEN_HEADER);
-  const token = rawToken && rawToken.trim() !== "" ? rawToken.trim() : null;
-  if (token !== null && !isGuestTokenShape(token)) {
-    const r = fail(new ApiError("VALIDATION", "Invalid guest token."));
-    return NextResponse.json(r.body, { status: r.status });
-  }
   const rawHeaderKey = request.headers.get(IDEMPOTENCY_KEY_HEADER);
   const headerKey = rawHeaderKey && rawHeaderKey.trim() !== "" ? rawHeaderKey.trim() : null;
   if (headerKey !== null && !idempotencyKeySchema.safeParse(headerKey).success) {
@@ -56,14 +51,15 @@ export async function POST(request: Request) {
     const r = fail(new ApiError("VALIDATION", "Idempotency key is required."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const owner: CartOwner =
-    token !== null
-      ? { kind: "guest", sessionHash: hashGuestToken(token) }
-      : { kind: "customer", customerId: parsed.data.customerId };
   try {
+    const owner = await resolveStoreOwner(request);
+    if (!owner || owner.kind !== "customer") {
+      const r = fail(new ApiError("UNAUTHENTICATED", "Authentication is required.", null, false));
+      return NextResponse.json(r.body, { status: r.status });
+    }
     const out = await createOrder({
       owner,
-      customerId: parsed.data.customerId,
+      customerId: owner.customerId,
       addressId: parsed.data.addressId,
       idempotencyKey,
       couponCode: parsed.data.couponCode ?? null,
@@ -88,16 +84,22 @@ export async function GET(request: Request) {
     const r = fail(new ApiError("VALIDATION", "Invalid query."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const q = parsed.data;
-  const rows = await listCustomerOrders({
-    limit: q.limit,
-    cursor: q.cursor ?? null,
-    customerId: q.customerId,
-  });
-  const page = rows.length > q.limit ? rows.slice(0, q.limit) : rows;
-  const r = ok(
-    page.map((o) => toOrderListItem(o, o._count.items)),
-    { limit: q.limit, nextCursor: rows.length > q.limit ? page[page.length - 1].id : null },
-  );
-  return NextResponse.json(r.body, { status: r.status });
+  try {
+    const me = await requireCustomer(request);
+    const q = parsed.data;
+    const rows = await listCustomerOrders({
+      limit: q.limit,
+      cursor: q.cursor ?? null,
+      customerId: me.customerId,
+    });
+    const page = rows.length > q.limit ? rows.slice(0, q.limit) : rows;
+    const r = ok(
+      page.map((o) => toOrderListItem(o, o._count.items)),
+      { limit: q.limit, nextCursor: rows.length > q.limit ? page[page.length - 1].id : null },
+    );
+    return NextResponse.json(r.body, { status: r.status });
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
 }

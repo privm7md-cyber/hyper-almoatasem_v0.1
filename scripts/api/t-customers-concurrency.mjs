@@ -125,9 +125,10 @@ async function main() {
     t("raceC-single-default", Number(defaults[0].n) === 1);
   } finally {
     try {
-      for (const ph of [P_RACE_A, P_RACE_B, P_RACE_C].map(CANON)) {
-        const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
-        for (const r of rows.rows) {
+        for (const ph of [P_RACE_A, P_RACE_B, P_RACE_C].map(CANON)) {
+          const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
+          for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
         }
       }

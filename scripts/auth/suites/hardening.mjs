@@ -131,17 +131,21 @@ export async function run(ctx) {
   // ---- MIGRATION: catalog counts on the hardening DB ----
   // Frozen baseline (35 tables / 41 FKs / 165 CHECKs / 11 partials) PLUS the
   // BA-B product_images objects when present (db/future, scratch-only: +1
-  // table, +1 FK media→products, +6 CHECKs, +1 one-primary partial). Exact
-  // values stay pinned either way, so any OTHER drift still fails.
+  // table, +1 FK media??products, +6 CHECKs, +1 one-primary partial) PLUS the
+  // 20261006 customer-auth migration when present (+2 tables, +1 FK
+  // sessions→customers, +5 CHECKs, +1 customer-live partial, +1 rate-limit
+  // trigger reuse). Exact values stay pinned either way, so any OTHER drift
+  // still fails.
   {
     const q = async (s, p = []) => Number((await pg(s, p)).rows[0].n);
     const hasMedia = Number((await pg(`SELECT count(*) n FROM pg_tables WHERE schemaname='public' AND tablename='product_images'`)).rows[0].n) === 1 ? 1 : 0;
+    const hasCustAuth = Number((await pg(`SELECT count(*) n FROM pg_tables WHERE schemaname='public' AND tablename='customer_sessions'`)).rows[0].n) === 1 ? 1 : 0;
     const checks = [
-      ["mig_tables", await q(`SELECT count(*) n FROM pg_tables WHERE schemaname='public'`), 35 + hasMedia],
-      ["mig_fks", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace`), 41 + hasMedia],
-      ["mig_checks", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace`), 165 + 6 * hasMedia],
-      ["mig_partials", await q(`SELECT count(*) n FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indpred IS NOT NULL`), 11 + hasMedia],
-      ["mig_triggers_23", await q(`SELECT count(*) n FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal`), 23],
+      ["mig_tables", await q(`SELECT count(*) n FROM pg_tables WHERE schemaname='public'`), 35 + hasMedia + 2 * hasCustAuth],
+      ["mig_fks", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace`), 41 + hasMedia + hasCustAuth],
+      ["mig_checks", await q(`SELECT count(*) n FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace`), 165 + 6 * hasMedia + 5 * hasCustAuth],
+      ["mig_partials", await q(`SELECT count(*) n FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indpred IS NOT NULL`), 11 + hasMedia + hasCustAuth],
+      ["mig_triggers", await q(`SELECT count(*) n FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal`), 23 + hasCustAuth],
       ["mig_functions_6", await q(`SELECT count(*) n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('set_updated_at','prevent_category_cycle','check_cart_transition','check_order_item_transition','check_replacement_transition','check_order_status_audited')`), 6],
       ["mig_views_1", await q(`SELECT count(*) n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='v'`), 1],
       ["mig_seqs_1", await q(`SELECT count(*) n FROM pg_sequence s JOIN pg_class c ON c.oid=s.seqrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'`), 1],

@@ -11,7 +11,11 @@
 #   ISO-8601 UTC strings; ids: UUIDs; pagination: limit (1..100, def 20)
 #   + cursor (uuid, null at end) via nextCursor;
 # - admin auth: __Host-admin-session cookie + per-permission checks
-#   (x-permission below); store carts: x-guest-token XOR customerId;
+#   (x-permission below); store customer auth: phone + password login
+#   (register/login), server-side opaque sessions in cookie
+#   __Host-customer-session / x-customer-token header (server-verified,
+#   owner server-derived, revocable);
+#   store carts: x-guest-token XOR customer session;
 # - order creation: Idempotency-Key header and/or body idempotencyKey
 #   (header wins ties; both-different → 400; neither → 400).
 # Validation strategy: scripts/api/t-ba-a-contract.mjs asserts bidirectional
@@ -84,10 +88,16 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/UUID'
+    AddressIdPath:
+      name: addressId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UUID'
     GuestTokenHeaderOpt:
       name: x-guest-token
       in: header
-      description: 64-hex guest bearer (absent when customerId identifies the owner).
+      description: 64-hex guest bearer (absent when the customer session identifies the owner).
       schema:
         type: string
     GuestTokenHeaderReq:
@@ -321,7 +331,7 @@ paths:
   /api/store/customers/identify:
     post:
       tags: [store-customers]
-      summary: Guest get-or-create by phone (canonical 201XXXXXXXXX; concurrent creators converge).
+      summary: Guest get-or-create by phone (canonical 201XXXXXXXXX; concurrent creators converge). Lookup/bootstrap only — never grants a session.
       requestBody:
         required: true
         content:
@@ -337,40 +347,177 @@ paths:
         '200': { description: Existing customer. }
         '201': { description: Created customer. }
         '422': { description: Invalid phone (frozen R8 ladder). }
-  # ---------------- store: cart ----------------
-  /api/store/cart:
+  /api/store/customers/session:
     post:
-      tags: [store-cart]
-      summary: Mint guest cart (neither side) → 201 + guestToken; resolve existing → 200.
-      parameters:
-        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+      tags: [store-customers]
+      summary: Login with phone + password (Argon2id, lockout, rate limits); sets HttpOnly cookie + returns token. Generic 401 on any failure.
       requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone: { type: string }
+                password: { type: string }
+      responses:
+        '200': { description: Authenticated session. }
+        '401': { description: Invalid credentials, inactive, or locked (generic). }
+    get:
+      tags: [store-customers]
+      summary: Current session customer (cookie or x-customer-token).
+      responses:
+        '200': { description: Session customer + owned addresses. }
+        '401': { description: Missing/invalid/expired/revoked session. }
+    delete:
+      tags: [store-customers]
+      summary: Logout (revokes the server-side session, clears cookie; token never validates again).
+      responses:
+        '200': { description: Logged out. }
+  /api/store/customers/register:
+    post:
+      tags: [store-customers]
+      summary: Register with phone + password (policy 12..128); converts an unregistered guest row, else creates. Duplicate registered phone → 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, firstName, password]
+              properties:
+                phone: { type: string }
+                firstName: { type: string }
+                lastName: { type: string, nullable: true }
+                password: { type: string }
+      responses:
+        '201': { description: Registered + authenticated session. }
+        '400': { description: Invalid registration. }
+        '409': { description: Phone already registered. }
+  /api/store/customers/password:
+    patch:
+      tags: [store-customers]
+      summary: Authenticated password change (verifies current, policy-checks new, revokes all sessions).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string }
+      responses:
+        '200': { description: Password changed (re-authenticate). }
+        '400': { description: Invalid request. }
+        '401': { description: Missing/invalid session or wrong current password. }
+  /api/store/customers/addresses:
+    get:
+      tags: [store-customers]
+      summary: List the session customer's addresses (owner server-derived; 401 without session).
+      responses:
+        '200': { description: Address list (owned only). }
+        '401': { description: Missing/invalid/expired session. }
+    post:
+      tags: [store-customers]
+      summary: Create an address for the session customer (self-service, unaudited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [city, phone]
+              properties:
+                label: { type: string, nullable: true }
+                city: { type: string }
+                area: { type: string, nullable: true }
+                village: { type: string, nullable: true }
+                street: { type: string, nullable: true }
+                buildingNumber: { type: string, nullable: true }
+                landmark: { type: string, nullable: true }
+                phone: { type: string }
+                isDefault: { type: boolean, nullable: true }
+      responses:
+        '201': { description: Created address. }
+        '400': { description: Invalid address. }
+        '401': { description: Missing/invalid/expired session. }
+        '409': { description: Default-address race lost. }
+  /api/store/customers/addresses/{addressId}:
+    get:
+      tags: [store-customers]
+      summary: Get one owned address (owner server-derived; foreign → 404).
+      parameters:
+        - $ref: '#/components/parameters/AddressIdPath'
+      responses:
+        '200': { description: Owned address. }
+        '400': { description: Invalid id. }
+        '401': { description: Missing/invalid/expired session. }
+        '404': { description: Unknown address (incl. foreign). }
+    patch:
+      tags: [store-customers]
+      summary: Update one owned address (partial; owner-immutable).
+      parameters:
+        - $ref: '#/components/parameters/AddressIdPath'
+      requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
+                label: { type: string, nullable: true }
+                city: { type: string, nullable: true }
+                area: { type: string, nullable: true }
+                village: { type: string, nullable: true }
+                street: { type: string, nullable: true }
+                buildingNumber: { type: string, nullable: true }
+                landmark: { type: string, nullable: true }
+                phone: { type: string, nullable: true }
+                isDefault: { type: boolean, nullable: true }
+      responses:
+        '200': { description: Updated address. }
+        '400': { description: Invalid address or id. }
+        '401': { description: Missing/invalid/expired session. }
+        '404': { description: Unknown address (incl. foreign). }
+    delete:
+      tags: [store-customers]
+      summary: Hard-delete one owned address (orders keep snapshots).
+      parameters:
+        - $ref: '#/components/parameters/AddressIdPath'
+      responses:
+        '200': { description: '{ data: { deleted: true } }'. }
+        '400': { description: Invalid id. }
+        '401': { description: Missing/invalid/expired session. }
+        '404': { description: Unknown address (incl. foreign). }
+  # ---------------- store: cart ----------------
+  /api/store/cart:
+    post:
+      tags: [store-cart]
+      summary: Mint guest cart (neither side) → 201 + guestToken; resolve existing → 200. Customer side is the verified session.
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
       responses:
         '200': { description: Existing ACTIVE cart. }
         '201': { description: Created cart (+guestToken when guest). }
-        '400': { description: Both/neither identity sides, or malformed token. }
+        '400': { description: Both identity sides, or malformed token. }
+        '401': { description: Invalid/expired customer session. }
     get:
       tags: [store-cart]
-      summary: Read the owner's ACTIVE cart (expired → 404).
+      summary: Read the owner's ACTIVE cart (expired → 404). Guest token XOR customer session.
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
-        - name: customerId
-          in: query
-          schema: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: Cart with lines. }
-        '400': { description: Both/neither identity sides. }
+        '400': { description: Neither identity side. }
+        '401': { description: Invalid/expired customer session. }
         '404': { description: No ACTIVE cart (incl. expired). }
   /api/store/cart/items:
     post:
       tags: [store-cart]
-      summary: Add a line (re-add aggregates at live price).
+      summary: Add a line (re-add aggregates at live price). Guest token XOR customer session.
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
       requestBody:
@@ -381,29 +528,26 @@ paths:
               type: object
               required: [productVariantId, quantity]
               properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
                 productVariantId: { $ref: '#/components/schemas/UUID' }
                 quantity: { $ref: '#/components/schemas/DecimalString' }
       responses:
         '200': { description: Updated cart. }
         '400': { description: Ownership/shape violation. }
+        '401': { description: Invalid/expired customer session. }
         '404': { description: No ACTIVE cart or unknown variant. }
         '422': { description: Step/unit/price rule violation. }
     delete:
       tags: [store-cart]
-      summary: Clear all lines (draft maintenance; cart row stays ACTIVE).
+      summary: Clear all lines (draft maintenance; cart row stays ACTIVE). Guest token XOR customer session.
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
-        - name: customerId
-          in: query
-          schema: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: Emptied cart. }
         '404': { description: No ACTIVE cart. }
   /api/store/cart/items/{variantId}:
     patch:
       tags: [store-cart]
-      summary: Set a line quantity (last-writer-wins).
+      summary: Set a line quantity (last-writer-wins). Guest token XOR customer session.
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
         - $ref: '#/components/parameters/VariantIdPath'
@@ -415,40 +559,28 @@ paths:
               type: object
               required: [quantity]
               properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
                 quantity: { $ref: '#/components/schemas/DecimalString' }
       responses:
         '200': { description: Updated cart. }
         '404': { description: No ACTIVE cart or missing line. }
     delete:
       tags: [store-cart]
-      summary: Remove one line.
+      summary: Remove one line. Guest token XOR customer session.
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
         - $ref: '#/components/parameters/VariantIdPath'
-        - name: customerId
-          in: query
-          schema: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: Updated cart. }
         '404': { description: No ACTIVE cart or missing line. }
   /api/store/cart/merge:
     post:
       tags: [store-cart]
-      summary: Bind a guest cart to a customer (reassign or per-line sum + live reprice; dead lines reported).
+      summary: Bind a guest cart to the session customer (reassign or per-line sum + live reprice; dead lines reported).
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderReq'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [customerId]
-              properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: Merge report { mode, inserted, summed, dropped }. }
+        '401': { description: Missing/invalid/expired customer session. }
         '404': { description: Unknown guest cart. }
         '409': { description: Guest cart consumed. }
   /api/store/cart/reprice:
@@ -458,30 +590,22 @@ paths:
         Persisted server-side reprice: refresh every line snapshot to the LIVE
         variant price and drop lines whose variant/product became inactive.
         Quantities untouched; no inventory, promotion or coupon state touched.
+        Guest token XOR customer session.
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
       responses:
         '200':
           description: >-
             { cart, reprice: { repriced: integer, dropped: [{ lineId, variantId }] } }.
         '400': { description: Ownership XOR violation, or unknown body field (strict). }
+        '401': { description: Invalid/expired customer session. }
         '404': { description: No ACTIVE cart (unknown / foreign / expired / consumed). }
   # ---------------- store: orders ----------------
   /api/store/orders:
     post:
       tags: [store-orders]
-      summary: Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT). Replay → 200 + meta.replay.
+      summary: Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT). Customer-only (session required). Replay → 200 + meta.replay.
       parameters:
-        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
         - $ref: '#/components/parameters/IdempotencyKeyHeaderOpt'
       requestBody:
         required: true
@@ -489,9 +613,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [customerId, addressId]
+              required: [addressId]
               properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
                 addressId: { $ref: '#/components/schemas/UUID' }
                 idempotencyKey: { $ref: '#/components/schemas/IdempotencyKey' }
                 couponCode: { type: string, nullable: true }
@@ -499,86 +622,76 @@ paths:
         '201': { description: Created order (snapshots frozen). }
         '200': { description: Idempotent replay (meta.replay true). }
         '400': { description: Conflicting idempotency keys (header vs body) or neither supplied. }
-        '404': { description: No ACTIVE cart / customer / address. }
+        '401': { description: Missing/invalid/expired customer session (guests identify first). }
+        '404': { description: No ACTIVE cart / address. }
         '409': { description: Key used with different terms; stock short; price drift (new key needed). }
         '422': { description: Empty cart, unsellable variant, coupon invalid. }
     get:
       tags: [store-orders]
-      summary: Own-order history (customerId-scoped).
+      summary: Own-order history (session-scoped).
       parameters:
-        - name: customerId
-          in: query
-          required: true
-          schema: { $ref: '#/components/schemas/UUID' }
         - $ref: '#/components/parameters/LimitParam'
       responses:
         '200': { description: Order page. }
+        '401': { description: Missing/invalid/expired customer session. }
   /api/store/orders/estimate:
     post:
       tags: [store-orders]
-      summary: Dry-run pricing (no locks, no rows, no reservation).
+      summary: Dry-run pricing (no locks, no rows, no reservation). Session customer used for per-customer coupon checks when present.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [customerId, addressId]
+              required: [lines]
               properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
-                addressId: { $ref: '#/components/schemas/UUID' }
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    required: [productVariantId, quantity]
+                    properties:
+                      productVariantId: { $ref: '#/components/schemas/UUID' }
+                      quantity: { $ref: '#/components/schemas/DecimalString' }
                 couponCode: { type: string, nullable: true }
       responses:
         '200': { description: Estimate (base/discount/net, integer money). }
   /api/store/orders/{id}:
     get:
       tags: [store-orders]
-      summary: Own order detail (ownership-checked, else 404).
+      summary: Own order detail (session-scoped, else 404).
       parameters:
         - $ref: '#/components/parameters/IdPath'
-        - name: customerId
-          in: query
-          required: true
-          schema: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: Order with snapshot lines + history. }
+        '401': { description: Missing/invalid/expired customer session. }
         '404': { description: Unknown or foreign order. }
   /api/store/orders/{id}/cancel:
     post:
       tags: [store-orders]
-      summary: Customer cancel (unpicked states only; releases holds, no movements).
+      summary: Customer cancel (session-scoped; unpicked states only; releases holds, no movements).
       parameters:
         - $ref: '#/components/parameters/IdPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [customerId]
-              properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: CANCELLED order. }
+        '401': { description: Missing/invalid/expired customer session. }
         '404': { description: Unknown or foreign order. }
         '409': { description: Picked/further state. }
   /api/store/orders/{id}/replacements:
     get:
       tags: [store-orders]
-      summary: List an order's replacement proposals (ownership-checked).
+      summary: List an order's replacement proposals (session-scoped).
       parameters:
         - $ref: '#/components/parameters/IdPath'
-        - name: customerId
-          in: query
-          required: true
-          schema: { $ref: '#/components/schemas/UUID' }
       responses:
         '200': { description: Proposal list. }
+        '401': { description: Missing/invalid/expired customer session. }
         '404': { description: Unknown or foreign order. }
   /api/store/orders/{id}/replacements/{replacementId}/decide:
     post:
       tags: [store-orders]
-      summary: Customer approve/reject (approve runs R10 materialization).
+      summary: Customer approve/reject (session-scoped; approve runs R10 materialization).
       parameters:
         - $ref: '#/components/parameters/IdPath'
         - name: replacementId
@@ -591,12 +704,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [customerId, action]
+              required: [action]
               properties:
-                customerId: { $ref: '#/components/schemas/UUID' }
                 action: { type: string, enum: [approve, reject] }
       responses:
         '200': { description: Decided proposal. }
+        '401': { description: Missing/invalid/expired customer session. }
         '404': { description: Unknown/foreign proposal. }
         '409': { description: No longer PROPOSED, or substitute short. }
   # ---------------- admin: catalog (products.*) ----------------
@@ -722,6 +835,21 @@ paths:
       summary: List a product's variants.
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: Variant list. } }
+    post:
+      tags: [admin-catalog]
+      x-permission: products.create
+      summary: Create variant (audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, price]
+              properties:
+                name: { type: string }
+                price: { $ref: '#/components/schemas/DecimalString' }
+      responses: { '201': { description: Created variant. }, '422': { description: Shape violation. } }
   /api/admin/catalog/products/{id}/images:
     get:
       tags: [admin-catalog]
@@ -762,21 +890,6 @@ paths:
       summary: Hard-delete metadata row (audited; physical objects belong to the future provider).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: '{ data: { deleted: true } }.' } }
-    post:
-      tags: [admin-catalog]
-      x-permission: products.create
-      summary: Create variant (audited).
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name, price]
-              properties:
-                name: { type: string }
-                price: { $ref: '#/components/schemas/DecimalString' }
-      responses: { '201': { description: Created variant. }, '422': { description: Shape violation. } }
   /api/admin/catalog/variants/{id}:
     get:
       tags: [admin-catalog]
@@ -1018,12 +1131,93 @@ paths:
     post:
       tags: [admin-orders]
       x-permission: orders.cancel
-      summary: Staff cancel (unpicked; releases holds, counters, history; audited).
+      summary: Staff cancel (unpicked NEW|CONFIRMED|PREPARING; releases holds, counters, history; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses:
         '200': { description: CANCELLED order. }
         '404': { description: Unknown id. }
         '409': { description: Picked/further state. }
+  /api/admin/orders/{id}/prepare:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Start preparation (CONFIRMED → PREPARING; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: PREPARING order. }
+        '404': { description: Unknown id. }
+        '409': { description: Illegal transition. }
+  /api/admin/orders/{id}/ready:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Finish preparation (PREPARING → READY_FOR_DELIVERY; READY gate + money finalization; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: READY_FOR_DELIVERY order. }
+        '404': { description: Unknown id. }
+        '409': { description: Unresolved lines/proposals or illegal transition. }
+  /api/admin/orders/{id}/dispatch:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Dispatch (READY_FOR_DELIVERY → OUT_FOR_DELIVERY; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: OUT_FOR_DELIVERY order. }
+        '404': { description: Unknown id. }
+        '409': { description: Illegal transition. }
+  /api/admin/orders/{id}/deliver:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Deliver (OUT_FOR_DELIVERY → DELIVERED, terminal; audited).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: DELIVERED order. }
+        '404': { description: Unknown id. }
+        '409': { description: Illegal transition. }
+  /api/admin/orders/{id}/items/{itemId}/pick:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Pick one line (actual quantity; R7 envelope; commits stock + SALE; audited).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: itemId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actualQuantity]
+              properties:
+                actualQuantity: { $ref: '#/components/schemas/DecimalString' }
+      responses:
+        '200': { description: Order with picked line. }
+        '400': { description: Invalid pick. }
+        '404': { description: Unknown order/line. }
+        '409': { description: Wrong state or stock short. }
+        '422': { description: Envelope breach. }
+  /api/admin/orders/{id}/items/{itemId}/unavailable:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Mark one line unavailable (releases its hold; audited).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: itemId
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/UUID' }
+      responses:
+        '200': { description: Order with unavailable line. }
+        '404': { description: Unknown order/line. }
+        '409': { description: Line already resolved or wrong state. }
   /api/admin/orders/{id}/replacements:
     get:
       tags: [admin-orders]

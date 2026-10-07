@@ -1,8 +1,9 @@
 // Storefront replacement decision (explicit customer approval/rejection).
-// Body { customerId, action }: the replacement must belong to the path
-// order AND the order to the customer (else 404). Approve runs full R10
-// materialization as CUSTOMER; reject flips to CUSTOMER_REJECTED with no
-// inventory effect. Decided proposals answer 409 (never silent replays).
+// PHASE 2: the decider is the server-verified session — no customerId in
+// body. The replacement must belong to the path order AND the order to
+// the session customer (else 404). Approve runs full R10 materialization
+// as CUSTOMER; reject flips to CUSTOMER_REJECTED with no inventory effect.
+// Decided proposals answer 409 (never silent replays).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
@@ -10,6 +11,7 @@ import { uuidSchema } from "@/lib/api/validation";
 import { decideInputSchema } from "@/lib/replacements/validation";
 import { getReplacement } from "@/lib/replacements/queries";
 import { decideReplacement } from "@/lib/replacements/writes";
+import { requireCustomer } from "@/lib/customers/session";
 import { toReplacement } from "@/lib/replacements/serialize";
 
 export async function POST(
@@ -34,11 +36,12 @@ export async function POST(
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
+    const me = await requireCustomer(request);
     const existing = await getReplacement(replacementId);
     if (
       !existing ||
       existing.originalItem.orderId !== orderId ||
-      existing.originalItem.order.customerId !== parsed.data.customerId
+      existing.originalItem.order.customerId !== me.customerId
     ) {
       const r = fail(new ApiError("NOT_FOUND", "Replacement not found."));
       return NextResponse.json(r.body, { status: r.status });
@@ -48,7 +51,7 @@ export async function POST(
       expectedOrderId: orderId,
       outcome: parsed.data.action,
       deciderType: "CUSTOMER",
-      deciderId: parsed.data.customerId,
+      deciderId: me.customerId,
     });
     const full = await getReplacement(replacementId);
     if (!full) {

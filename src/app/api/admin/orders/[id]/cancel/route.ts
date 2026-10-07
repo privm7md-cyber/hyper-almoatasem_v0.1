@@ -1,7 +1,8 @@
 // Admin order cancel (staff, within unpicked policy).
 // Permission: orders.cancel ("Cancel orders within policy" — frozen key).
 // Same shared service as the storefront path (actor STAFF + admin id);
-// NEW|CONFIRMED → CANCELLED + reservation release, one tx.
+// NEW|CONFIRMED|PREPARING-unpicked → CANCELLED + reservation release, one tx.
+// Picked lines (actuals set) → 409 via the fulfillment gate.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";

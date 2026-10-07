@@ -1,6 +1,13 @@
 -- BA-B4 product media: product_images table (proposal from
 -- docs/final-database-architecture-v1.md, implemented here).
 --
+-- STATUS (20261006, Phase 3): SUPERSEDED by official migration
+-- prisma/migrations/20261006_catalog_media_search (migration.sql +
+-- supplement.sql) — same table shape, CHECKs, and indexes. This file
+-- remains as the reviewed historical proposal only; do NOT apply it where
+-- the official chain has run.
+--
+-- Original notice (preserved): PROPOSED migration path — reviewed,
 -- STATUS: PROPOSED migration path — reviewed, scratch-verified, NOT applied
 -- to production and NOT part of any Prisma/baseline migration chain. It lives
 -- under db/future/ (never prisma/migrations/) precisely so no deploy tooling

@@ -292,9 +292,10 @@ async function main() {
     // Hygiene: remove BA-4-only rows (addresses → customers → users).
     try {
       const phones = [P_A, P_B, P_UP, P_PATCH, P_AD1, P_AD2].map(CANON);
-      for (const ph of phones) {
-        const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
-        for (const r of rows.rows) {
+        for (const ph of phones) {
+          const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
+          for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
         }
       }

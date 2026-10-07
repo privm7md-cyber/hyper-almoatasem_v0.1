@@ -72,10 +72,11 @@ t("propose-rejects", !proposeInputSchema.safeParse({ replacementQuantity: "1" })
   && !proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "0" }).success
   && !proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "1", governorate: "x" }).success
   && !proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "1", markUnavailable: "yes" }).success);
-t("decide-shape", decideInputSchema.safeParse({ customerId: CID, action: "approve" }).success
-  && decideInputSchema.safeParse({ customerId: CID, action: "reject" }).success);
-t("decide-rejects", !decideInputSchema.safeParse({ customerId: CID }).success
-  && !decideInputSchema.safeParse({ customerId: CID, action: "withdraw" }).success
-  && !decideInputSchema.safeParse({ customerId: CID, action: "approve", note: "x" }).success);
+t("decide-shape", decideInputSchema.safeParse({ action: "approve" }).success
+  && decideInputSchema.safeParse({ action: "reject" }).success);
+t("decide-rejects", !decideInputSchema.safeParse({}).success
+  && !decideInputSchema.safeParse({ action: "withdraw" }).success
+  && !decideInputSchema.safeParse({ action: "approve", note: "x" }).success
+  && !decideInputSchema.safeParse({ customerId: CID, action: "approve" }).success);
 
 done();

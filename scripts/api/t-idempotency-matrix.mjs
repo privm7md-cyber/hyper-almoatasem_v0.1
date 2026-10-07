@@ -69,10 +69,10 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const post = async (path, data, token = null) => {
+  const post = async (path, data, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}) },
+      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}), ...extra },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -102,11 +102,25 @@ async function main() {
     }
     return tok;
   };
-  const checkout = async (custId, addrId, lines, k, couponCode = null) => {
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const mergeTo = async (guestToken, sessTok) =>
+    post(`/api/store/cart/merge`, {}, guestToken, H(sessTok));
+  const checkout = async (sessTok, addrId, lines, k, couponCode = null) => {
     const tok = await mkCart(lines);
-    const body = { customerId: custId, addressId: addrId, idempotencyKey: k };
+    await mergeTo(tok, sessTok);
+    const body = { addressId: addrId, idempotencyKey: k };
     if (couponCode) body.couponCode = couponCode;
-    return post(`/api/store/orders`, body, tok);
+    return post(`/api/store/orders`, body, null, H(sessTok));
   };
 
   try {
@@ -116,8 +130,9 @@ async function main() {
       process.exit(1);
     }
     const ck = store.cookie;
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Idem" });
-    const idC = c1.body.data.id;
+    const ss1 = await sess(P_C1, "Idem");
+    const idC = ss1.id;
+    const tC = ss1.tok;
     const a1 = await fetch(`${baseUrl}/api/admin/customers/${idC}/addresses`, {
       method: "POST",
       headers: { "content-type": "application/json", cookie: ck },
@@ -149,12 +164,13 @@ async function main() {
     // ---------- Orders+coupon replay identity (same cart+key replays) ----------
     const K1 = key("k1");
     const tokK1 = await mkCart([[P1L, "10"]]);
+    await mergeTo(tokK1, tC);
     const orderAs = async (k, couponCode = null) => {
-      const body = { customerId: idC, addressId: idA, idempotencyKey: k };
+      const body = { addressId: idA, idempotencyKey: k };
       if (couponCode) body.couponCode = couponCode;
       const r = await fetch(`${baseUrl}/api/store/orders`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-guest-token": tokK1 },
+        headers: { "content-type": "application/json", ...H(tC) },
         body: JSON.stringify(body),
       });
       return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -179,17 +195,16 @@ async function main() {
 
     // ---------- Same key, different cart -> 409, nothing new ----------
     const usagesX = (await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1`, [idCpI]))[0].n;
-    const r3 = await checkout(idC, idA, [[P330, "1"]], K1, "IDEM40");
+    const r3 = await checkout(tC, idA, [[P330, "1"]], K1, "IDEM40");
     t("key-diff-cart-409", r3.status === 409);
     t("key-diff-no-usage", (await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1`, [idCpI]))[0].n === usagesX);
     t("key-diff-no-order", (await q(`SELECT count(*)::int AS n FROM orders WHERE customer_id = $1`, [idC]))[0].n === 1);
 
     // ---------- Cart convergence row (no key) ----------
-    const cc = await post(`/api/store/customers/identify`, { phone: "01097000022", firstName: "Idem2" });
-    const idCC = cc.body.data.id;
+    const sCC = await sess("01097000022", "Idem2");
     const [g1, g2] = await Promise.all([
-      post(`/api/store/cart`, { customerId: idCC }),
-      post(`/api/store/cart`, { customerId: idCC }),
+      post(`/api/store/cart`, {}, null, H(sCC.tok)),
+      post(`/api/store/cart`, {}, null, H(sCC.tok)),
     ]);
     const gs = [g1.status, g2.status].sort().join(",");
     t("cart-converge", gs === "200,201" && g1.body.data.cart.id === g2.body.data.cart.id, gs);
@@ -198,6 +213,7 @@ async function main() {
       for (const r of rows.rows) {
         const ccs = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
         for (const c of ccs.rows) cartIds.add(c.id);
+        await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
       }
       await db.query(`DELETE FROM customers WHERE phone = $1`, [ph]).catch(() => {});
     }
@@ -234,6 +250,7 @@ async function main() {
       }
       const cust = await db.query(`SELECT id FROM customers WHERE phone = $1`, [CANON(P_C1)]).catch(() => ({ rows: [] }));
       for (const r of cust.rows) {
+        await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
         await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
         const ccs = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
         for (const c of ccs.rows) {

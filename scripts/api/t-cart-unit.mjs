@@ -43,28 +43,27 @@ t("token-hash-stable", session.hashGuestToken(tok) === session.hashGuestToken(to
 t("token-hash-hides-raw", session.hashGuestToken(tok) !== tok);
 t("token-shape-reject", !session.isGuestTokenShape("short") && !session.isGuestTokenShape("") && !session.isGuestTokenShape("x".repeat(63)));
 
-// --- owner XOR (Request필요: use fetch Request) ---
-const req = (token, customerId) => {
-  const headers = token ? { "x-guest-token": token } : {};
-  const url = customerId ? `http://x/cart?customerId=${customerId}` : "http://x/cart";
-  return new Request(url, { headers });
+// --- owner resolution (PHASE 2: guest token XOR verified session) ---
+const req = (token, sessTok = null) => {
+  const headers = { ...(token ? { "x-guest-token": token } : {}), ...(sessTok ? { "x-customer-token": sessTok } : {}) };
+  return new Request("http://x/cart", { headers });
 };
 const CID = "04800000-0000-7000-8000-000000000001";
-t("owner-guest", (() => {
-  const o = ownerMod.resolveOwner(req(tok, null), null);
+const FAKE_SESS = "v1.04800000-0000-7000-8000-000000000001.1790000000." + "ab".repeat(32);
+t("owner-guest", await (async () => {
+  const o = await ownerMod.resolveStoreOwner(req(tok, null));
   return o !== null && o.kind === "guest" && o.sessionHash === session.hashGuestToken(tok);
 })());
-t("owner-customer-query", (() => {
-  const o = ownerMod.resolveOwner(req(null, CID), CID);
-  return o !== null && o.kind === "customer";
-})());
-t("owner-neither-400", ownerMod.resolveOwner(req(null, null), null) === null);
-t("owner-both-400", ownerMod.resolveOwner(req(tok, CID), CID) === null);
-t("owner-bad-token-400", ownerMod.resolveOwner(req("not-a-token", null), null) === null);
-t("owner-bad-uuid-400", ownerMod.resolveOwner(req(null, null), "nope") === null);
+t("owner-neither-null", await ownerMod.resolveStoreOwner(req(null, null)) === null);
+t("owner-bad-token-400", await ownerMod.resolveStoreOwner(req("not-a-token", null)).then(() => false, (e) => e?.code === "VALIDATION"));
+t("owner-both-400", await ownerMod.resolveStoreOwner(req(tok, FAKE_SESS)).then(() => false, (e) => e?.code === "VALIDATION"));
+t("owner-bad-session-rejected", await ownerMod.resolveStoreOwner(req(null, FAKE_SESS)).then(() => false, () => true));
+// NOTE: under plain node the rejection surfaces as the server-only import
+// guard (the DB stack never loads here); live suites prove the real 401.
+// What matters at this layer: a forged session never resolves to an owner.
 
 // --- boundary schemas ---
-const { cartItemAddSchema, cartItemSetSchema, cartMergeSchema, ownerRefSchema, cartQuantitySchema } = validation;
+const { cartItemAddSchema, cartItemSetSchema, cartMergeSchema, cartQuantitySchema } = validation;
 t("qty-wire-ok", cartQuantitySchema.safeParse("0.125").success && cartQuantitySchema.safeParse("2").success);
 t("qty-wire-no", !cartQuantitySchema.safeParse("0").success && !cartQuantitySchema.safeParse("-1").success
   && !cartQuantitySchema.safeParse("0.1234").success && !cartQuantitySchema.safeParse(2).success
@@ -75,14 +74,9 @@ t("add-requires-variant-qty", cartItemAddSchema.safeParse({ productVariantId: CI
 t("add-strict", !cartItemAddSchema.safeParse({ productVariantId: CID, quantity: "1", price: "5.00" }).success);
 t("set-strict", cartItemSetSchema.safeParse({ quantity: "3" }).success
   && !cartItemSetSchema.safeParse({ quantity: "0" }).success);
-t("merge-requires-customer", cartMergeSchema.safeParse({ customerId: CID }).success
-  && !cartMergeSchema.safeParse({}).success
-  && !cartMergeSchema.safeParse({ customerId: CID, guestToken: tok }).success);
-t("owner-schema-xor", ownerRefSchema.safeParse({ customerId: CID }).success
-  && ownerRefSchema.safeParse({ guestToken: tok }).success
-  && !ownerRefSchema.safeParse({}).success
-  && !ownerRefSchema.safeParse({ customerId: CID, guestToken: tok }).success
-  && !ownerRefSchema.safeParse({ customerId: CID, admin: true }).success);
+t("merge-empty-body", cartMergeSchema.safeParse({}).success
+  && !cartMergeSchema.safeParse({ customerId: CID }).success
+  && !cartMergeSchema.safeParse({ guestToken: tok }).success);
 t("lock-order-asc", JSON.stringify(orderLockIds(["b", "a"])) === JSON.stringify(["a", "b"]));
 
 done();

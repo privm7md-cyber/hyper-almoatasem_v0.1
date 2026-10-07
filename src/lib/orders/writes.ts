@@ -7,7 +7,7 @@
 // (rowcount) → INSERT order + snapshot items + history (NULL→NEW,
 // NEW→CONFIRMED) → cart CHECKED_OUT → COMMIT. Price drift always rejects
 // (new terms = new key + confirmation — BA-6 offers no confirm flag).
-// Cancel (NEW|CONFIRMED, unpicked only) releases reservations with zero
+// Cancel (NEW|CONFIRMED|PREPARING, unpicked only) releases reservations with zero
 // movements (frozen §J) + history + status flip, one tx.
 // Prisma owns representable writes; raw SQL owns locks, the sequence,
 // atomic reserve bumps, and guarded updates. Errors caught OUTSIDE any tx
@@ -214,7 +214,7 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
             },
           },
         });
-        if (!v || !v.isActive || v.deletedAt !== null) {
+        if (!v || !v.isActive || v.deletedAt !== null || !v.product.isActive || v.product.deletedAt !== null) {
           throw businessRule("Cart contains an unsellable variant.", { variantId: l.productVariantId });
         }
         const expectedUnit = v.product.productType === "WEIGHT" ? v.sizeUnit : "PIECE";
@@ -333,21 +333,25 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         categoryTree: promoTreeMap,
       });
 
-      // Deterministic ASC inventory locks (bought + free lines), then
-      // atomic conditional reserves — all-or-nothing with the order.
-      const reserveLines: Array<{ variantId: string; qtyText: string }> = priced.map((p) => ({
-        variantId: p.variantId,
-        qtyText: p.quantity,
-      }));
-      for (const f of promo.freeLines) {
-        reserveLines.push({ variantId: f.variantId, qtyText: (f.qtyT / 1000).toFixed(3) });
+      // Deterministic ASC inventory locks (bought lines only), then atomic
+      // conditional reserves — all-or-nothing with the order. Free BXGY
+      // lines are already reserved inside materializeFreeLines (same tx);
+      // reserving them again here would double-reserve and leak a hold on
+      // cancel (which releases once). Quantities are summed per variant
+      // (thousandths integers, never float) so bought+free collisions on
+      // the same variant cannot under-reserve.
+      const boughtT = new Map<string, number>();
+      for (const p of priced) {
+        // p.quantity is NUMERIC(12,3) text; parse via thousandths.
+        const t = Math.round(Number(p.quantity) * 1000);
+        boughtT.set(p.variantId, (boughtT.get(p.variantId) ?? 0) + t);
       }
-      const variantIds = orderLockIds(reserveLines.map((l) => l.variantId));
+      const variantIds = orderLockIds([...boughtT.keys()]);
       for (const vid of variantIds) {
         await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${vid}::uuid FOR UPDATE`;
       }
       for (const vid of variantIds) {
-        const qty = reserveLines.find((l) => l.variantId === vid)?.qtyText as string;
+        const qty = ((boughtT.get(vid) as number) / 1000).toFixed(3);
         const bumped = await tx.$queryRaw<Array<{ one: number }>>`
           UPDATE inventory SET reserved_quantity = reserved_quantity + ${qty}::numeric
            WHERE product_variant_id = ${vid}::uuid
@@ -464,7 +468,8 @@ export interface CancelOrderArgs {
 }
 
 /**
- * Cancel an unpicked order (NEW|CONFIRMED): release every line's reserved
+ * Cancel an unpicked order (NEW|CONFIRMED|PREPARING — the frozen machine
+ * allows CANCELLED from all three): release every line's reserved
  * quantity (zero movements — frozen §J), append the CANCELLED history row,
  * flip status, one tx (history-first trigger satisfied in-tx). Picked
  * lines (actuals set) belong to fulfillment-gated cancel — 409 here.
@@ -479,7 +484,7 @@ export async function cancelOrder(args: CancelOrderArgs): Promise<string> {
       if (status === "CANCELLED" || status === "DELIVERED") {
         throw conflict(`Order cannot be cancelled from ${status}.`, { status });
       }
-      if (status !== "NEW" && status !== "CONFIRMED") {
+      if (status !== "NEW" && status !== "CONFIRMED" && status !== "PREPARING") {
         throw conflict("Order cannot be cancelled in its current state.", { status });
       }
       const items = await tx.orderItem.findMany({

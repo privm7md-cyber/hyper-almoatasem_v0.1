@@ -137,6 +137,19 @@ async function main() {
     && !JSON.stringify(o).includes("argon2") && !JSON.stringify(o).includes("token_hash")
     && !JSON.stringify(o).includes("__Host-admin-session");
   const auditIdsBefore = new Set((await q(`SELECT id::text AS id FROM audit_logs`)).map((r) => r.id));
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const mergeTo = async (guestToken, sessTok) =>
+    post(`/api/store/cart/merge`, {}, null, { "x-guest-token": guestToken, ...H(sessTok) });
 
   try {
     const store = await loginAs(STORE_EMAIL, STORE_PW);
@@ -207,6 +220,8 @@ async function main() {
       post(`/api/store/customers/identify`, { phone: "+201096000131", firstName: "Baac" })));
     t("p-concurrent-single", pA.body.data?.id === idCu && pB.body.data?.id === idCu && pC.body.data?.id === idCu);
     const idAddr = (await post(`/api/admin/customers/${idCu}/addresses`, { city: "Matai", phone: "0223456789" }, ck)).body.data.id;
+    const sCu = await sess("01096000131", "Baac");
+    t("session-same-customer", sCu.id === idCu && !!sCu.tok, `${sCu.id === idCu}`);
 
     // ---------- G: guest token lifecycle ----------
     const g0 = await post(`/api/store/cart`, {});
@@ -234,7 +249,7 @@ async function main() {
     const bCart = await get(`/api/store/cart`, null, { "x-guest-token": tokB });
     t("g-ownership", cross.status === 200 && JSON.stringify(bCart.body).includes(P330) && crossBody.data?.cart?.id !== bCart.body.data?.cart?.id,
       `${cross.status}`);
-    const gMerge = await post(`/api/store/cart/merge`, { customerId: idCu }, null, { "x-guest-token": tokA });
+    const gMerge = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tokA, ...H(sCu.tok) });
     t("g-merge-200", gMerge.status === 200 && typeof gMerge.body.data?.merge?.mode === "string", String(gMerge.status));
     // Expired token: backdate the guest cart, then every mutation path rejects safely.
     const expCart = await post(`/api/store/cart`, {});
@@ -248,7 +263,7 @@ async function main() {
       headers: { "content-type": "application/json", "x-guest-token": tokE },
       body: JSON.stringify({ productVariantId: P330, quantity: "1" }),
     });
-    const eMerge = await post(`/api/store/cart/merge`, { customerId: idCu }, null, { "x-guest-token": tokE });
+    const eMerge = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tokE, ...H(sCu.tok) });
     t("g-expired-rejected", eGet.status === 404 && eAdd.status === 404 && eMerge.status === 409,
       `${eGet.status}/${eAdd.status}/${eMerge.status}`);
 
@@ -266,12 +281,12 @@ async function main() {
       }
       return tok;
     };
-    const orderPost = async (tok, body, keyHeader = null) => {
+    const orderPost = async (sessTok, body, keyHeader = null) => {
       const r = await fetch(`${baseUrl}/api/store/orders`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-guest-token": tok,
+          ...(sessTok ? H(sessTok) : {}),
           ...(keyHeader ? { "idempotency-key": keyHeader } : {}),
         },
         body: JSON.stringify(body),
@@ -280,35 +295,40 @@ async function main() {
     };
     const t1 = await mkGuestCart([[P330, "1"]]);
     const k1 = key("h1");
-    const i1 = await orderPost(t1, { customerId: idCu, addressId: idAddr }, k1);
+    await mergeTo(t1, sCu.tok);
+    const i1 = await orderPost(sCu.tok, { addressId: idAddr }, k1);
     t("i1-header-only-201", i1.status === 201 && typeof i1.body.data?.order?.id === "string", String(i1.status));
     const idO1 = i1.body.data?.order?.id;
-    const i2 = await orderPost(t1, { customerId: idCu, addressId: idAddr }, k1);
+    const i2 = await orderPost(sCu.tok, { addressId: idAddr }, k1);
     t("i2-replay-200", i2.status === 200 && i2.body.meta?.replay === true && i2.body.data?.order?.id === idO1,
       `${i2.status}`);
     const t3 = await mkGuestCart([[P330, "1"]]);
-    const i3 = await orderPost(t3, { customerId: idCu, addressId: idAddr }, k1);
+    await mergeTo(t3, sCu.tok);
+    const i3 = await orderPost(sCu.tok, { addressId: idAddr }, k1);
     t("i3-diff-cart-409", i3.status === 409 && i3.body.error?.code === "CONFLICT", String(i3.status));
     const t4 = await mkGuestCart([[P330, "1"]]);
+    await mergeTo(t4, sCu.tok);
     const k4 = key("h4");
     const [c4a, c4b] = await Promise.all([
-      orderPost(t4, { customerId: idCu, addressId: idAddr }, k4),
-      orderPost(t4, { customerId: idCu, addressId: idAddr }, k4),
+      orderPost(sCu.tok, { addressId: idAddr }, k4),
+      orderPost(sCu.tok, { addressId: idAddr }, k4),
     ]);
     const pair4 = [c4a.status, c4b.status].sort().join(",");
     const oneOrder4 = (await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = $1`, [k4]))[0].n === 1;
     t("i4-concurrent-single", (pair4 === "200,201") && oneOrder4, pair4);
     const t5 = await mkGuestCart([[P330, "1"]]);
+    await mergeTo(t5, sCu.tok);
     const k5 = key("h5");
-    const i5bad = await orderPost(t5, { customerId: idCu, addressId: idAddr, couponCode: "NOPE-DOES-NOT-EXIST" }, k5);
-    const i5retry = await orderPost(t5, { customerId: idCu, addressId: idAddr }, k5);
+    const i5bad = await orderPost(sCu.tok, { addressId: idAddr, couponCode: "NOPE-DOES-NOT-EXIST" }, k5);
+    const i5retry = await orderPost(sCu.tok, { addressId: idAddr }, k5);
     t("i5-failed-reusable", i5bad.status === 404 && i5retry.status === 201, `${i5bad.status}/${i5retry.status}`);
     const t6 = await mkGuestCart([[P330, "1"]]);
-    const i6both = await orderPost(t6, { customerId: idCu, addressId: idAddr, idempotencyKey: key("other") }, key("h6"));
+    await mergeTo(t6, sCu.tok);
+    const i6both = await orderPost(sCu.tok, { addressId: idAddr, idempotencyKey: key("other") }, key("h6"));
     t("i6-conflict-400", i6both.status === 400, String(i6both.status));
-    const i6bad = await orderPost(t6, { customerId: idCu, addressId: idAddr }, "has space");
+    const i6bad = await orderPost(sCu.tok, { addressId: idAddr }, "has space");
     t("i6-malformed-400", i6bad.status === 400, String(i6bad.status));
-    const i6none = await orderPost(t6, { customerId: idCu, addressId: idAddr });
+    const i6none = await orderPost(sCu.tok, { addressId: idAddr });
     t("i6-missing-400", i6none.status === 400, String(i6none.status));
     // Cancel the successful header-flow orders (store actor holds orders.cancel).
     for (const oid of [idO1, i5retry.body.data?.order?.id].filter(Boolean)) {
@@ -328,7 +348,8 @@ async function main() {
     const idCpF = cpFuture.body.data.id;
     couponIds.add(idCpF);
     const tF = await mkGuestCart([[P330, "1"]]);
-    const cF = await orderPost(tF, { customerId: idCu, addressId: idAddr, couponCode: cpFuture.body.data.code }, key("tf"));
+    await mergeTo(tF, sCu.tok);
+    const cF = await orderPost(sCu.tok, { addressId: idAddr, couponCode: cpFuture.body.data.code }, key("tf"));
     t("t-future-coupon-422", cF.status === 422, String(cF.status));
     const cpPast = await post(`/api/admin/coupons`, {
       promotionId: idPrm, code: `BAACP${stamp}`.toUpperCase().slice(0, 12),
@@ -337,12 +358,14 @@ async function main() {
     const idCpP = cpPast.body.data.id;
     couponIds.add(idCpP);
     const tP = await mkGuestCart([[P330, "1"]]);
-    const cP = await orderPost(tP, { customerId: idCu, addressId: idAddr, couponCode: cpPast.body.data.code }, key("tp"));
+    await mergeTo(tP, sCu.tok);
+    const cP = await orderPost(sCu.tok, { addressId: idAddr, couponCode: cpPast.body.data.code }, key("tp"));
     t("t-expired-coupon-422", cP.status === 422, String(cP.status));
     const oTs = await checkoutTs();
     async function checkoutTs() {
       const tt = await mkGuestCart([[P330, "1"]]);
-      const oo = await orderPost(tt, { customerId: idCu, addressId: idAddr }, key("ts"));
+      await mergeTo(tt, sCu.tok);
+      const oo = await orderPost(sCu.tok, { addressId: idAddr }, key("ts"));
       await post(`/api/admin/orders/${oo.body.data?.order?.id}/cancel`, {}, ck);
       return oo.body.data?.order?.createdAt;
     }
@@ -426,6 +449,7 @@ async function main() {
       }
       const cust = await db.query(`SELECT id FROM customers WHERE phone = $1`, [CANON(P_BAC)]).catch(() => ({ rows: [] }));
       for (const r of cust.rows) {
+        await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
         await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
         const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
         for (const c of cc.rows) {

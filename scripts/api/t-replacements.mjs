@@ -75,15 +75,33 @@ async function main() {
     const r = await fetch(`${baseUrl}${path}`);
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  // Storefront POSTs: guest bearer travels in x-guest-token (cart/order scope).
-  const post = async (path, data, token = null) => {
+  // Storefront POSTs: guest bearer travels in x-guest-token (cart scope),
+  // customer session in x-customer-token (PHASE 2 identity).
+  const post = async (path, data, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}) },
+      headers: { "content-type": "application/json", ...(token ? { "x-guest-token": token } : {}), ...extra },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
+  const getH = async (path, extra = {}) => {
+    const r = await fetch(`${baseUrl}${path}`, { headers: { ...extra } });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const mergeTo = async (guestToken, sessTok) =>
+    post(`/api/store/cart/merge`, {}, guestToken, H(sessTok));
   // Admin POSTs: session cookie (nullish = anonymous).
   const apost = async (path, data, cookie = null) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -119,13 +137,14 @@ async function main() {
     for (const [vid, qty] of lines) await post(`/api/store/cart/items`, { productVariantId: vid, quantity: qty }, tok);
     return { id: cartId, token: tok };
   };
-  const mkOrder = async (custId, addrId, lines, k) => {
+  const mkOrder = async (sessTok, addrId, lines, k) => {
     const cart = await mkGuestCart(lines);
-    const o = await post(`/api/store/orders`, { customerId: custId, addressId: addrId, idempotencyKey: k }, cart.token);
+    await mergeTo(cart.token, sessTok);
+    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k }, null, H(sessTok));
     return { order: o.body?.data?.order, status: o.status, cart };
   };
-  const orderItemsOf = async (orderId, custId) =>
-    (await get(`/api/store/orders/${orderId}?customerId=${custId}`)).body?.data?.order?.items ?? [];
+  const orderItemsOf = async (orderId, sessTok) =>
+    (await getH(`/api/store/orders/${orderId}`, H(sessTok))).body?.data?.order?.items ?? [];
   const reservedOf = async (v) =>
     (await q(`SELECT reserved_quantity::text r FROM inventory WHERE product_variant_id = $1`, [v]))[0].r;
 
@@ -135,10 +154,12 @@ async function main() {
     const pmap = Object.fromEntries(px.map((r) => [r.id, r.p]));
     t("fixture-prices", pmap[P330] === "15.00" && pmap[P1L] === "30.00" && pmap[ROMI_V] === "320.00", JSON.stringify(pmap));
 
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Rep1" });
-    const c2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Rep2" });
-    const idC1 = c1.body.data.id;
-    const idC2 = c2.body.data.id;
+    const ss1 = await sess(P_C1, "Rep1");
+    const ss2 = await sess(P_C2, "Rep2");
+    const idC1 = ss1.id;
+    const idC2 = ss2.id;
+    const tC1 = ss1.tok;
+    const tC2 = ss2.tok;
     const store = await loginAs(STORE_EMAIL, STORE_PW);
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
@@ -148,9 +169,9 @@ async function main() {
     const idA1 = a1.body.data.id;
 
     // ---------- propose: OOS path ----------
-    const o1 = await mkOrder(idC1, idA1, [[P330, "2"]], key("o1"));
+    const o1 = await mkOrder(tC1, idA1, [[P330, "2"]], key("o1"));
     t("order-ready", o1.status === 201);
-    const items1 = await orderItemsOf(o1.order.id, idC1);
+    const items1 = await orderItemsOf(o1.order.id, tC1);
     const line330 = items1.find((i) => i.productVariantId === P330);
     const resP1LBefore = await reservedOf(P1L);
     const p1 = await apost(`/api/admin/orders/${o1.order.id}/items/${line330.id}/replacements`,
@@ -159,19 +180,19 @@ async function main() {
     const R1 = p1.body?.data;
     t("propose-201", p1.status === 201 && R1 && R1.status === "PROPOSED" && R1.proposedByType === "STAFF"
       && num(R1.replacementUnitPrice) === 30 && num(R1.priceDifference) === 0);
-    const afterProp = await orderItemsOf(o1.order.id, idC1);
+    const afterProp = await orderItemsOf(o1.order.id, tC1);
     t("propose-flips-unavailable", afterProp.find((i) => i.id === line330.id).itemStatus === "UNAVAILABLE");
     t("propose-no-inventory", (await reservedOf(P1L)) === resP1LBefore);
     t("propose-original-intact", afterProp.find((i) => i.id === line330.id).unitPrice === "15"
       && afterProp.find((i) => i.id === line330.id).productCode === "6221001000331");
 
     // ---------- propose: swap mode + guards ----------
-    const oS = await mkOrder(idC1, idA1, [[P330, "1"]], key("oS"));
-    const itemsS = await orderItemsOf(oS.order.id, idC1);
+    const oS = await mkOrder(tC1, idA1, [[P330, "1"]], key("oS"));
+    const itemsS = await orderItemsOf(oS.order.id, tC1);
     const pS = await apost(`/api/admin/orders/${oS.order.id}/items/${itemsS[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1", markUnavailable: false }, store.cookie);
     trackRep(pS.body);
-    const afterSwap = await orderItemsOf(oS.order.id, idC1);
+    const afterSwap = await orderItemsOf(oS.order.id, tC1);
     t("propose-swap-keeps-pending", pS.status === 201 && afterSwap.find((i) => i.id === itemsS[0].id).itemStatus === "PENDING");
     const pDup = await apost(`/api/admin/orders/${oS.order.id}/items/${itemsS[0].id}/replacements`,
       { replacementVariantId: ROMI_V, replacementQuantity: "0.250" }, store.cookie);
@@ -179,8 +200,8 @@ async function main() {
     const pMissOrd = await apost(`/api/admin/orders/${UNKNOWN}/items/${itemsS[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
     t("propose-unknown-order-404", pMissOrd.status === 404);
-    const o2 = await mkOrder(idC1, idA1, [[P330, "1"]], key("o2"));
-    const items2 = await orderItemsOf(o2.order.id, idC1);
+    const o2 = await mkOrder(tC1, idA1, [[P330, "1"]], key("o2"));
+    const items2 = await orderItemsOf(o2.order.id, tC1);
     const pCross = await apost(`/api/admin/orders/${o1.order.id}/items/${items2[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
     t("propose-cross-order-404", pCross.status === 404);
@@ -214,11 +235,11 @@ async function main() {
     // ---------- storefront approve (R10 materialization) ----------
     const resBeforeApprove = await reservedOf(P330);
     const d1 = await post(`/api/store/orders/${o1.order.id}/replacements/${R1.id}/decide`,
-      { customerId: idC1, action: "approve" });
+      { action: "approve" }, null, H(tC1));
     const D1 = d1.body?.data;
     t("approve-200", d1.status === 200 && D1.status === "CUSTOMER_APPROVED" && D1.decidedByType === "CUSTOMER"
       && !!D1.replacementOrderItemId);
-    const afterAppr = await orderItemsOf(o1.order.id, idC1);
+    const afterAppr = await orderItemsOf(o1.order.id, tC1);
     const orig = afterAppr.find((i) => i.id === line330.id);
     const sub = afterAppr.find((i) => i.id === D1.replacementOrderItemId);
     t("approve-original-replaced", orig.itemStatus === "REPLACED" && orig.unitPrice === "15"
@@ -229,7 +250,7 @@ async function main() {
     t("approve-holds", (await reservedOf(P1L)) === "1.000"
       && num(resBeforeApprove) - num(await reservedOf(P330)) === 2);
     const dAgain = await post(`/api/store/orders/${o1.order.id}/replacements/${R1.id}/decide`,
-      { customerId: idC1, action: "approve" });
+      { action: "approve" }, null, H(tC1));
     t("approve-twice-409", dAgain.status === 409);
     const pAfterRepl = await apost(`/api/admin/orders/${o1.order.id}/items/${line330.id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
@@ -237,22 +258,22 @@ async function main() {
 
     // ---------- storefront reject ----------
     const dR = await post(`/api/store/orders/${oS.order.id}/replacements/${pS.body.data.id}/decide`,
-      { customerId: idC1, action: "reject" });
+      { action: "reject" }, null, H(tC1));
     t("reject-200", dR.status === 200 && dR.body.data.status === "CUSTOMER_REJECTED"
       && dR.body.data.replacementOrderItemId === null);
-    const afterRej = await orderItemsOf(oS.order.id, idC1);
+    const afterRej = await orderItemsOf(oS.order.id, tC1);
     t("reject-no-line", afterRej.length === 1 && afterRej[0].itemStatus === "PENDING");
     t("reject-no-inventory", (await reservedOf(P1L)) === "1.000");
     const dForeign = await post(`/api/store/orders/${oS.order.id}/replacements/${pS.body.data.id}/decide`,
-      { customerId: idC2, action: "approve" });
+      { action: "approve" }, null, H(tC2));
     t("decide-foreign-404", dForeign.status === 404);
     const dBadAct = await post(`/api/store/orders/${oS.order.id}/replacements/${pS.body.data.id}/decide`,
-      { customerId: idC1, action: "withdraw" });
+      { action: "withdraw" }, null, H(tC1));
     t("decide-bad-action-400", dBadAct.status === 400);
 
     // ---------- withdraw (staff) ----------
-    const oW = await mkOrder(idC1, idA1, [[P330, "1"]], key("oW"));
-    const itemsW = await orderItemsOf(oW.order.id, idC1);
+    const oW = await mkOrder(tC1, idA1, [[P330, "1"]], key("oW"));
+    const itemsW = await orderItemsOf(oW.order.id, tC1);
     const pW = await apost(`/api/admin/orders/${oW.order.id}/items/${itemsW[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1", reason: "oos?" }, store.cookie);
     trackRep(pW.body);
@@ -279,8 +300,8 @@ async function main() {
     })();
     t("consent-on", consent === 200);
     // Cheap delta (0.000): covered.
-    const oA = await mkOrder(idC1, idA1, [[P330, "2"]], key("oA"));
-    const itemsA = await orderItemsOf(oA.order.id, idC1);
+    const oA = await mkOrder(tC1, idA1, [[P330, "2"]], key("oA"));
+    const itemsA = await orderItemsOf(oA.order.id, tC1);
     const pA = await apost(`/api/admin/orders/${oA.order.id}/items/${itemsA[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
     trackRep(pA.body);
@@ -290,16 +311,16 @@ async function main() {
     // No consent (C2): 422.
     const aN = await apost(`/api/admin/customers/${idC2}/addresses`, { city: "Giza", phone: P_C2 }, store.cookie);
     const idA2 = aN.body.data.id;
-    const oN2 = await mkOrder(idC2, idA2, [[P330, "1"]], key("oN2"));
-    const itemsN2 = await orderItemsOf(oN2.order.id, idC2);
+    const oN2 = await mkOrder(tC2, idA2, [[P330, "1"]], key("oN2"));
+    const itemsN2 = await orderItemsOf(oN2.order.id, tC2);
     const pN = await apost(`/api/admin/orders/${oN2.order.id}/items/${itemsN2[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
     trackRep(pN.body);
     const aaN = await apost(`/api/admin/replacements/${pN.body.data.id}/auto-accept`, {}, store.cookie);
     t("auto-accept-no-consent-422", aaN.status === 422);
     // Over caps (P25L x5 = 275 vs 30): 422 even with consent.
-    const oE = await mkOrder(idC1, idA1, [[P330, "2"]], key("oE"));
-    const itemsE = await orderItemsOf(oE.order.id, idC1);
+    const oE = await mkOrder(tC1, idA1, [[P330, "2"]], key("oE"));
+    const itemsE = await orderItemsOf(oE.order.id, tC1);
     const pE = await apost(`/api/admin/orders/${oE.order.id}/items/${itemsE[0].id}/replacements`,
       { replacementVariantId: P25L, replacementQuantity: "5" }, store.cookie);
     trackRep(pE.body);
@@ -310,9 +331,9 @@ async function main() {
     t("auto-accept-unknown-404", aaMiss.status === 404);
 
     // ---------- lists + RBAC ----------
-    const sList = await get(`/api/store/orders/${oA.order.id}/replacements?customerId=${idC1}`);
+    const sList = await getH(`/api/store/orders/${oA.order.id}/replacements`, H(tC1));
     t("store-list-200", sList.status === 200 && Array.isArray(sList.body.data) && sList.body.data.length >= 1);
-    const sForeign = await get(`/api/store/orders/${oA.order.id}/replacements?customerId=${idC2}`);
+    const sForeign = await getH(`/api/store/orders/${oA.order.id}/replacements`, H(tC2));
     t("store-list-foreign-404", sForeign.status === 404);
     const aList = await loginGet(`/api/admin/orders/${oA.order.id}/replacements`, store.cookie);
     t("admin-list-200", aList.status === 200 && aList.body.data.length >= 1);
@@ -334,10 +355,10 @@ async function main() {
       return r.status;
     })();
     t("price-bump-ok", bump === 200);
-    const frozen = await get(`/api/store/orders/${o1.order.id}/replacements?customerId=${idC1}`);
+    const frozen = await getH(`/api/store/orders/${o1.order.id}/replacements`, H(tC1));
     const fr = frozen.body.data.find((x) => x.id === R1.id);
     t("replacement-price-frozen", frozen.status === 200 && num(fr.replacementUnitPrice) === 30 && num(fr.priceDifference) === 0);
-    const orderKept = await get(`/api/store/orders/${o1.order.id}?customerId=${idC1}`);
+    const orderKept = await getH(`/api/store/orders/${o1.order.id}`, H(tC1));
     t("order-lines-frozen", orderKept.status === 200
       && num(orderKept.body.data.order.items.find((i) => i.productVariantId === P330).unitPrice) === 15);
     await fetch(`${baseUrl}/api/admin/catalog/variants/${P1L}/price`, {
@@ -346,8 +367,8 @@ async function main() {
     });
 
     // ---------- READY-gate visibility (R2 discipline input) ----------
-    const oG = await mkOrder(idC1, idA1, [[P330, "1"]], key("oG"));
-    const itemsG = await orderItemsOf(oG.order.id, idC1);
+    const oG = await mkOrder(tC1, idA1, [[P330, "1"]], key("oG"));
+    const itemsG = await orderItemsOf(oG.order.id, tC1);
     const pG = await apost(`/api/admin/orders/${oG.order.id}/items/${itemsG[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
     trackRep(pG.body);
@@ -356,15 +377,15 @@ async function main() {
       && gateView.body.data.some((x) => x.status === "PROPOSED"));
 
     // ---------- cancel interplay ----------
-    const oX = await mkOrder(idC1, idA1, [[P330, "1"]], key("oX"));
-    const itemsX = await orderItemsOf(oX.order.id, idC1);
+    const oX = await mkOrder(tC1, idA1, [[P330, "1"]], key("oX"));
+    const itemsX = await orderItemsOf(oX.order.id, tC1);
     const pX = await apost(`/api/admin/orders/${oX.order.id}/items/${itemsX[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
     trackRep(pX.body);
-    const cxX = await post(`/api/store/orders/${oX.order.id}/cancel`, { customerId: idC1 });
+    const cxX = await post(`/api/store/orders/${oX.order.id}/cancel`, {}, null, H(tC1));
     t("cancel-with-proposed-200", cxX.status === 200 && cxX.body.data.order.status === "CANCELLED");
     const dAfterCancel = await post(`/api/store/orders/${oX.order.id}/replacements/${pX.body.data.id}/decide`,
-      { customerId: idC1, action: "approve" });
+      { action: "approve" }, null, H(tC1));
     t("approve-after-cancel-409", dAfterCancel.status === 409);
     const pAfterCancel = await apost(`/api/admin/orders/${oX.order.id}/items/${itemsX[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, store.cookie);
@@ -396,6 +417,7 @@ async function main() {
       for (const ph of [P_C1, P_C2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
         }
       }

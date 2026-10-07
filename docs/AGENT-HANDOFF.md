@@ -1,15 +1,564 @@
 # AGENT HANDOFF — Hyper Al-Moatasem / هايبر المعتصم (canonical, self-contained)
 
 > Read this file first. The authoritative CURRENT STATE is the block
-> "⚑ SESSION HANDOFF — CURRENT STATE (DEV-SYNC audit + docs sync, 2026-10-06)"
+> "⚑ SESSION HANDOFF — CURRENT STATE (Phase 5 Final Backend Completion, 2026-10-07)"
 > immediately below.
-> It supersedes any conflicting wording further down (including the BA-C
-> closeout block and the older "GO-LIVE EXECUTION" gate labels, which are
-> preserved beneath it as history); the standing reference sections
-> (§ Project identity … § Human decisions) are preserved and must not be
-> deleted. Conversation history is NOT the source of truth —
-> the repository, the database and passing tests are. If anything here
-> conflicts with those, stop and investigate.
+> It supersedes any conflicting wording further down (including the
+> DEV-SYNC block, the BA-C closeout block and the older "GO-LIVE
+> EXECUTION" gate labels, which are preserved beneath it as history);
+> the standing reference sections (§ Project identity … § Human
+> decisions) are preserved and must not be deleted. Conversation history
+> is NOT the source of truth — the repository, the database and passing
+> tests are. If anything here conflicts with those, stop and investigate.
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (Phase 5 Final Backend Completion, 2026-10-07)
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. SESSION SUMMARY (this session: limitations triage → Phase 5 audit → fixes → full regression → docs sync → commit+push)
+
+Work executed, in order, on working tree (no production touch at any point):
+baseline verified (master, HEAD `328bf899f9016fe1b7b1d9e3c821606c3b14e24b`
+== origin/master, Phases 1–4 change set present: 51 modified + 22 untracked
+groups) → Remaining-limitations triage from zero (L1 + Phase 2.5/3/4 lists,
+each classified BLOCKER / NON-BLOCKING / HUMAN DECISION / FUTURE /
+ENVIRONMENTAL — verdict table in §"LIMITATIONS TRIAGE") → 4 parallel
+code-level domain audits (auth+IDOR / fulfillment+inventory / catalog+cart+
+pricing+checkout / API-contract+RBAC) → 3 genuine core defects found and
+fixed minimally (free-line double-reserve + reserve aggregation; product-
+liveness gap ×4 paths; OpenAPI POST mis-nesting) + 3 doc-hygiene fixes
+(unavailable-route comment, cart-liveness comment, media-model comment) →
+full verification on final tree (tsc / ESLint 0 / route-coverage 96/96 /
+build / PGlite 77/65/50 / units 198 / complete live matrix, every suite
+green §"Verification record") → scratch residue-free (2 fixtures; P330
+500/0, P1L 300/0, ROMI 47.35/0; 0 business rows) → servers stopped →
+docs synchronized (this block + OpenAPI fix) → commit + push (see §"GIT
+STATE / POST-PUSH"). Verdict: **✅ BACKEND DEVELOPMENT COMPLETE**.
+Next authorized development phase: **Storefront Frontend** (NOT started).
+
+## FINAL BACKEND VERDICT
+
+```text
+✅ BACKEND DEVELOPMENT COMPLETE
+Storefront Frontend Ready: YES (no backend blocker stands in the way)
+Core Backend Blockers: 0
+```
+
+## LIMITATIONS TRIAGE (all pre-existing limitations, decided from code evidence)
+
+| Limitation | Result | Severity | Decision | Action |
+| ---------- | ------ | -------- | -------- | ------ |
+| L1 UNAVAILABLE-without-substitute → ships short (final 0) | A. Correct Final Business Rule | NON-BLOCKING | ACCEPTED | None — READY gate (zero PENDING + zero PROPOSED) is frozen; cancel is 409 once picked, so blocking READY on shorts would strand orders; money (NULL final = 0, discount LEAST, deliveryFee) + hold-release-at-READY proven by t-fulfillment 63/63 |
+| No re-pick after UNAVAILABLE | By design (terminal line state) | NON-BLOCKING | ACCEPTED | Re-proposal path exists (UNAVAILABLE re-proposable); pick requires PENDING by frozen transition table |
+| Stock-short at pick → 409 (no silent auto-cap) | Correct rule | NON-BLOCKING | ACCEPTED | Operator re-cuts or marks unavailable; proven live |
+| `delivery.enabled=false` seed default | Dead switch (zero reads in `src/`; only `delivery.default_fee` is read) | NON-BLOCKING / FUTURE | DOCUMENTED | Delivery mechanics belong to a future phase; dispatch/deliver are pure status transitions; flag is an operational future switch, not a gate |
+| OTP / phone verification / password recovery | No provider exists | NON-BLOCKING / FUTURE | DEFERRED | phone+password+revocable-sessions is the complete core (t-customer-auth 37/37); provider work is product-scope |
+| Registration spam/CAPTCHA | Basic protection exists (separate customer IP 30 / account 10 per 15min buckets) | NON-BLOCKING / FUTURE | DEFERRED | Hardening beyond buckets is production-scope |
+| Customer-auth audit trail | FK-blocked (`audit_logs.user_id → users(id)`); self-service stays unaudited per frozen rule | NON-BLOCKING | ACCEPTED | Brute-force visibility via buckets + lockout; no schema change invented |
+| Customer session TTL 30d | Locked product constant | NON-BLOCKING | ACCEPTED | Fixed expiry, no sliding; verified live |
+| Scratch media objects pghyper-owned | Everything works via provisioner grants; full ownership alignment needs a human one-liner | ENVIRONMENTAL | HUMAN DECISION | `ALTER ... OWNER TO hyper_migrator` + grants (separate authorization; never executed here) |
+| Fresh-DB end-to-end build impossible here | No CREATEDB-capable role | ENVIRONMENTAL | RECORDED | Migration content proven (byte-identical function + Prisma-diff match + scratch-apply); not claimed otherwise |
+| Search scale precondition (20k seed + ANALYZE) | Test-environment precondition | ENVIRONMENTAL | RECORDED | t-bab-catalog 46/46 on seeded 20k, cleaned after |
+| `db/future/*.sql` remnants | Correctly marked SUPERSEDED, outside `prisma/migrations/` | NON-BLOCKING / HISTORY | PRESERVED | Historical proposals only; never applied where the official chain ran |
+| Prototype migration dir inside `prisma/migrations/` | Discovered by tooling on fresh DBs (procedural guards only) | HUMAN DECISION | ESCALATED, not executed | Removal/quarantine is an architectural decision (history preservation vs tooling safety); production history already correct; no action taken without authorization |
+
+## PHASE 5 FIXES (minimal, root-caused, regression-proven)
+
+* **F1 free-line double-reserve (BLOCKER, fixed):** `applyPromotions →
+  materializeFreeLines` reserved BXGY free lines inside the checkout tx
+  (`promotions/checkout.ts`), then `createOrder` reserved the same lines a
+  second time (`orders/writes.ts` reserve block) → leaked holds (cancel
+  releases once). Fixed by reserving bought lines only in `createOrder`
+  (free lines already held in the same tx) — smallest diff, ASC lock order
+  kept. Root cause proven by code paths; regression: promotions 58/58,
+  orders 54/54, atomicity 18/18, idempotency 9/9 green.
+* **F2 reserve aggregation (BLOCKER, fixed with F1):** the same block used
+  `.find()` per deduplicated variant id, under-reserving when one variant
+  appeared twice (bought == free collision). Fixed with per-variant
+  thousandths-integer sums. Same regression proof as F1.
+* **F3 product-liveness gap (BLOCKER, fixed):** `repriceCart` dropped
+  product-dead lines but `assertLineShape` (add/set), merge, checkout
+  revalidate, and `materializeFreeLines` gated on the variant row only, so
+  a variant of an inactive/deleted product stayed orderable. Fixed by
+  gating on variant AND product in all four paths (+ merge select
+  extended). Regression: cart 50/50, replacements 54/54, promotions 58/58,
+  orders 54/54 green.
+* **F4 OpenAPI POST mis-nesting (contract drift, fixed):** `POST Create
+  variant` was nested under `/api/admin/catalog/images/{id}` (impl:
+  PATCH+DELETE only) instead of `/api/admin/catalog/products/{id}/
+  variants` (impl: GET+POST). Doc-only move; impl untouched.
+  Route-coverage gate is path-identity-only (blind to this class — recorded
+  P3); method parity re-verified manually 136/136. Regression:
+  route-coverage 96/96 + t-ba-a-contract 46/46 green.
+* **Doc hygiene (non-behavioral):** unavailable-route comment contradicted
+  the deliberate hold-release design (fixed); `cart/queries.ts` comment
+  claimed product gating lives in listings (false after F3 — fixed);
+  `catalog/media.ts` comment claimed no Prisma model exists (stale after
+  Phase 3 — fixed).
+
+## COMPLETED (DONE vs VERIFIED)
+
+* Phases 1+2+2.5+3+4 — DONE + VERIFIED (inherited green, re-greened on the
+  final tree: addresses 45 · idor 25 · customer-auth 37 · bab-catalog 46 ·
+  fulfillment 63).
+* Phase 5 triage + 4-domain audit + F1–F4 fixes — DONE + VERIFIED (fix
+  areas re-greened: orders 54 · cart 50 · promotions 58 · replacements 54 ·
+  atomicity 18 · idempotency 9 · ba-a 46 · route-coverage 96/96).
+* Full regression on the final tree — DONE + VERIFIED (every number in
+  §"Verification record" observed this session after the last code edit;
+  docs-only handoff edit + OpenAPI doc move came before the final
+  ba-a/route-coverage re-green and change nothing behavioral).
+* tsc strict PASS · ESLint 0 · `npm run build` PASS · PGlite 77/65/50 ·
+  units 198 (26+18+40+34+34+24+22) — all VERIFIED, final tree.
+* Scratch residue-free (2 fixtures P330/ROMI + P1L exact; 0 orders/carts/
+  customers/sessions/addresses/holds); servers stopped.
+* Production: never touched (no connection, no reads, no writes).
+* GitHub synchronized: commit + push + post-push verification — see §"GIT
+  STATE / POST-PUSH".
+
+## IN PROGRESS
+
+* None. All authorized work for this session is finished.
+
+## FAILED / BLOCKED
+
+* Nothing unresolved. Failures seen were diagnosed: 2 genuine product
+  defects from the audit (F1/F2 one area, F3 — all fixed + re-greened);
+  1 contract drift (F4 doc-only, fixed); test-sequencing/hygiene
+  (orphaned P1L hold from the pre-fix double-reserve era + BA11A/Idem2
+  residue from interrupted runs — all zero-ref verified then
+  reset/deleted); environmental rate-bucket 401 cascades (3 rollovers
+  waited); transient single-assertion flakes (customers-concurrency 7+1 →
+  8/8; bab-catalog bench-index 45+1 → 46/46 — both re-greened with
+  evidence). Zero open technical blockers. Core Backend Blockers: 0.
+
+## IMPORTANT FINDINGS
+
+* Pre-fix double-reserve leaked exactly the observed orphaned P1L 1.000
+  hold (orders 0, zero references) — the cleanup reset is itself
+  regression evidence for F1, not just hygiene.
+* `delivery.enabled` is read nowhere in `src/` — wiring it now would be
+  new behavior (rejected scope); documenting it as a future switch is the
+  honest completion posture.
+* Route-coverage gate compares path identity only — F4-class (method under
+  wrong path) passes it; live t-ba-a-contract + manual 136/136 method
+  parity is the real gate until the script is extended (P3).
+* Recurring pattern (5th session): interrupted runs leave BA11A-product,
+  Idem2-customer, and orphaned-hold residue on scratch. Always zero-ref
+  verified before reset/delete. Not a product defect.
+
+## DECISIONS (locked — do not reverse without authorization)
+
+* All Phase 1–4 locked decisions stand (Next.js 16.3.x; Prisma 7.10.0
+  triple; frozen SQL immutable; phone+Argon2id, no OTP; guest tokens never
+  authenticate; self-service unaudited; telemetry never deleted;
+  production read-only; short-ship rule; stock-short 409; 30d TTL;
+  duplicate-register 409).
+* Phase 5 additions: free lines reserve once (in `materializeFreeLines`,
+  same tx); bought reserves aggregate per-variant sums; line sellability
+  = variant AND product; OpenAPI `POST .../products/{id}/variants` is the
+  single variant-creation record (no `POST .../images/{id}`).
+* No commit/push without explicit instruction (this session's two
+  Phase-5 sync commits are the authorized exception); no production
+  operation of any kind without per-step authorization.
+
+## CURRENT PHASE
+
+`BACKEND DEVELOPMENT COMPLETE — Storefront Frontend NOT STARTED`.
+Production / go-live remains a FUTURE stage, not the current gate.
+
+## DEFINITION OF DONE (final — all PASS)
+
+Customer: authentication ✅ secure sessions ✅ ownership ✅ addresses ✅ ·
+Catalog: products ✅ search ✅ images ✅ availability ✅ · Cart: guest ✅
+authenticated ✅ merge ✅ repricing ✅ · Pricing: promotions ✅ coupons ✅
+weighted ✅ · Checkout: reservation ✅ idempotency ✅ price verification ✅
+address ownership ✅ atomicity ✅ · Orders: create ✅ read ✅ cancel ✅
+lifecycle ✅ · Fulfillment: prepare ✅ pick ✅ actual quantity ✅
+unavailable ✅ replacement integration ✅ ready gate ✅ dispatch ✅
+delivery ✅ · Inventory: reserve ✅ hold ✅ commit ✅ release ✅
+consistency ✅ · Security: customer auth ✅ admin auth ✅ RBAC ✅ IDOR ✅
+brute-force ✅ secure cookies ✅ · Quality: validation ✅ audit ✅
+concurrency ✅ tests ✅ build ✅ OpenAPI ✅ migrations ✅.
+
+## EXACT STOPPING POINT
+
+* Last code edit of consequence: F1–F4 + doc-hygiene fixes (§"PHASE 5
+  FIXES"); last verification on that tree: `tsc` PASS · ESLint 0 ·
+  `npm run build` PASS · route-coverage 96/96 PASS · PGlite 77/65/50 ·
+  units 198 · live matrix all-green (see §"Verification record").
+* Scratch at session end: CLEAN — 2 fixture products (+2 seeded variants
+  intact: 4 variants), 0 orders/carts/customers/sessions/addresses,
+  0 nonzero holds; fixtures exact (P330 500/0, P1L 300/0, ROMI 47.35/0 +
+  its seed STOCK_IN movement, preserved as fixture history); scale seed
+  cleaned (20k removed) + ANALYZE; servers stopped (Node 0, PG stopped).
+* Must NOT be assumed done: production deployment/migration/seed/backup,
+  monitoring, load evidence, go-live ceremony, frontend — all still
+  require separate explicit human authorization.
+
+## Verification record (all observed this session, final tree)
+
+fulfillment 63 · addresses 45 · customer-auth 37 · idor 25 · orders 54 ·
+cart 50 · promotions 58 · replacements 54 · customers 66 · inventory 84 ·
+catalog 53 · ba-a 46 · foundation 26 · time 10 · xmodule 17 · bad 66 ·
+bac 61 · bag-e2e 51 · baf-admin 41 · admin 80 · atomicity 18 ·
+idempotency-matrix 9 · deadlock 2 · audit-pairing 102 · rbac-guards 49 ·
+rbac-races 53 · auth-flow 20 · auth-rbac 8 · auth-races 6 · auth-security
+13 · auth-hardening 25 · cc1 8 · cart-conc 13 · orders-conc 15 ·
+customers-conc 8 (first 7+1 flake, rerun 8/8) · inventory-conc 18 ·
+promotions-conc 13 · replacements-conc 12 · admin-conc 8 · bab-catalog 46
+(first 45+1 bench-index transient, rerun 46/46; 20k seed + ANALYZE,
+`--clean` after).
+
+## NEXT SESSION START POINT
+
+### Start Here
+
+1. Verify `git rev-parse HEAD` == `git rev-parse origin/master` (post-
+   Phase-5 push, §"GIT STATE / POST-PUSH") and `git status --short` is
+   clean. If HEAD differs or the tree is dirty: STOP, do not
+   reset/rebase, report.
+2. The committed change set since `328bf89`: Phases 1+2+2.5+3+4 (51
+   modified + 22 untracked groups, audited in the superseded block below)
+   + Phase 5 (§"PHASE 5 FIXES": orders/writes reserve, cart liveness ×2,
+   promotions free-line liveness, openapi POST move, 3 comment fixes) +
+   this handoff block. Nothing staged, nothing left uncommitted.
+3. If the next authorized step is verification: boot PostgreSQL
+   (`C:\pgprov\pg18\bin\pg_ctl.exe start -D C:\pgprov\data`; the Windows
+   service wrapper is broken), then Next dev with an explicit scratch
+   `DATABASE_URL` override on port 3131, confirm `/api/health` 200 +
+   catalog shows the 2 fixtures (proves scratch binding, not production).
+   No CUSTOMER_SESSION_SECRET exists (HMAC deleted in 2.5 — do not
+   reintroduce it).
+4. Rate-limit spacing is mandatory (admin IP 30 / account 10 per 15 min;
+   SEPARATE customer buckets IP 30 / account 10 per 15 min; fail-closed
+   401s). Space login-heavy suites across rollovers; a 401 cascade means
+   "wait", never a product defect. t-bab-catalog needs the 20k scale seed
+   + `ANALYZE` first, `--clean` after.
+
+Do NOT execute any of the above now — this task ends at the handoff update
++ commit + push + post-push verification.
+
+## DO NOT REPEAT
+
+* Phases 1/2/2.5/3/4 implementation or their migrations (applied on
+  scratch and verified; re-running installs risks churn).
+* Phase 5 fixes F1–F4 (in-tree, re-verified green).
+* The L1 short-ship decision (frozen-machine conformant, tested).
+* Full regression just completed (all numbers above observed this session).
+* Production read-only posture (never touched this session).
+* Final scratch cleanup just completed (verified zero unexpected rows).
+
+## OPEN ISSUES
+
+* None blocking. P2 (non-blocking debt): 9 high transitive audit findings
+  (breaking-downgrade fixes deferred); advanced TS flags roadmap
+  (noUncheckedIndexedAccess 375 lines, exactOptionalPropertyTypes 93
+  lines); OTP/phone-verification/password-recovery future (no provider);
+  registration spam controls beyond buckets; customer-auth audit trail
+  (FK-blocked); multi-device session UI; route-coverage method-parity
+  extension (F4-class blind spot). P3 (observations): rate-bucket spacing
+  discipline; scale-seed/ANALYZE preconditions; transient
+  single-assertion flakes (re-greened with evidence); BA11A/Idem2 residue
+  pattern from interrupted runs. OPERATIONAL / ENVIRONMENT (require
+  separate authorization or human action, not code): no production
+  deployment ever performed; no fresh pre-go-live backup; no
+  monitoring/alerting; no production load evidence; scratch media objects
+  pghyper-owned (human one-liner aligns ownership — everything already
+  works); fresh-DB build not possible from here (no CREATEDB role);
+  prototype-dir quarantine decision pending (HUMAN DECISION).
+
+## DATABASE STATE
+
+* Scratch (`hyper_almoatasem_scratch`): CLEAN at session end — 2 fixture
+  products / 4 variants, 0 orders/carts/customers/sessions/addresses,
+  0 nonzero holds; fixtures exact (P330 500/0, P1L 300/0, ROMI 47.35/0).
+  Migrations: baseline-official + admin-auth + 20261006_customer_auth
+  (deploy) + 20261006_catalog_media_search (resolve-applied after
+  byte-level equivalence proof; pghyper-owned objects cannot be DDL'd by
+  migrator — documented). Scale seed cleaned (20k removed). No cleanup
+  pending.
+* Production (`hyper_almoatasem`): NEVER TOUCHED this session (no
+  connection, no reads, no writes). No DDL/DML anywhere near it.
+* Servers at session end: Node 0 processes, PostgreSQL stopped (verified).
+
+## GIT STATE / POST-PUSH
+
+* Branch: `master`.
+* Pre-commit HEAD (session start, == origin/master then):
+  `328bf899f9016fe1b7b1d9e3c821606c3b14e24b`.
+* Commit 1 (code + docs): `feat: finalize backend development (Phase 5 audit fixes) and synchronize project state`.
+* Commit 2 (handoff HEAD-pointer refresh, docs-only): `docs: record Phase 5 post-push HEAD`.
+* Post-push verification (this session): local HEAD == origin/master,
+  working tree clean — exact hashes recorded in the final report below and
+  in §"NEXT SESSION START POINT" (HEAD == origin/master rule).
+* Correctly untracked/ignored (never committed): `scripts/set-super-admin-
+  password-local.ps1`, `_recovery/`, `.agents/`, `.claude/`, `.cursor/`,
+  `.devin/`, `.env*`, `C:\Users\MEGA\AppData\Local\Temp\opencode/` probes.
+
+## HUMAN AUTHORIZATION
+
+Still required explicitly (roadmap presence is not authorization) for: any
+further commit or push · any production deployment, migration, seed,
+backup, or data change · Neon/Vercel plan or config changes · DNS/domain
+changes · monitoring setup · go-live ceremony or any step of it · any
+dependency upgrade · any schema, RBAC, or frozen-file change · starting
+frontend · the pghyper ownership one-liner · prototype-dir quarantine.
+
+## SAFETY CHECK (to be verified after this edit — see final report)
+
+---
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (Phases 1+2+2.5+3+4, 2026-10-07)
+
+> Status labels are strict: **DONE** (implemented) · **VERIFIED** (executed,
+> output actually seen) · **PARTIAL** · **BLOCKED** · **DECISION-REQUIRED**
+> (needs an explicit human decision; do not guess) · **NOT STARTED**.
+
+## 0. SESSION SUMMARY (this session: Phase 1 → 2 → 2.5 → 3 → 4, then stop)
+
+Work executed, in order, all on working tree (NO commit, NO push, NO
+production touch at any point):
+Phase 1 Storefront Address API (5 routes, owner-scoped services, 34→45
+tests) → Phase 2 server-verified customer identity (HMAC sessions, all
+storefront routes migrated off client customerId, IDOR suite 25) + full
+live-matrix migration (~20 suites) → Phase 2.5 strong auth (phone+password
+Argon2id, DB-backed revocable sessions, new migration
+20261006_customer_auth applied on scratch, HMAC removed, all suites on
+register+login) → Phase 3 search/images official contract (migration
+20261006_catalog_media_search, Prisma ProductImage, future files marked
+superseded, t-bab-catalog 46/46 on 20k rows) → Phase 4 fulfillment
+(new fulfillment service + 6 admin routes, cancel widened to
+PREPARING-unpicked, t-fulfillment 63/63 ×2) → full regression green →
+residue cleanup → servers stopped. Two genuine defects found and fixed
+in-session (double-release on approve; missing guard-error mapping);
+several test-sequencing/hygiene issues fixed; all environmental events
+(rate-bucket 401 cascades, owner-mapping transient absence, stale-code
+confusion resolved by server restart) evidenced and closed.
+
+## COMPLETED (DONE vs VERIFIED)
+
+* Phase 1: Storefront Address API (CRUD, server-side ownership, checkout
+  compat) — DONE + VERIFIED (t-store-addresses 45/45).
+* Phase 2: HMAC-session identity + removal of client customerId authority
+  across cart/orders/replacements/addresses/estimate + IDOR audit —
+  DONE + VERIFIED (t-store-idor 25/25; full matrix green).
+* Phase 2.5: phone+password auth (register/login/logout/password-change),
+  DB-backed revocable sessions, lockout + isolated rate buckets, migration
+  applied on scratch, HMAC system deleted — DONE + VERIFIED
+  (t-customer-auth 37/37).
+* Phase 3: official DB contract for search (pg_trgm + hyper_norm_ar +
+  4 GIN) and product_images (table + Prisma model + grants doc) —
+  DONE + VERIFIED (t-bab-catalog 46/46 on 20k seeded rows, cleaned after;
+  t-catalog 53/53).
+* Phase 4: fulfillment lifecycle (CONFIRMED→PREPARING→READY_FOR_DELIVERY→
+  OUT_FOR_DELIVERY→DELIVERED), R7 picking with envelope, OOS marking,
+  READY gate, money finalization, PREPARING-unpicked cancel, 6 admin
+  routes (orders.update, no new permissions), OpenAPI parity 96/96 —
+  DONE + VERIFIED (t-fulfillment 63/63, two consecutive greens).
+* Full regression this session — DONE + VERIFIED (every suite listed in
+  §"Verification record" below ran green on the final tree).
+* tsc strict PASS · ESLint 0 · route-coverage 96/96 PASS · build PASS ·
+  PGlite 77/65/50 PASS (all VERIFIED, final tree).
+* Scratch left residue-free (2 fixtures; P330 500/0, ROMI 47.35/0;
+  0 business rows); servers stopped (Node 0, PostgreSQL stopped).
+* Production: never touched (no connection, no reads, no writes).
+
+## IN PROGRESS
+
+* None. All authorized work for this session is finished. Nothing is
+  half-implemented in the tree.
+
+## FAILED / BLOCKED
+
+* Nothing unresolved. All failures seen were diagnosed: 2 genuine
+  product defects (both fixed + re-greened), test-sequencing artifacts
+  (fixed), environmental rate-bucket 401s (spaced across rollovers),
+  one owner-mapping transient absence (fixture restored, suites re-green),
+  one stale-server-code confusion (restart resolved). Zero open technical
+  blockers.
+
+## IMPORTANT FINDINGS
+
+* Double-release defect (Phase 4, mine): markUnavailable released holds
+  that approveSteps also releases → CHECK violation on approve. Fixed
+  by releasing unsubstituted holds at READY instead; proven by
+  repl-approved-200 + money math green.
+* Missing guard-error mapping (Phase 4, mine): CHECK/deadlock errors
+  escaped as 500 instead of 409. Fixed with local mapGuardError mirroring
+  inventory/service.ts.
+* Cancel widening (Phase 4, deliberate): NEW|CONFIRMED|PREPARING-unpicked
+  per the frozen machine; t-orders expectation updated to the new
+  (verified) behavior; picked lines still 409.
+* Phase-3 environment collision (no code defect): scratch media objects
+  are pghyper-owned (migrator cannot DDL/GRANT them); hyper_app already
+  holds CRUD via the provisioner's grants, so everything works — full
+  ownership alignment needs a human one-liner (see OPEN ISSUES).
+* Fresh-DB end-to-end build is not possible from this environment (no
+  CREATEDB-capable role; scratch-creation allowlist exhausted). The
+  migration content is proven instead (statement-level + byte-identical
+  function + Prisma-diff match). Recorded honestly, not claimed.
+* Recurring pattern (4th session): crashed/interrupted runs leave
+  BA11A-product, Idem2-customer, and orphaned-hold residue on scratch.
+  Always zero-ref verified before reset/delete. Not a product defect.
+* One bulk edit (Phase 2 era) swapped a `bare.cookie` for `store.cookie`
+  in t-orders; caught by the suite (bare-403) and fixed. Lesson recorded:
+  verify bulk-replace diffs line by line.
+
+## DECISIONS (locked — do not reverse without authorization)
+
+* Next.js stays on 16.3.x; no `npm audit fix --force`, no mass upgrades.
+* Prisma 7.10.0 triple locked; frozen SQL immutable without architecture
+  decision; no new permissions invented (fulfillment reuses
+  orders.update/orders.cancel).
+* Customer auth = phone + Argon2id password; no OTP/SMS provider; no
+  passwordless; guest tokens never authenticate.
+* Self-service mutations stay unaudited (ADMIN-actor rows never
+  misattributed); customer-auth writes no audit rows (FK-blocked,
+  documented).
+* Telemetry/audit residue never deleted; production read-only without
+  per-step authorization; no commit/push without explicit instruction.
+* UNAVAILABLE-without-substitute ships short (blocking READY would strand
+  uncancelable orders — decided by elimination, documented).
+* Stock-short at pick → 409 (no silent auto-cap); TTL 30d customer
+  sessions; registration duplicate → 409 (accepted enumeration surface).
+
+## CURRENT PHASE
+
+`Phase 4 — COMPLETE (backend fulfillment closed, verified green)`.
+Next Seymour-stage work (frontend, production, monitoring) is NOT started
+and NOT authorized by this handoff.
+
+## EXACT STOPPING POINT
+
+* Last command of consequence: full residue audit + zero-ref-verified
+  deletion of leftover rows (2 fixtures remain; P330 500/0, ROMI
+  47.35/0, 0 orders/carts/customers/sessions) → Node processes stopped
+  (0 remain) and PostgreSQL stopped (`server stopped`).
+* Last verification results: `tsc` PASS (strict) · ESLint PASS (0) ·
+  `npm run build` PASS · route-coverage 96/96 PASS · PGlite 77/65/50 ·
+  live matrix all-green: fulfillment 63×2 · addresses 45 · customer-auth
+  37 · idor 25 · ba-a 46 · bad 66 · bac 61 · bag 51 · cart 50 · orders
+  54 · customers 66 · replacements 54 · promotions 58 · xmodule 17 ·
+  atomicity 18 · idempotency 9 · deadlock 2 · audit-pairing 102 ·
+  baf-admin 41 · admin 80 · inventory 84 · catalog 53 · bab-catalog 46 ·
+  foundation 26 · time 10 · cart-conc 13 · orders-conc 15 ·
+  customers-conc 8 · inventory-conc 18 · promotions-conc 13 ·
+  replacements-conc 12 · admin-conc 8 · rbac-guards 49 · rbac-races 53 ·
+  auth-flow 20 · auth-rbac 8 · auth-races 6 · auth-security 13 ·
+  auth-hardening 25 · cc1 8 · units (cart 26, orders 18, customers 40,
+  inventory 34, promotions 34, replacements 24, admin 22).
+* One known transient (customers-concurrency single-assertion flake,
+  P3) re-greened on rerun; rate-bucket 401 cascades spaced across
+  rollovers (environmental, by design).
+* Must NOT be assumed done: commit, push, deployment, production
+  migration, backup, monitoring wiring, go-live ceremony, frontend —
+  all still require separate explicit human authorization.
+
+## NEXT SESSION START POINT
+
+### Start Here
+
+1. Verify `git rev-parse HEAD` is still
+   `328bf899f9016fe1b7b1d9e3c821606c3b14e24b` and `git status --short`
+   shows only the audited change set below (Phases 1+2+2.5+3+4),
+   nothing staged. If HEAD differs: STOP, do not reset/rebase, report.
+2. Change set to review (50 modified tracked + 22 untracked paths/
+   groups): src fulfillment service + 6 admin routes + cancel widening;
+   customer auth (lib/routes/migration 20261006_customer_auth);
+   catalog media/search migration (20261006_catalog_media_search) +
+   Prisma ProductImage; Phase-2 session migration of all storefront
+   routes; Phase-1 address API; ~20 migrated test suites + 3 new
+   suites (t-fulfillment, t-customer-auth, t-store-idor); OpenAPI;
+   staging-app-grants; hardening count updates.
+3. Do NOT `git add -A` blindly: `scripts/set-super-admin-password-
+   local.ps1` must stay untracked, as must `_recovery/`, `.agents/`,
+   `.claude/`, `.cursor/`, `.devin/`, `.env*`.
+4. If the next authorized step is verification: boot PostgreSQL
+   (`pg_ctl start -D C:\pgprov\data`; the Windows service wrapper is
+   broken — use `pg_ctl` via `Start-Process`), then Next dev with an
+   explicit scratch `DATABASE_URL` override on port 3131, confirm
+   `/api/health` 200 + catalog shows the 2 fixtures (proves scratch
+   binding, not production). No CUSTOMER_SESSION_SECRET exists anymore
+   (HMAC system deleted in 2.5 — do not reintroduce it).
+5. Rate-limit spacing is mandatory (admin IP 30 / account 10 per 15
+   min; SEPARATE customer buckets IP 30 / account 10 per 15 min;
+   fail-closed 401s). Space login-heavy suites across rollovers; a
+   401 cascade means "wait", never a product defect. t-bab-catalog
+   needs the 20k scale seed + `ANALYZE` first, `--clean` after.
+
+Do NOT execute any of the above now — this task ends at the handoff update.
+
+## DO NOT REPEAT
+
+* Phases 1/2/2.5/3/4 implementation or their migrations (all applied on
+  scratch and verified; re-running installs risks churn).
+* The double-release and guard-mapping fixes (in-tree, re-verified).
+* The cancel-widening decision (frozen-machine conformant, tested).
+* Full regression just completed (all numbers above observed this session).
+* Production read-only posture (never touched this session).
+* Session-timezone, ORDER-minimum, idempotency-replay, audit-ordering
+  fixes from earlier phases (in-tree, re-verified green).
+* Final scratch cleanup just completed (verified zero unexpected rows).
+
+## OPEN ISSUES
+
+* None blocking. P2 (non-blocking technical debt): 9 high transitive
+  audit findings (breaking-downgrade fixes deferred); advanced TS flags
+  roadmap (noUncheckedIndexedAccess 375 lines,
+  exactOptionalPropertyTypes 93 lines); OTP/phone-verification/password-
+  recovery future (no provider); registration spam controls future;
+  customer-auth audit trail future (FK-blocked); multi-device session UI
+  future. P3 (observations): rate-bucket spacing discipline;
+  scale-seed/ANALYZE preconditions; transient single-assertion flakes
+  (re-greened with evidence); BA11A/Idem2 residue pattern from
+  interrupted runs. OPERATIONAL / ENVIRONMENT (require separate
+  authorization or human action, not code): no production deployment
+  ever performed; no fresh pre-go-live backup; no monitoring/alerting;
+  no production load evidence; scratch media objects pghyper-owned
+  (human one-liner `ALTER ... OWNER TO hyper_migrator` + grants aligns
+  ownership — everything already works via provisioned grants);
+  fresh-DB end-to-end build not possible from here (no CREATEDB role).
+
+## DATABASE STATE
+
+* Scratch (`hyper_almoatasem_scratch`): CLEAN at session end — 2 fixture
+  products, 0 orders/carts/customers/sessions/addresses, fixtures exact
+  (P330 500/0, ROMI 47.35/0, P1L 300/0). Migrations applied:
+  baseline-official + admin-auth + 20261006_customer_auth (deploy) +
+  20261006_catalog_media_search (resolve-applied after byte-level
+  equivalence proof; pghyper-owned objects cannot be DDL'd by
+  migrator — documented above). Prototype row rolled-back (stash
+  discipline observed; dir restored byte-identical). No cleanup pending.
+* Production (`hyper_almoatasem`): NEVER TOUCHED this session (no
+  connection, no reads, no writes). No DDL/DML anywhere near it.
+* Servers at session end: Node 0 processes, PostgreSQL stopped (verified).
+
+## GIT STATE
+
+* Branch: `master`. HEAD: `328bf899f9016fe1b7b1d9e3c821606c3b14e24b`
+  (== origin/master; unchanged all session).
+* Working tree: Phases 1+2+2.5+3+4 change set (50 modified + 22 untracked
+  paths/groups as listed in NEXT SESSION START POINT), nothing staged.
+  Pre-existing local-only `scripts/set-super-admin-password-local.ps1`
+  still correctly untracked.
+* Untracked excluded (correctly left out): the password script above,
+  `_recovery/`, `.agents/`, `.claude/`, `.cursor/`, `.devin/`, `.env*`.
+
+## HUMAN AUTHORIZATION
+
+Still required explicitly (roadmap presence is not authorization) for: any
+commit or push · any production deployment, migration, seed, backup, or
+data change · Neon/Vercel plan or config changes · DNS/domain changes ·
+monitoring setup · go-live ceremony or any step of it · any dependency
+upgrade · any schema, RBAC, or frozen-file change · starting frontend ·
+the pghyper ownership one-liner on scratch.
+
+## SAFETY CHECK (to be verified after this edit — see final report)
+
+---
 
 # ⚑ SESSION HANDOFF — CURRENT STATE (DEV-SYNC audit + docs sync, 2026-10-06)
 

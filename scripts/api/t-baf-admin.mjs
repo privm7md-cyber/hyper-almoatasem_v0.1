@@ -117,13 +117,27 @@ async function main() {
     }
     return { id: g.body.data.cart.id, tok };
   };
-  const checkout = async (tok, custId, addrId, k, extra = {}) => {
+  const checkout = async (guestTok, sessTok, addrId, k, extra = {}) => {
+    if (guestTok && sessTok) {
+      await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": guestTok, ...H(sessTok) });
+    }
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-guest-token": tok },
-      body: JSON.stringify({ customerId: custId, addressId: addrId, idempotencyKey: k, ...extra }),
+      headers: { "content-type": "application/json", ...(sessTok ? H(sessTok) : {}) },
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
   };
   const mkPromo = async (promo, target, ck) => {
     const p = await post(`/api/admin/promotions`, promo, ck);
@@ -220,8 +234,9 @@ async function main() {
     t("members-bare-403", (await get(`/api/admin/roles/${idRole}/members?limit=10`, ckb)).status === 403);
 
     // ================= COUPON USAGE REPORTING =================
-    const cF1 = await post(`/api/store/customers/identify`, { phone: P_F1, firstName: "Baf1" });
-    const idCF1 = cF1.body?.data?.id;
+    const ssF1 = await sess(P_F1, "Baf1");
+    const idCF1 = ssF1.id;
+    const tCF1 = ssF1.tok;
     const aF1 = await post(`/api/admin/customers/${idCF1}/addresses`, { city: "Matai", phone: P_F1, isDefault: true }, ck);
     const idAF1 = aF1.body?.data?.id;
     const idPar = await mkPromo(
@@ -234,7 +249,7 @@ async function main() {
     couponIds.add(idCpU);
     t("coupon-ready", !!idCpU && !!codeU, `${codeU}`);
     const gU = await mkGuest([[P330, "1"]]);
-    const oU = await checkout(gU.tok, idCF1, idAF1, key("use"), { couponCode: codeU });
+    const oU = await checkout(gU.tok, tCF1, idAF1, key("use"), { couponCode: codeU });
     t("coupon-checkout-201", oU.status === 201, `${oU.status}`);
     const usedAfter = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpU]))[0].used_count);
     t("coupon-used-once", usedAfter === 1, String(usedAfter));
@@ -258,9 +273,9 @@ async function main() {
 
     // ================= ORDER DATE FILTER =================
     const gD1 = await mkGuest([[P330, "1"]]);
-    const oD1 = await checkout(gD1.tok, idCF1, idAF1, key("date1"));
+    const oD1 = await checkout(gD1.tok, tCF1, idAF1, key("date1"));
     const gD2 = await mkGuest([[P330, "1"]]);
-    const oD2 = await checkout(gD2.tok, idCF1, idAF1, key("date2"));
+    const oD2 = await checkout(gD2.tok, tCF1, idAF1, key("date2"));
     t("date-orders-ready", oD1.status === 201 && oD2.status === 201, `${oD1.status}/${oD2.status}`);
     const pastIso = new Date(Date.now() - 86400_000).toISOString();
     const futureIso = new Date(Date.now() + 86400_000).toISOString();
@@ -293,7 +308,7 @@ async function main() {
     const resBeforeR = await reservedOf(P330);
     const [disRes, oRes] = await Promise.all([
       patch(`/api/admin/coupons/${idCpR}`, { isActive: false }, ck),
-      checkout(gR.tok, idCF1, idAF1, kR, { couponCode: codeR }),
+      checkout(gR.tok, tCF1, idAF1, kR, { couponCode: codeR }),
     ]);
     const usedR = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpR]))[0].used_count);
     const usageRows = Number((await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1::uuid`, [idCpR]))[0].n);
@@ -391,6 +406,7 @@ async function main() {
       for (const ph of [P_F1, P_F2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

@@ -1,7 +1,7 @@
 // Storefront order cancel (owner-scoped, unpicked orders only).
-// Body { customerId } must own the order; NEW|CONFIRMED → CANCELLED with
-// reservation release (zero movements), one tx. Picked/further states → 409
-// (fulfillment-gated cancel is a later phase).
+// PHASE 2: the owner is the server-verified session — no customerId in
+// body. NEW|CONFIRMED|PREPARING-unpicked → CANCELLED with reservation
+// release (zero movements), one tx. Picked/further states → 409.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
@@ -9,6 +9,7 @@ import { uuidSchema } from "@/lib/api/validation";
 import { orderCancelSchema } from "@/lib/orders/validation";
 import { getCustomerOrder, getOrderFull } from "@/lib/orders/queries";
 import { cancelOrder } from "@/lib/orders/writes";
+import { requireCustomer } from "@/lib/customers/session";
 import { toOrder } from "@/lib/orders/serialize";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -17,9 +18,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const r = fail(new ApiError("VALIDATION", "Invalid order id."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  let body: unknown;
+  let body: unknown = {};
   try {
-    body = await request.json();
+    const text = await request.text();
+    body = text.trim() === "" ? {} : JSON.parse(text);
   } catch {
     const r = fail(new ApiError("VALIDATION", "Invalid request body."));
     return NextResponse.json(r.body, { status: r.status });
@@ -30,12 +32,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    const owned = await getCustomerOrder(id, parsed.data.customerId);
+    const me = await requireCustomer(request);
+    const owned = await getCustomerOrder(id, me.customerId);
     if (!owned) {
       const r = fail(new ApiError("NOT_FOUND", "Order not found."));
       return NextResponse.json(r.body, { status: r.status });
     }
-    await cancelOrder({ orderId: id, actorType: "CUSTOMER", actorId: parsed.data.customerId });
+    await cancelOrder({ orderId: id, actorType: "CUSTOMER", actorId: me.customerId });
     const full = await getOrderFull(id);
     if (!full) {
       const r = fail(new ApiError("NOT_FOUND", "Order not found."));

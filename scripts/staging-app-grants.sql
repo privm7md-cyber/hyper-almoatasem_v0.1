@@ -35,3 +35,19 @@ GRANT SELECT ON roles TO hyper_app;
 GRANT SELECT ON user_roles TO hyper_app;
 GRANT SELECT ON permissions TO hyper_app;
 GRANT SELECT ON role_permissions TO hyper_app;
+
+-- product_images (20261006_catalog_media_search): full gallery lifecycle
+-- for the app role (register flow incl. primary switch + hard delete).
+GRANT SELECT, INSERT, UPDATE, DELETE ON product_images TO hyper_app;
+
+-- customer_sessions (20261006_customer_auth): full lifecycle except delete
+-- (rows are history) — mirrors admin_sessions (no DELETE anywhere).
+GRANT SELECT, INSERT, UPDATE ON customer_sessions TO hyper_app;
+
+-- customer_auth_rate_limits (20261006_customer_auth): buckets incl. TTL
+-- cleanup (needs DELETE) — mirrors admin_auth_rate_limits.
+GRANT SELECT, INSERT, UPDATE, DELETE ON customer_auth_rate_limits TO hyper_app;
+
+-- customers: the app role already holds SELECT + UPDATE (lockout/login
+-- columns) from the admin-auth round; phone+password login, registration,
+-- and password change use exactly those rights — no new grant needed.

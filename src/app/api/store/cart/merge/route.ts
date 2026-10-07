@@ -1,7 +1,7 @@
-// Storefront cart merge: bind a guest cart to a customer (explicit trigger
-// — the frozen "on login" hook cannot fire while customer login stays
-// deferred; the 9-step merge itself is verbatim R1). Guest ownership is
-// proven by the bearer `x-guest-token`; the target is a customerId.
+// Storefront cart merge: bind a guest cart to the session customer
+// (PHASE 2 — the merge target is server-derived from the verified session,
+// never a client-supplied customerId). Guest ownership is proven by the
+// bearer `x-guest-token`; a customer session must also be presented.
 // Reassign (no customer ACTIVE cart) or sum + live reprice with dead-line
 // drops (guest → MERGED), one tx, ASC locks. Unknown token → 404;
 // consumed/non-guest cart → 409.
@@ -13,6 +13,7 @@ import { GUEST_TOKEN_HEADER } from "@/lib/cart/owner";
 import { isGuestTokenShape } from "@/lib/cart/session";
 import { getCartFull } from "@/lib/cart/queries";
 import { mergeGuestCartToCustomer } from "@/lib/cart/writes";
+import { requireCustomer } from "@/lib/customers/session";
 import { toCart } from "@/lib/cart/serialize";
 
 export async function POST(request: Request) {
@@ -22,9 +23,10 @@ export async function POST(request: Request) {
     const r = fail(new ApiError("VALIDATION", "A valid guest token is required."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  let body: unknown;
+  let body: unknown = {};
   try {
-    body = await request.json();
+    const text = await request.text();
+    body = text.trim() === "" ? {} : JSON.parse(text);
   } catch {
     const r = fail(new ApiError("VALIDATION", "Invalid request body."));
     return NextResponse.json(r.body, { status: r.status });
@@ -35,7 +37,8 @@ export async function POST(request: Request) {
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    const out = await mergeGuestCartToCustomer(guestToken, parsed.data.customerId);
+    const me = await requireCustomer(request);
+    const out = await mergeGuestCartToCustomer(guestToken, me.customerId);
     const full = await getCartFull(out.cartId);
     if (!full) {
       const r = fail(new ApiError("NOT_FOUND", "Active cart not found."));

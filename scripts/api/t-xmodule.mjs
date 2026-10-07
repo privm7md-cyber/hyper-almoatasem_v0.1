@@ -126,10 +126,24 @@ async function main() {
       process.exit(1);
     }
     const ck = { cookie: store.cookie };
-    const c1 = await jpost(`/api/store/customers/identify`, { phone: P_C1, firstName: "Xmod1" });
-    const c2 = await jpost(`/api/store/customers/identify`, { phone: P_C2, firstName: "Xmod2" });
-    const idC1 = c1.body.data.id;
-    const idC2 = c2.body.data.id;
+    const H = (tok) => ({ "x-customer-token": tok });
+    const CPW = "Cust-Test-Pass-0001!";
+    const sess = async (phone, firstName) => {
+      // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+      const reg = await jpost(`/api/store/customers/register`, { phone, firstName, password: CPW });
+      if (reg.status === 201) {
+        return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+      }
+      const r = await jpost(`/api/store/customers/session`, { phone, password: CPW });
+      return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+    };
+    const ss1 = await sess(P_C1, "Xmod1");
+    const ss2 = await sess(P_C2, "Xmod2");
+    const idC1 = ss1.id;
+    const idC2 = ss2.id;
+    const tC1 = ss1.tok;
+    const tC2 = ss2.tok;
+    const mergeTo = async (guestToken, sessTok) => jpost(`/api/store/cart/merge`, {}, { "x-guest-token": guestToken, ...H(sessTok) });
     const a1 = await jpost(`/api/admin/customers/${idC1}/addresses`, { city: "Cairo", phone: P_C1 }, ck);
     const a2 = await jpost(`/api/admin/customers/${idC2}/addresses`, { city: "Giza", phone: P_C2 }, ck);
     const idA1 = a1.body.data.id;
@@ -141,21 +155,24 @@ async function main() {
     const cartAfter = await jget(`/api/store/cart`, { "x-guest-token": gx.token });
     const snapKept = cartAfter.body?.data?.cart?.lines?.find((l) => l.productVariantId === P330);
     t("x1-snapshot-frozen", cartAfter.status === 200 && snapKept && num(snapKept.unitPriceSnapshot) === 15);
+    await mergeTo(gx.token, tC1);
     const driftOrder = await jpost(`/api/store/orders`,
-      { customerId: idC1, addressId: idA1, idempotencyKey: key("x1") }, { "x-guest-token": gx.token });
+      { addressId: idA1, idempotencyKey: key("x1") }, H(tC1));
     t("x2-drift-409", driftOrder.status === 409);
     const noOrder = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key LIKE 'ba10x-x1%'`);
-    const cartStill = await jget(`/api/store/cart`, { "x-guest-token": gx.token });
+    const cartStill = await jget(`/api/store/cart`, H(tC1));
     t("x2-no-side-effects", noOrder[0].n === 0 && cartStill.status === 200
       && (await reservedOf(P330)).r === "0.000");
     await jpatch(`/api/admin/catalog/variants/${P330}/price`, { price: "15.00", reason: "ba10 revert" }, ck);
 
     // ---------- X3: adjust-down vs checkout ----------
     await db.query(`UPDATE inventory SET quantity = 2.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P330]);
+    await fetch(`${baseUrl}/api/store/cart/items`, { method: "DELETE", headers: H(tC1) });
     const xa = await mkCart([[P330, "2"]]);
+    await mergeTo(xa.token, tC1);
     const adjBody = { productVariantId: P330, delta: "-1.000", movementType: "ADJUSTMENT", referenceType: "MANUAL", referenceId: "BA10X3" };
     const [x3o, x3a] = await Promise.all([
-      jpost(`/api/store/orders`, { customerId: idC1, addressId: idA1, idempotencyKey: key("x3o") }, { "x-guest-token": xa.token }),
+      jpost(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("x3o") }, H(tC1)),
       jpost(`/api/admin/inventory/adjust`, adjBody, ck),
     ]);
     const x3ok = (x3o.status === 201 && x3a.status === 409) || (x3o.status === 409 && x3a.status === 201);
@@ -169,9 +186,10 @@ async function main() {
     // Note: approve answers 200, reserve answers 201 — pairs below use both.
     const mkProposal = async (suffix) => {
       const cart = await mkCart([[P330, "1"]]);
+      await mergeTo(cart.token, tC1);
       const o = await jpost(`/api/store/orders`,
-        { customerId: idC1, addressId: idA1, idempotencyKey: key(`x4o-${suffix}`) }, { "x-guest-token": cart.token });
-      const items = (await jget(`/api/store/orders/${o.body.data.order.id}?customerId=${idC1}`)).body.data.order.items;
+        { addressId: idA1, idempotencyKey: key(`x4o-${suffix}`) }, H(tC1));
+      const items = (await jget(`/api/store/orders/${o.body.data.order.id}`, H(tC1))).body.data.order.items;
       const p = await jpost(`/api/admin/orders/${o.body.data.order.id}/items/${items[0].id}/replacements`,
         { replacementVariantId: P1L, replacementQuantity: "1" }, ck);
       return { orderId: o.body.data.order.id, repId: p.body.data.id };
@@ -181,7 +199,7 @@ async function main() {
     await db.query(`UPDATE inventory SET quantity = 1.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P1L]);
     const x4one = await mkProposal("a");
     const [x4a, x4r] = await Promise.all([
-      jpost(`/api/store/orders/${x4one.orderId}/replacements/${x4one.repId}/decide`, { customerId: idC1, action: "approve" }),
+      jpost(`/api/store/orders/${x4one.orderId}/replacements/${x4one.repId}/decide`, { action: "approve" }, H(tC1)),
       jpost(`/api/admin/inventory/reserve`, { productVariantId: P1L, quantity: "1.000" }, ck),
     ]);
     t("x4-single-winner", coherentPair(x4a.status, x4r.status), JSON.stringify([x4a.status, x4r.status]));
@@ -189,7 +207,7 @@ async function main() {
     // Staggered round (approve head start) exercises the opposite arrival.
     await db.query(`UPDATE inventory SET quantity = 1.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P1L]);
     const x4two = await mkProposal("b");
-    const pa = jpost(`/api/store/orders/${x4two.orderId}/replacements/${x4two.repId}/decide`, { customerId: idC1, action: "approve" });
+    const pa = jpost(`/api/store/orders/${x4two.orderId}/replacements/${x4two.repId}/decide`, { action: "approve" }, H(tC1));
     await new Promise((r) => setTimeout(r, 250));
     const pr = await jpost(`/api/admin/inventory/reserve`, { productVariantId: P1L, quantity: "1.000" }, ck);
     const [x4a2, x4r2] = await Promise.all([pa, pr]);
@@ -201,19 +219,21 @@ async function main() {
     await db.query(`UPDATE inventory SET quantity = 1.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P1L]);
     const ox7 = await (async () => {
       const cart = await mkCart([[P330, "2"]]);
+      await mergeTo(cart.token, tC1);
       const o = await jpost(`/api/store/orders`,
-        { customerId: idC1, addressId: idA1, idempotencyKey: key("x7o") }, { "x-guest-token": cart.token });
+        { addressId: idA1, idempotencyKey: key("x7o") }, H(tC1));
       return o.body.data.order;
     })();
-    const ox7items = (await jget(`/api/store/orders/${ox7.id}?customerId=${idC1}`)).body.data.order.items;
+    const ox7items = (await jget(`/api/store/orders/${ox7.id}`, H(tC1))).body.data.order.items;
     const px7 = await jpost(`/api/admin/orders/${ox7.id}/items/${ox7items[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, ck);
     const idRX7 = px7.body.data.id;
     const cx7 = await mkCart([[P1L, "1"]]);
+    await mergeTo(cx7.token, tC2);
     const [x7a, x7b, x7c] = await Promise.all([
-      jpost(`/api/store/orders/${ox7.id}/replacements/${idRX7}/decide`, { customerId: idC1, action: "approve" }),
-      jpost(`/api/store/orders`, { customerId: idC2, addressId: idA2, idempotencyKey: key("x7b") }, { "x-guest-token": cx7.token }),
-      jpost(`/api/store/orders/${ox7.id}/cancel`, { customerId: idC1 }),
+      jpost(`/api/store/orders/${ox7.id}/replacements/${idRX7}/decide`, { action: "approve" }, H(tC1)),
+      jpost(`/api/store/orders`, { addressId: idA2, idempotencyKey: key("x7b") }, H(tC2)),
+      jpost(`/api/store/orders/${ox7.id}/cancel`, {}, H(tC1)),
     ]);
     const trio = [x7a.status, x7b.status, x7c.status];
     t("x7-terminates", trio.every((s) => s === 200 || s === 201 || s === 409), JSON.stringify(trio));
@@ -295,6 +315,7 @@ async function main() {
       for (const ph of [P_C1, P_C2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

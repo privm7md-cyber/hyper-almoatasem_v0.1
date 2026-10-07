@@ -95,3 +95,35 @@ export const addressPatchSchema = z
 
 export type IdentifyInput = z.infer<typeof identifyInputSchema>;
 export type AddressInput = z.infer<typeof addressInputSchema>;
+
+/** Raw password wire shape: non-empty text, bounded. Strength policy
+ * (12..128) is enforced in domain code (password.ts), never here. */
+export const rawPasswordSchema = z.string().min(1).max(128);
+
+/** Storefront registration body: identity + credential. Strict: no
+ * customerId, password_hash, is_registered, or timestamps from clients. */
+export const customerRegisterSchema = z
+  .object({
+    phone: rawPhoneSchema,
+    firstName: nameSchema(80),
+    lastName: nameSchema(80).nullish(),
+    password: rawPasswordSchema,
+  })
+  .strict();
+
+/** Storefront login body: phone + password (both required, generic
+ * failure either way). */
+export const customerLoginSchema = z
+  .object({
+    phone: rawPhoneSchema,
+    password: rawPasswordSchema,
+  })
+  .strict();
+
+/** Authenticated password change: current + new (policy in domain). */
+export const customerPasswordChangeSchema = z
+  .object({
+    currentPassword: rawPasswordSchema,
+    newPassword: rawPasswordSchema,
+  })
+  .strict();

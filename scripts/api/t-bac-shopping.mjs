@@ -122,13 +122,27 @@ async function main() {
     }
     return { id: g.body.data.cart.id, tok };
   };
-  const checkout = async (tok, custId, addrId, k, extra = {}) => {
+  const checkout = async (tok, sessTok, addrId, k, extra = {}) => {
+    if (tok && sessTok) {
+      await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tok, ...H(sessTok) });
+    }
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-guest-token": tok },
-      body: JSON.stringify({ customerId: custId, addressId: addrId, idempotencyKey: k, ...extra }),
+      headers: { "content-type": "application/json", ...(sessTok ? H(sessTok) : {}) },
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
   };
   const mkPromo = async (promo, target, rules, ck) => {
     const p = await post(`/api/admin/promotions`, promo, ck);
@@ -206,6 +220,11 @@ async function main() {
     }
 
     // ================= CART LIFECYCLE =================
+    // Session customer minted early (PHASE 2 identity for ownership tests below).
+    const ssM = await sess(P_C1, "BacM");
+    const idCuM = ssM.id;
+    const tCuM = ssM.tok;
+    t("session-ready", !!idCuM && !!tCuM, `${!!idCuM}/${!!tCuM}`);
     const g0 = await post(`/api/store/cart`, {});
     t("cart-create-201", g0.status === 201 && /^[0-9a-f]{64}$/.test(g0.body.data?.guestToken || ""), String(g0.status));
     cartIds.add(g0.body.data.cart.id);
@@ -259,7 +278,7 @@ async function main() {
       && crossLines[0].productVariantId === P330 && Number(crossLines[0].quantity) === 3,
       JSON.stringify(crossLines.map((l) => l.quantity)));
     const bothSides = await post(`/api/store/cart/items`,
-      { customerId: "04800000-0000-7000-8000-000000009999", productVariantId: P330, quantity: "1" }, null, { "x-guest-token": tok0 });
+      { productVariantId: P330, quantity: "1" }, null, { "x-guest-token": tok0, ...H(tCuM) });
     t("cart-xor-400", bothSides.status === 400, String(bothSides.status));
 
     // Expiry.
@@ -299,34 +318,32 @@ async function main() {
     t("reprice-strict-400", repTamper.status === 400, String(repTamper.status));
 
     // ================= MERGE =================
-    const cuM = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "BacM" });
-    const idCuM = cuM.body.data.id;
     const adM = await post(`/api/admin/customers/${idCuM}/addresses`, { city: "Matai", phone: P_C1 }, ck);
     const idAdM = adM.body.data.id;
     const gM1 = await mkGuest([[P330, "1"]]);
-    const mg1 = await post(`/api/store/cart/merge`, { customerId: idCuM }, null, { "x-guest-token": gM1.tok });
+    const mg1 = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gM1.tok, ...H(tCuM) });
     t("merge-reassign", mg1.status === 200 && mg1.body.data?.merge?.mode === "reassigned", String(mg1.status));
     const gM2 = await mkGuest([[P330, "2"]]);
-    const mg2 = await post(`/api/store/cart/merge`, { customerId: idCuM }, null, { "x-guest-token": gM2.tok });
+    const mg2 = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gM2.tok, ...H(tCuM) });
     const mg2Lines = mg2.body.data?.cart?.lines || [];
     t("merge-sum", mg2.status === 200 && mg2Lines.some((l) => l.productVariantId === P330 && Number(l.quantity) === 3),
       JSON.stringify(mg2Lines.map((l) => l.quantity)));
-    const mgAgain = await post(`/api/store/cart/merge`, { customerId: idCuM }, null, { "x-guest-token": gM2.tok });
+    const mgAgain = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gM2.tok, ...H(tCuM) });
     t("merge-consumed-409", mgAgain.status === 409, String(mgAgain.status));
-    const mgDead = await post(`/api/store/cart/merge`, { customerId: idCuM }, null, { "x-guest-token": tokE });
+    const mgDead = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tokE, ...H(tCuM) });
     t("merge-expired-409", mgDead.status === 409, String(mgDead.status));
     const [mmA, mmB] = await Promise.all([
       (async () => {
         const g = await mkGuest([[P1L, "1"]]);
-        return post(`/api/store/cart/merge`, { customerId: idCuM }, null, { "x-guest-token": g.tok });
+        return post(`/api/store/cart/merge`, {}, null, { "x-guest-token": g.tok, ...H(tCuM) });
       })(),
       (async () => {
         const g = await mkGuest([[P1L, "1"]]);
-        return post(`/api/store/cart/merge`, { customerId: idCuM }, null, { "x-guest-token": g.tok });
+        return post(`/api/store/cart/merge`, {}, null, { "x-guest-token": g.tok, ...H(tCuM) });
       })(),
     ]);
     t("merge-concurrent-clean", mmA.status === 200 && mmB.status === 200, `${mmA.status}/${mmB.status}`);
-    const custCart = await get(`/api/store/cart?customerId=${idCuM}`);
+    const custCart = await get(`/api/store/cart`, null, H(tCuM));
     const p1lQty = (custCart.body.data?.cart?.lines || []).filter((l) => l.productVariantId === P1L)
       .reduce((s, l) => s + Number(l.quantity), 0);
     t("merge-no-double", p1lQty === 2, String(p1lQty));
@@ -404,8 +421,10 @@ async function main() {
       }
     };
     const orderDisc = async (lines, k, extra = {}) => {
+      // Isolate: empty the session cart first (merges otherwise accumulate).
+      await del(`/api/store/cart/items`, null, H(tCuM));
       const g = await mkGuest(lines);
-      return checkout(g.tok, idCuM, idAdM, k, extra);
+      return checkout(g.tok, tCuM, idAdM, k, extra);
     };
     // NOTE: order discountTotal serializes via Decimal.toString (trailing
     // zeros normalized: "3.00" -> "3") — asserts compare numerically.
@@ -507,9 +526,8 @@ async function main() {
     const codeA = estA.body.data.code;
     couponIds.add(idCpA);
     const est = await post(`/api/store/orders/estimate`, {
-      customerId: idCuM,
       lines: [{ productVariantId: P330, quantity: "2" }],
-    });
+    }, null, H(tCuM));
     const ed = est.body.data ?? {};
     t("estimate-shape", est.status === 200 && Array.isArray(ed.lines) && ed.lines.length === 1
       && typeof ed.subtotal === "string" && typeof ed.discountTotal === "string"
@@ -519,31 +537,32 @@ async function main() {
     t("estimate-math", est.status === 200 && Number(ed.subtotal) === 30 && Number(ed.discountTotal) === 3
       && Number(ed.lines[0]?.net) === 27, `${ed.subtotal}/${ed.discountTotal}/${ed.lines[0]?.net}`);
     const estBad = await post(`/api/store/orders/estimate`, {
-      customerId: idCuM, addressId: idAdM,
+      addressId: idAdM,
       lines: [{ productVariantId: P330, quantity: "2" }],
-    });
+    }, null, H(tCuM));
     t("estimate-strict-400", estBad.status === 400, String(estBad.status));
     const estMiss = await post(`/api/store/orders/estimate`, {
-      customerId: idCuM, lines: [{ productVariantId: P330, quantity: "2" }], couponCode: "NEVER-EXISTS-00",
-    });
+      lines: [{ productVariantId: P330, quantity: "2" }], couponCode: "NEVER-EXISTS-00",
+    }, null, H(tCuM));
     t("estimate-unknown-coupon-404", estMiss.status === 404, String(estMiss.status));
     // Full journey: cart (P330 x2 = 30.00) + 10% line auto + 20.00 coupon.
+    // (Clear the merge-test cart first so journey lines are exact.)
+    await del(`/api/store/cart/items`, null, H(tCuM));
     const gJ = await mkGuest([[P330, "2"]]);
-    const oJ = await checkout(gJ.tok, idCuM, idAdM, key("j"), { couponCode: codeA });
+    const oJ = await checkout(gJ.tok, tCuM, idAdM, key("j"), { couponCode: codeA });
     t("journey-201", oJ.status === 201, `${oJ.status}/${JSON.stringify(oJ.body.error ?? {}).slice(0, 120)}`);
     const oJd = oJ.body.data?.order;
     // Line: 30.00 - 10% (3.00) = 27.00; coupon promo -20.00 -> 23.00 total.
     t("journey-math", oJd != null && Number(oJd.discountTotal) === 23,
       `${JSON.stringify({ d: oJd?.discountTotal, t: oJd?.totalEstimated })}`);
     const est2 = await post(`/api/store/orders/estimate`, {
-      customerId: idCuM,
       lines: [{ productVariantId: P330, quantity: "2" }], couponCode: codeA,
-    });
+    }, null, H(tCuM));
     t("estimate-matches", est2.status === 200 && Number(est2.body.data?.discountTotal) === 23,
       `${est2.status}/${JSON.stringify(est2.body).slice(0, 140)}`);
     // Coupon codes are case-insensitive at apply time.
     const gLc = await mkGuest([[P330, "2"]]);
-    const oLc = await checkout(gLc.tok, idCuM, idAdM, key("lcase"), { couponCode: codeA.toLowerCase() });
+    const oLc = await checkout(gLc.tok, tCuM, idAdM, key("lcase"), { couponCode: codeA.toLowerCase() });
     t("coupon-code-normalized", oLc.status === 201 && Number(oLc.body.data?.order?.discountTotal) === 23,
       `${oLc.status}/${oLc.body.data?.order?.discountTotal}`);
     // Expired coupon fails checkout.
@@ -553,7 +572,7 @@ async function main() {
     }, ck);
     couponIds.add(cpExp.body.data.id);
     const gE2 = await mkGuest([[P330, "1"]]);
-    const oExp = await checkout(gE2.tok, idCuM, idAdM, key("exp"), { couponCode: cpExp.body.data.code });
+    const oExp = await checkout(gE2.tok, tCuM, idAdM, key("exp"), { couponCode: cpExp.body.data.code });
     t("coupon-expired-422", oExp.status === 422, String(oExp.status));
     // Per-customer limit 1: same customer twice.
     const cpLim = await post(`/api/admin/coupons`, {
@@ -561,9 +580,9 @@ async function main() {
     }, ck);
     couponIds.add(cpLim.body.data.id);
     const gL1 = await mkGuest([[P330, "1"]]);
-    const oL1 = await checkout(gL1.tok, idCuM, idAdM, key("lim1"), { couponCode: cpLim.body.data.code });
+    const oL1 = await checkout(gL1.tok, tCuM, idAdM, key("lim1"), { couponCode: cpLim.body.data.code });
     const gL2 = await mkGuest([[P330, "1"]]);
-    const oL2 = await checkout(gL2.tok, idCuM, idAdM, key("lim2"), { couponCode: cpLim.body.data.code });
+    const oL2 = await checkout(gL2.tok, tCuM, idAdM, key("lim2"), { couponCode: cpLim.body.data.code });
     t("coupon-percust-limit", oL1.status === 201 && oL2.status === 422, `${oL1.status}/${oL2.status}`);
     // Global limit 1 across two customers: concurrent checkouts, exactly one wins.
     const cpG = await post(`/api/admin/coupons`, {
@@ -571,12 +590,13 @@ async function main() {
     }, ck);
     const idCpG = cpG.body.data.id;
     couponIds.add(idCpG);
-    const cu2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Bac2" });
-    const idCu2 = cu2.body.data.id;
+    const ss2 = await sess(P_C2, "Bac2");
+    const idCu2 = ss2.id;
+    const tCu2 = ss2.tok;
     const ad2 = await post(`/api/admin/customers/${idCu2}/addresses`, { city: "Matai", phone: P_C2 }, ck);
     const [cG1, cG2] = await Promise.all([
-      (async () => { const g = await mkGuest([[P330, "1"]]); return checkout(g.tok, idCuM, idAdM, key("cg1"), { couponCode: cpG.body.data.code }); })(),
-      (async () => { const g = await mkGuest([[P330, "1"]]); return checkout(g.tok, idCu2, ad2.body.data.id, key("cg2"), { couponCode: cpG.body.data.code }); })(),
+      (async () => { const g = await mkGuest([[P330, "1"]]); return checkout(g.tok, tCuM, idAdM, key("cg1"), { couponCode: cpG.body.data.code }); })(),
+      (async () => { const g = await mkGuest([[P330, "1"]]); return checkout(g.tok, tCu2, ad2.body.data.id, key("cg2"), { couponCode: cpG.body.data.code }); })(),
     ]);
     const winCount = [cG1.status, cG2.status].filter((s) => s === 201).length;
     const usageN = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpG]))[0].used_count);
@@ -585,7 +605,7 @@ async function main() {
     await db.query(`UPDATE inventory SET quantity = 1.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P330]);
     const usedBefore = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpA]))[0].used_count);
     const gRb = await mkGuest([[P330, "2"]]);
-    const oRb = await checkout(gRb.tok, idCuM, idAdM, key("rb"), { couponCode: codeA });
+    const oRb = await checkout(gRb.tok, tCuM, idAdM, key("rb"), { couponCode: codeA });
     const usedAfter = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpA]))[0].used_count);
     const usageRows = Number((await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1::uuid AND order_id IN (SELECT id FROM orders WHERE idempotency_key = $2)`, [idCpA, oRb.body.data?.order?.id ?? key("rb")]))[0].n);
     t("coupon-rollback", oRb.status === 409 && usedAfter === usedBefore && usageRows === 0,
@@ -594,7 +614,7 @@ async function main() {
     // Drift boundary preserved: reprice then checkout succeeds.
     const gD = await mkGuest([[P330, "1"]]);
     await post(`/api/store/cart/reprice`, {}, null, { "x-guest-token": gD.tok });
-    const oD = await checkout(gD.tok, idCuM, idAdM, key("drift"));
+    const oD = await checkout(gD.tok, tCuM, idAdM, key("drift"));
     t("checkout-after-reprice-201", oD.status === 201, String(oD.status));
     await disableAll();
   } finally {
@@ -652,6 +672,7 @@ async function main() {
       for (const phone of [CANON(P_C1), CANON(P_C2)]) {
         const cust = await db.query(`SELECT id FROM customers WHERE phone = $1`, [phone]).catch(() => ({ rows: [] }));
         for (const r of cust.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

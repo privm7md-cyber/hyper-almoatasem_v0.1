@@ -71,10 +71,10 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const post = async (path, data, cookie = null) => {
+  const post = async (path, data, cookie = null, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...headers },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -115,13 +115,27 @@ async function main() {
     }
     return tok;
   };
-  const checkout = async (custId, addrId, lines, k, couponCode = null) => {
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const checkout = async (sessTok, addrId, lines, k, couponCode = null) => {
+    // Isolate: empty the session cart first (failed checkouts leave carts).
+    await fetch(`${baseUrl}/api/store/cart/items`, { method: "DELETE", headers: H(sessTok) });
     const tok = await mkCart(lines);
-    const body = { customerId: custId, addressId: addrId, idempotencyKey: k };
+    await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tok, ...H(sessTok) });
+    const body = { addressId: addrId, idempotencyKey: k };
     if (couponCode) body.couponCode = couponCode;
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-guest-token": tok },
+      headers: { "content-type": "application/json", ...H(sessTok) },
       body: JSON.stringify(body),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -140,8 +154,9 @@ async function main() {
     }
     const ck = store.cookie;
     const cko = owner.cookie;
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Atom" });
-    const idC = c1.body.data.id;
+    const ssA = await sess(P_C1, "Atom");
+    const idC = ssA.id;
+    const tCA = ssA.tok;
     const a1 = await post(`/api/admin/customers/${idC}/addresses`, { city: "Cairo", phone: P_C1 }, ck);
     const idA = a1.body.data.id;
 
@@ -166,7 +181,7 @@ async function main() {
     const mvP330 = await movCount(P330);
     const usedAutoBefore = (await q(`SELECT used_count FROM promotions WHERE id = $1`, [idAuto]))[0].used_count;
     const usedCpBefore = (await q(`SELECT used_count FROM coupons WHERE id = $1`, [idCpA]))[0].used_count;
-    const a1r = await checkout(idC, idA, [[P330, "2"]], key("a1"), "ATOM20");
+    const a1r = await checkout(tCA, idA, [[P330, "2"]], key("a1"), "ATOM20");
     t("a1-409", a1r.status === 409, String(a1r.status));
     t("a1-no-order", (await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key LIKE 'ba10a-a1%'`))[0].n === 0);
     t("a1-no-usage", (await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1`, [idCpA]))[0].n === 0);
@@ -182,12 +197,12 @@ async function main() {
     // ---------- A2: approve substitute-short ----------
     await db.query(`UPDATE inventory SET quantity = 0.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P1L]);
     const mvP1L = await movCount(P1L);
-    const oA2 = await checkout(idC, idA, [[P330, "1"]], key("a2"));
-    const itemsA2 = (await fetch(`${baseUrl}/api/store/orders/${oA2.body.data.order.id}?customerId=${idC}`).then((r) => r.json())).data.order.items;
+    const oA2 = await checkout(tCA, idA, [[P330, "1"]], key("a2"));
+    const itemsA2 = (await fetch(`${baseUrl}/api/store/orders/${oA2.body.data.order.id}`, { headers: H(tCA) }).then((r) => r.json())).data.order.items;
     const pA2 = await post(`/api/admin/orders/${oA2.body.data.order.id}/items/${itemsA2[0].id}/replacements`,
       { replacementVariantId: P1L, replacementQuantity: "1" }, ck);
     const dA2 = await post(`/api/store/orders/${oA2.body.data.order.id}/replacements/${pA2.body.data.id}/decide`,
-      { customerId: idC, action: "approve" });
+      { action: "approve" }, null, H(tCA));
     t("a2-409", dA2.status === 409, String(dA2.status));
     const repRow = await q(`SELECT status FROM order_item_replacements WHERE id = $1`, [pA2.body.data.id]);
     const itemRow = await q(`SELECT item_status FROM order_items WHERE id = $1`, [itemsA2[0].id]);
@@ -264,6 +279,7 @@ async function main() {
       }
       const cust = await db.query(`SELECT id FROM customers WHERE phone = $1`, [CANON(P_C1)]).catch(() => ({ rows: [] }));
       for (const r of cust.rows) {
+        await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
         await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
         const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
         for (const c of cc.rows) {

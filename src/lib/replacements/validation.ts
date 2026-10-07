@@ -32,7 +32,6 @@ export const proposeInputSchema = z
 
 export const decideInputSchema = z
   .object({
-    customerId: uuidSchema,
     action: decideActionSchema,
   })
   .strict();

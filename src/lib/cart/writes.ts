@@ -94,10 +94,11 @@ export function countingUnitFor(ctx: VariantSaleContext): string {
   return "PIECE";
 }
 
-/** Line shape gate: sellable variant (variant-liveness only, mirroring the
- * frozen verification doubles) + PIECE whole packs + WEIGHT step multiples. */
+/** Line shape gate: sellable variant AND sellable product (reprice drops
+ * lines whose variant or product is inactive/deleted — creation paths must
+ * match) + PIECE whole packs + WEIGHT step multiples. */
 export function assertLineShape(ctx: VariantSaleContext, quantity: string): void {
-  if (!ctx.isActive || ctx.deletedAt !== null) {
+  if (!ctx.isActive || ctx.deletedAt !== null || !ctx.product.isActive || ctx.product.deletedAt !== null) {
     throw businessRule("Variant is not sellable.", null);
   }
   if (ctx.product.productType === "PIECE") {
@@ -382,10 +383,10 @@ export async function mergeGuestCartToCustomer(
           sizeUnit: true,
           isActive: true,
           deletedAt: true,
-          product: { select: { productType: true } },
+          product: { select: { productType: true, isActive: true, deletedAt: true } },
         },
       });
-      if (!ctx || !ctx.isActive || ctx.deletedAt !== null) {
+      if (!ctx || !ctx.isActive || ctx.deletedAt !== null || !ctx.product.isActive || ctx.product.deletedAt !== null) {
         report.dropped.push({ lineId: l.id, variantId: l.productVariantId });
         continue;
       }

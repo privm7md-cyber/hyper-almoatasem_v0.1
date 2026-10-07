@@ -1,6 +1,12 @@
 -- BA-B future search support: pg_trgm + Arabic normalization + GIN indexes.
 --
--- STATUS: PROPOSED migration path — reviewed, scratch-verified, NOT applied
+-- STATUS (20261006, Phase 3): SUPERSEDED by official migration
+-- prisma/migrations/20261006_catalog_media_search (migration.sql +
+-- supplement.sql) — same extension, byte-identical function body, same 4
+-- indexes. This file remains as the reviewed historical proposal only;
+-- do NOT apply it where the official chain has run.
+--
+-- Original notice (preserved): PROPOSED migration path — reviewed, scratch-verified, NOT applied
 -- to production and NOT part of any Prisma/baseline migration chain. It lives
 -- under db/future/ (never prisma/migrations/) precisely so no deploy tooling
 -- can apply it implicitly. Production application requires a separate explicit

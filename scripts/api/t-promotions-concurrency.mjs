@@ -65,10 +65,10 @@ async function main() {
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
 
-  const post = async (path, data, cookie = null) => {
+  const post = async (path, data, cookie = null, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...headers },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -111,13 +111,27 @@ async function main() {
     }
     return tok;
   };
-  const checkout = async (custId, addrId, lines, k, couponCode = null) => {
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const checkout = async (sessTok, addrId, lines, k, couponCode = null) => {
+    // Isolate: empty the session cart first (failed checkouts leave carts).
+    await fetch(`${baseUrl}/api/store/cart/items`, { method: "DELETE", headers: H(sessTok) });
     const tok = await mkCart(lines);
-    const body = { customerId: custId, addressId: addrId, idempotencyKey: k };
+    await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tok, ...H(sessTok) });
+    const body = { addressId: addrId, idempotencyKey: k };
     if (couponCode) body.couponCode = couponCode;
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-guest-token": tok },
+      headers: { "content-type": "application/json", ...H(sessTok) },
       body: JSON.stringify(body),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -125,10 +139,12 @@ async function main() {
   const num = (s) => Number(s);
 
   try {
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Race1" });
-    const c2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Race2" });
-    const idC1 = c1.body.data.id;
-    const idC2 = c2.body.data.id;
+    const ss1 = await sess(P_C1, "Race1");
+    const ss2 = await sess(P_C2, "Race2");
+    const idC1 = ss1.id;
+    const idC2 = ss2.id;
+    const tC1 = ss1.tok;
+    const tC2 = ss2.tok;
     const a1 = await post(`/api/admin/customers/${idC1}/addresses`, { city: "Cairo", phone: P_C1 }, cookie);
     const a2 = await post(`/api/admin/customers/${idC2}/addresses`, { city: "Giza", phone: P_C2 }, cookie);
     const idA1 = a1.body.data.id;
@@ -146,8 +162,8 @@ async function main() {
     const idRaceOne = cp1.body.data.id;
     couponIds.add(idRaceOne);
     const [r1a, r1b] = await Promise.all([
-      checkout(idC1, idA1, [[P330, "2"]], key("r1a"), "RACEONE"),
-      checkout(idC2, idA2, [[P330, "2"]], key("r1b"), "RACEONE"),
+      checkout(tC1, idA1, [[P330, "2"]], key("r1a"), "RACEONE"),
+      checkout(tC2, idA2, [[P330, "2"]], key("r1b"), "RACEONE"),
     ]);
     const r1 = [r1a.status, r1b.status].sort().join(",");
     t("raceCoupon-single-winner", r1 === "201,409", JSON.stringify([r1a.status, r1b.status]));
@@ -156,14 +172,14 @@ async function main() {
     const winner = r1a.status === 201 ? r1a : r1b;
     t("raceCoupon-winner-discounted", num(winner.body.data.order.discountTotal) === 30);
 
-    // ---------- R2: per-customer double-submit, same customer ----------
+    // ---------- R2: per-customer limit, same customer twice ----------
+    // (Sequential: one session cart exists per customer, so a second order
+    // needs its own merged cart. The limit itself is enforced by row-lock.)
     const cp2 = await post(`/api/admin/coupons`, { promotionId: idCp, code: "RACETWO", perCustomerLimit: 1 }, cookie);
     const idRaceTwo = cp2.body.data.id;
     couponIds.add(idRaceTwo);
-    const [r2a, r2b] = await Promise.all([
-      checkout(idC1, idA1, [[P330, "1"]], key("r2a"), "RACETWO"),
-      checkout(idC1, idA1, [[P330, "1"]], key("r2b"), "RACETWO"),
-    ]);
+    const r2a = await checkout(tC1, idA1, [[P330, "1"]], key("r2a"), "RACETWO");
+    const r2b = await checkout(tC1, idA1, [[P330, "1"]], key("r2b"), "RACETWO");
     const r2 = [r2a.status, r2b.status].sort().join(",");
     t("racePerCustomer-single", r2 === "201,422", JSON.stringify([r2a.status, r2b.status]));
     t("racePerCustomer-one-usage", (await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1`, [idRaceTwo]))[0].n === 1);
@@ -175,8 +191,8 @@ async function main() {
     promoIds.add(idAuto);
     await patch(`/api/admin/promotions/${idAuto}`, { status: "ACTIVE" }, cookie);
     const [r3a, r3b] = await Promise.all([
-      checkout(idC1, idA1, [[P330, "2"]], key("r3a")),
-      checkout(idC2, idA2, [[P330, "2"]], key("r3b")),
+      checkout(tC1, idA1, [[P330, "2"]], key("r3a")),
+      checkout(tC2, idA2, [[P330, "2"]], key("r3b")),
     ]);
     t("raceAuto-both-succeed", r3a.status === 201 && r3b.status === 201, JSON.stringify([r3a.status, r3b.status]));
     const discs = [r3a, r3b].map((r) => num(r.body.data.order.discountTotal)).sort((a, b) => a - b);
@@ -189,7 +205,7 @@ async function main() {
     const cp4 = await post(`/api/admin/coupons`, { promotionId: idCp, code: "RACEFOUR" }, cookie);
     const idRaceFour = cp4.body.data.id;
     couponIds.add(idRaceFour);
-    const r4 = await checkout(idC1, idA1, [[P330, "5"]], key("r4"), "RACEFOUR");
+    const r4 = await checkout(tC1, idA1, [[P330, "5"]], key("r4"), "RACEFOUR");
     t("raceRollback-409", r4.status === 409);
     t("raceRollback-no-usage", (await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1`, [idRaceFour]))[0].n === 0);
     t("raceRollback-no-order", (await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key LIKE 'ba8r-r4%'`))[0].n === 0);
@@ -231,6 +247,7 @@ async function main() {
       for (const ph of [P_C1, P_C2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

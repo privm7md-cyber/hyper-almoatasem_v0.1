@@ -74,7 +74,8 @@ model Product {
   saleStepGrams Int?      @map("sale_step_grams") // WEIGHT-only, grams (CHECK in SQL)
   isActive      Boolean   @default(true) @map("is_active")
   variants      ProductVariant[]
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  images        ProductImage[]
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
@@ -124,6 +125,29 @@ model ProductCode {
 
   @@map("product_codes")
   @@index([productVariantId], map: "idx_codes_variant_id")
+}
+
+// Product gallery (20261006_catalog_media_search). Metadata/reference ONLY
+// (url/key, mime, bytes, dimensions, alt text, sort order, primary flag) —
+// never binary content. Exactly one primary per product (partial UNIQUE in
+// SQL); deterministic order (sort_order, id). Reads/writes stay raw-SQL in
+// src/lib/catalog/media.ts (this model exists for contract parity only).
+model ProductImage {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  url         String   @db.Text // non-empty, no spaces (CHECK in SQL)
+  altText     String?  @map("alt_text") @db.VarChar(200)
+  mimeType    String?  @map("mime_type") @db.VarChar(100) // closed allowlist (CHECK in SQL)
+  byteSize    Int?     @map("byte_size") // > 0 (CHECK in SQL)
+  width       Int? // paired with height (CHECK in SQL)
+  height      Int? // paired with width (CHECK in SQL)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("product_images")
+  @@index([productId, sortOrder, id], map: "idx_product_images_product_order")
 }
 
 // ============================ PHASE 1 — Inventory ===========================
@@ -187,12 +211,15 @@ model Customer {
   email                   String?   @db.VarChar(160) // partial UQ in SQL (gaps doc)
   passwordHash            String?   @map("password_hash") @db.VarChar(255)
   isRegistered            Boolean   @default(false) @map("is_registered")
+  failedLoginAttempts     Int       @default(0) @map("failed_login_attempts")
+  lockedUntil             DateTime? @map("locked_until") @db.Timestamptz(6)
   autoAcceptReplacements  Boolean   @default(false) @map("auto_accept_replacements")
   isActive                Boolean   @default(true) @map("is_active")
   addresses               CustomerAddress[]
   carts                   Cart[]
   orders                  Order[]
   couponUsages            CouponUsage[]
+  sessions                CustomerSession[]
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
   deletedAt               DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -696,4 +723,44 @@ model AdminAuthRateLimit {
 
   @@id([bucketKey, windowStart])
   @@map("admin_auth_rate_limits")
+}
+
+// ============================ PHASE 7 — Customer Auth =========================
+// Auth foundation (20261006_customer_auth). DB-backed opaque customer
+// sessions: only token HASHES live here; raw tokens exist transiently in the
+// login/register flow and in the HttpOnly session cookie. createdIp is INET
+// (raw-SQL writes, same posture as admin_sessions); everything else is
+// Prisma-mappable. Rate-limit buckets live in their own table — admin and
+// customer authentication never share accounting.
+
+model CustomerSession {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String    @map("customer_id") @db.Uuid
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  // SHA-256 hex of the 256-bit opaque token. Never the raw token.
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(128)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdIp  Unsupported("inet")? @map("created_ip")
+  userAgent  String?   @map("user_agent") @db.VarChar(500)
+
+  @@map("customer_sessions")
+  @@index([customerId], map: "idx_customer_sessions_customer")
+  @@index([expiresAt], map: "idx_customer_sessions_expiry")
+}
+
+// Serverless-safe customer login rate-limit buckets. bucket_key is opaque to
+// the DB (e.g. "login:cust-ip:<ip>" / "login:cust-acct:<phone>"); rows are
+// TTL-pruned by the application. Atomic bump: INSERT ... ON CONFLICT DO
+// UPDATE (single statement).
+model CustomerAuthRateLimit {
+  bucketKey   String   @map("bucket_key") @db.VarChar(128)
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  attempts    Int      @default(1)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([bucketKey, windowStart])
+  @@map("customer_auth_rate_limits")
 }

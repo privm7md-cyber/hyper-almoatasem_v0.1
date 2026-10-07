@@ -859,7 +859,7 @@ async function materializeFreeLines(
       where: { id: r.freeLine.variantId },
       include: { product: { include: { brand: { select: { name: true } } } } },
     });
-    if (!sub || !sub.isActive || sub.deletedAt !== null) continue;
+    if (!sub || !sub.isActive || sub.deletedAt !== null || !sub.product.isActive || sub.product.deletedAt !== null) continue;
     const priceC = parseScaled(sub.price.toString(), 2);
     const freeGrossC = divRoundHalfAway(r.freeLine.qtyT * priceC, 1000);
     let amountC = Math.min(divRoundHalfAway(freeGrossC * (promo.buyPctH as number), 10000), freeGrossC);

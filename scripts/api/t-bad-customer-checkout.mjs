@@ -44,6 +44,7 @@ const P_D1 = "01094000011";
 const P_D2 = "01094000022";
 const P_D3 = "01094000033";
 const P_D4 = "01094000044";
+const P_D5 = "01094000055";
 const CANON = (p) => "2010" + p.slice(3);
 const num = (s) => Number(s);
 
@@ -97,6 +98,19 @@ async function main() {
     const m = (r.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
     return { status: r.status, body, cookie: m ? `__Host-admin-session=${m[1]}` : null };
   };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const mergeTo = async (guestToken, sessTok) =>
+    post(`/api/store/cart/merge`, {}, null, { "x-guest-token": guestToken, ...H(sessTok) });
 
   const stamp = Date.now().toString(36);
   const keySeq = { n: 0 };
@@ -123,12 +137,12 @@ async function main() {
     }
     return { id: g.body.data.cart.id, tok };
   };
-  const checkout = async (tok, custId, addrId, k, extra = {}, useToken = true) => {
-    const headers = { "content-type": "application/json", ...(useToken && tok ? { "x-guest-token": tok } : {}) };
+  const checkout = async (sessTok, addrId, k, extra = {}) => {
+    const headers = { "content-type": "application/json", ...(sessTok ? H(sessTok) : {}) };
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ customerId: custId, addressId: addrId, idempotencyKey: k, ...extra }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
@@ -181,8 +195,8 @@ async function main() {
     }
     // Stray-state guard: no ACTIVE promos, no leftover BA-D customers.
     const strayPromos = Number((await q(`SELECT count(*)::int AS n FROM promotions WHERE status = 'ACTIVE'`))[0].n);
-    const strayCust = Number((await q(`SELECT count(*)::int AS n FROM customers WHERE phone IN ($1,$2,$3,$4)`,
-      [CANON(P_D1), CANON(P_D2), CANON(P_D3), CANON(P_D4)]))[0].n);
+    const strayCust = Number((await q(`SELECT count(*)::int AS n FROM customers WHERE phone IN ($1,$2,$3,$4,$5)`,
+      [CANON(P_D1), CANON(P_D2), CANON(P_D3), CANON(P_D4), CANON(P_D5)]))[0].n);
     t("env-clean", strayPromos === 0 && strayCust === 0, `activePromos=${strayPromos} leftoverCust=${strayCust}`);
     if (strayPromos !== 0 || strayCust !== 0) {
       console.error(`REFUSED_DIRTY_ENV`);
@@ -218,6 +232,12 @@ async function main() {
     // Need a second customer for cross-ownership checks.
     const c2 = await post(`/api/store/customers/identify`, { phone: P_D2, firstName: "BadTwo" });
     const idC2 = c2.body?.data?.id;
+    // PHASE 2 sessions for storefront flows (identify stays for identity tests).
+    const s1 = await sess(P_D1, "BadOne");
+    const s2 = await sess(P_D2, "BadTwo");
+    const tC1 = s1.tok;
+    const tC2 = s2.tok;
+    t("sessions-ready", !!tC1 && !!tC2 && s1.id === idC1 && s2.id === idC2, `${s1.id === idC1}/${s2.id === idC2}`);
     const a1 = await post(`/api/admin/customers/${idC1}/addresses`,
       { label: "home", city: "Matai", area: "Center", street: "Main", buildingNumber: "7", landmark: "mosque", phone: P_D1, isDefault: true }, ck);
     const a2 = await post(`/api/admin/customers/${idC1}/addresses`,
@@ -244,12 +264,15 @@ async function main() {
     const crossGet = await get(`/api/admin/customers/${idC2}/addresses/${idA2}`, ck);
     t("addr-cross-404", crossGet.status === 404, String(crossGet.status));
     // Checkout with another customer's address: deterministic 404, no side effects.
+    // (Dedicated customer so C2's cart stays clean for the journey below.)
+    const sX = await sess(P_D5, "BadX");
     const gX = await mkGuest([[P330, "1"]]);
+    await mergeTo(gX.tok, sX.tok);
     const resBeforeX = await reservedOf(P330);
-    const crossCo = await checkout(gX.tok, idC2, idA2, key("xaddr"));
+    const crossCo = await checkout(sX.tok, idA2, key("xaddr"));
     t("checkout-cross-address-404", crossCo.status === 404
       && (await reservedOf(P330)) === resBeforeX
-      && (await get(`/api/store/cart`, null, { "x-guest-token": gX.tok })).status === 200, `${crossCo.status}`);
+      && (await get(`/api/store/cart`, null, H(sX.tok))).status === 200, `${crossCo.status}`);
     // Delete the CURRENT default: allowed, zero defaults remain, new default settable.
     const delDef = await del(`/api/admin/customers/${idC1}/addresses/${idA2}`, ck);
     t("addr-delete-default-200", delDef.status === 200 && delDef.body?.data?.deleted === true, `${delDef.status}`);
@@ -281,13 +304,13 @@ async function main() {
 
     // ================= GUEST -> CUSTOMER UPGRADE =================
     const gU = await mkGuest([[P330, "1"]]);
-    const mg = await post(`/api/store/cart/merge`, { customerId: idC1 }, null, { "x-guest-token": gU.tok });
+    const mg = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gU.tok, ...H(tC1) });
     t("upgrade-merge-reassigned", mg.status === 200 && mg.body?.data?.merge?.mode === "reassigned", `${mg.status}/${mg.body?.data?.merge?.mode}`);
     const staleTok = await get(`/api/store/cart`, null, { "x-guest-token": gU.tok });
     t("upgrade-token-retired-404", staleTok.status === 404, String(staleTok.status));
-    // Checkout through the CUSTOMER cart (no guest token): proves the merged cart is the ACTIVE customer cart.
+    // Checkout through the CUSTOMER cart (session, no guest token): proves the merged cart is the ACTIVE customer cart.
     const resBeforeU = await reservedOf(P330);
-    const oU = await checkout(null, idC1, idA1, key("upgrade"), {}, false);
+    const oU = await checkout(tC1, idA1, key("upgrade"), {});
     t("upgrade-checkout-201", oU.status === 201 && oU.body?.data?.order?.status === "CONFIRMED", `${oU.status}`);
     const oUItems = oU.body?.data?.order?.items ?? [];
     t("upgrade-order-line", oUItems.length === 1 && oUItems[0].productVariantId === P330
@@ -308,7 +331,7 @@ async function main() {
     const idAJ = aJ.body?.data?.id;
     t("journey-address", aJ.status === 201 && !!idAJ, String(aJ.status));
     const gJ = await mkGuest([[P330, "2"], [ROMI_V, "0.125"]]);
-    const mgJ = await post(`/api/store/cart/merge`, { customerId: idC2 }, null, { "x-guest-token": gJ.tok });
+    const mgJ = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gJ.tok, ...H(tC2) });
     t("journey-merge", mgJ.status === 200, `${mgJ.status}/${mgJ.body?.data?.merge?.mode}`);
     // Promotions: 10% LINE on P330 + 20.00 ORDER parent carrying the coupon.
     const idPct = await mkPromo(
@@ -325,16 +348,16 @@ async function main() {
     couponIds.add(idCpJ);
     t("journey-promo-coupon-ready", !!idPct && !!idPar && !!idCpJ && !!codeJ, `${codeJ}`);
     const estJ = await post(`/api/store/orders/estimate`, {
-      customerId: idC2, lines: [{ productVariantId: P330, quantity: "2" }, { productVariantId: ROMI_V, quantity: "0.125" }], couponCode: codeJ,
-    });
+      lines: [{ productVariantId: P330, quantity: "2" }, { productVariantId: ROMI_V, quantity: "0.125" }], couponCode: codeJ,
+    }, null, H(tC2));
     const ej = estJ.body?.data ?? {};
     t("journey-estimate-match", estJ.status === 200 && num(ej.subtotal) === 70 && num(ej.discountTotal) === 23
       && num(ej.total) === 67, `${estJ.status}/${ej.subtotal}/${ej.discountTotal}/${ej.total}`);
-    const repJ = await post(`/api/store/cart/reprice`, { customerId: idC2 });
+    const repJ = await post(`/api/store/cart/reprice`, {}, null, H(tC2));
     t("journey-reprice-200", repJ.status === 200, String(repJ.status));
     const resJ330 = await reservedOf(P330);
     const resJRomi = await reservedOf(ROMI_V);
-    const oJ = await checkout(null, idC2, idAJ, key("journey"), { couponCode: codeJ }, false);
+    const oJ = await checkout(tC2, idAJ, key("journey"), { couponCode: codeJ });
     const OJ = oJ.body?.data?.order;
     t("journey-201", oJ.status === 201 && OJ?.status === "CONFIRMED", `${oJ.status}`);
     t("journey-totals", OJ != null && num(OJ.subtotalEstimated) === 70 && num(OJ.discountTotal) === 23
@@ -372,7 +395,7 @@ async function main() {
     const addrMut = await patch(`/api/admin/customers/${idC2}/addresses/${idAJ}`,
       { city: "MutatedCity", street: "MutatedStreet", phone: P_D1 }, ck);
     t("snap-mutations-applied", prodRen.status === 200 && addrMut.status === 200, `${prodRen.status}/${addrMut.status}`);
-    const oJAgain = await get(`/api/store/orders/${OJ.id}?customerId=${idC2}`);
+    const oJAgain = await get(`/api/store/orders/${OJ.id}`, null, H(tC2));
     const OJ2 = oJAgain.body?.data?.order;
     const jP330 = (OJ2?.items ?? []).find((i) => i.productVariantId === P330);
     t("snap-product-immune", oJAgain.status === 200 && jP330?.productName === "Pepsi"
@@ -387,7 +410,7 @@ async function main() {
     // Delete the address the order used: the order must keep its full snapshot.
     const addrDel = await del(`/api/admin/customers/${idC2}/addresses/${idAJ}`, ck);
     t("addr-delete-post-order-200", addrDel.status === 200, String(addrDel.status));
-    const oJAfterDel = await get(`/api/store/orders/${OJ.id}?customerId=${idC2}`);
+    const oJAfterDel = await get(`/api/store/orders/${OJ.id}`, null, H(tC2));
     t("order-survives-address-delete", oJAfterDel.status === 200
       && oJAfterDel.body?.data?.order?.delivery?.city === "Matai", `${oJAfterDel.status}`);
 
@@ -402,10 +425,11 @@ async function main() {
       const postT = [`PatchCity${i}`, `PatchStreet${i}`, `PatchMark${i}`];
       const gR = await mkGuest([[P330, "1"]]);
       const kR = key(`racep${i}`);
+      await mergeTo(gR.tok, tC1);
       const [pRes, oRes] = await Promise.all([
         patch(`/api/admin/customers/${idC1}/addresses/${idAR}`,
           { city: postT[0], street: postT[1], landmark: postT[2] }, ck),
-        checkout(gR.tok, idC1, idAR, kR),
+        checkout(tC1, idAR, kR),
       ]);
       if (pRes.status !== 200) {
         t(`addr-race-patch-consistent-${i}`, false, `patch=${pRes.status}`);
@@ -430,10 +454,11 @@ async function main() {
       const idARd = aRd.body?.data?.id;
       const gRd = await mkGuest([[P330, "1"]]);
       const kRd = key(`raced${i}`);
+      await mergeTo(gRd.tok, tC1);
       const resBefore = await reservedOf(P330);
       const [dRes, oRes] = await Promise.all([
         del(`/api/admin/customers/${idC1}/addresses/${idARd}`, ck),
-        checkout(gRd.tok, idC1, idARd, kRd),
+        checkout(tC1, idARd, kRd),
       ]);
       if (oRes.status === 201) {
         const snap = oRes.body?.data?.order?.delivery ?? {};
@@ -441,7 +466,7 @@ async function main() {
           `201 city=${snap.city}`);
       } else if (oRes.status === 404) {
         const noRow = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = $1`, [kRd]);
-        const cartStill = await get(`/api/store/cart`, null, { "x-guest-token": gRd.tok });
+        const cartStill = await get(`/api/store/cart`, null, H(tC1));
         t(`addr-race-delete-deterministic-${i}`, dRes.status === 200 && noRow[0].n === 0
           && (await reservedOf(P330)) === resBefore && cartStill.status === 200,
           `404 ok (del=${dRes.status} rows=${noRow[0].n})`);
@@ -455,12 +480,13 @@ async function main() {
     const gFk = await mkGuest([[P330, "1"]]);
     await patch(`/api/admin/catalog/variants/${P330}/price`, { price: "17.00", reason: "bad drift test" }, ck);
     const kF = key("failreuse");
-    const oFk = await checkout(gFk.tok, idC1, idA1, kF);
+    await mergeTo(gFk.tok, tC1);
+    const oFk = await checkout(tC1, idA1, kF);
     t("key-fail-409", oFk.status === 409, String(oFk.status));
     await patch(`/api/admin/catalog/variants/${P330}/price`, { price: "15.00", reason: "bad revert" }, ck);
-    const oFk2 = await checkout(gFk.tok, idC1, idA1, kF);
+    const oFk2 = await checkout(tC1, idA1, kF);
     t("key-fail-then-reuse-201", oFk2.status === 201, String(oFk2.status));
-    const oFk3 = await checkout(gFk.tok, idC1, idA1, kF);
+    const oFk3 = await checkout(tC1, idA1, kF);
     t("key-replay-same", oFk3.status === 200 && oFk3.body?.data?.order?.id === oFk2.body?.data?.order?.id
       && oFk3.body?.meta?.replay === true, `${oFk3.status}`);
 
@@ -474,18 +500,29 @@ async function main() {
     const idC4 = idRaceIds[0];
     const aC4 = await post(`/api/admin/customers/${idC4}/addresses`, { city: "Matai", phone: P_D4 }, ck);
     const gC4 = await mkGuest([[P330, "1"]]);
-    const oC4 = await checkout(gC4.tok, idC4, aC4.body?.data?.id, key("idrace"));
+    const sC4 = await sess(P_D4, "RaceCk");
+    await mergeTo(gC4.tok, sC4.tok);
+    const oC4 = await checkout(sC4.tok, aC4.body?.data?.id, key("idrace"));
     t("id-race-checkout-match", oC4.status === 201
       && (await q(`SELECT customer_id::text AS c FROM orders WHERE id = $1::uuid`, [oC4.body?.data?.order?.id]))[0]?.c === idC4,
       `${oC4.status}`);
 
-    // ================= FROZEN IDENTITY BINDING (documented, not a bug) ======
-    // No customer auth exists in frozen scope: a guest cart checks out against
-    // whichever (customerId, addressId) pair it supplies, as long as the
-    // address belongs to that customer. This asserts the defined behavior.
+    // ================= SESSION IDENTITY BINDING (PHASE 2) ======
+    // Guest carts no longer check out on a claimed (customerId, addressId)
+    // pair: checkout requires the server-verified session. A guest token
+    // alone answers 401 (identify first, then merge).
     const gFb = await mkGuest([[P330, "1"]]);
-    const oFb = await checkout(gFb.tok, idC1, idA1, key("frozenbind"));
-    t("frozen-binding-201", oFb.status === 201, String(oFb.status));
+    const oFb = await checkout(null, idA1, key("frozenbind"));
+    t("session-binding-guest-401", oFb.status === 401, String(oFb.status));
+    const oFbTok = await (async () => {
+      const r = await fetch(`${baseUrl}/api/store/orders`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-guest-token": gFb.tok },
+        body: JSON.stringify({ addressId: idA1, idempotencyKey: key("frozenbind2") }),
+      });
+      return { status: r.status };
+    })();
+    t("session-binding-token-only-401", oFbTok.status === 401, String(oFbTok.status));
   } finally {
     try {
       const auditIdsAfter = (await q(`SELECT id::text AS id FROM audit_logs`)).map((r) => r.id);
@@ -494,8 +531,8 @@ async function main() {
         await db.query(`DELETE FROM audit_logs WHERE id = ANY($1::uuid[])`, [mine]).catch(() => {});
       }
       const ordRows = await db.query(
-        `SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id WHERE c.phone IN ($1,$2,$3,$4)`,
-        [CANON(P_D1), CANON(P_D2), CANON(P_D3), CANON(P_D4)],
+        `SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id WHERE c.phone IN ($1,$2,$3,$4,$5)`,
+        [CANON(P_D1), CANON(P_D2), CANON(P_D3), CANON(P_D4), CANON(P_D5)],
       ).catch(() => ({ rows: [] }));
       for (const o of ordRows.rows) {
         const items = await db.query(`SELECT product_variant_id, requested_quantity FROM order_items WHERE order_id = $1`, [o.id]).catch(() => ({ rows: [] }));
@@ -523,9 +560,10 @@ async function main() {
         await db.query(`DELETE FROM cart_items WHERE cart_id = $1`, [id]).catch(() => {});
         await db.query(`DELETE FROM carts WHERE id = $1`, [id]).catch(() => {});
       }
-      for (const ph of [P_D1, P_D2, P_D3, P_D4].map(CANON)) {
-        const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
-        for (const r of rows.rows) {
+        for (const ph of [P_D1, P_D2, P_D3, P_D4, P_D5].map(CANON)) {
+          const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
+          for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {
@@ -534,7 +572,7 @@ async function main() {
           }
         }
       }
-      for (const ph of [P_D1, P_D2, P_D3, P_D4].map(CANON)) {
+      for (const ph of [P_D1, P_D2, P_D3, P_D4, P_D5].map(CANON)) {
         await db.query(`DELETE FROM customers WHERE phone = $1`, [ph]).catch(() => {});
       }
       await db.query(`DELETE FROM admin_sessions WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [STORE_EMAIL]).catch(() => {});

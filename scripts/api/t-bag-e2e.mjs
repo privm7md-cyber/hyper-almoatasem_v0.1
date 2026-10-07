@@ -117,14 +117,28 @@ async function main() {
     }
     return { id: g.body.data.cart.id, tok };
   };
-  const checkout = async (tok, custId, addrId, k, extra = {}, useToken = true) => {
-    const headers = { "content-type": "application/json", ...(useToken && tok ? { "x-guest-token": tok } : {}) };
+  const checkout = async (tok, sessTok, addrId, k, extra = {}) => {
+    if (tok && sessTok) {
+      await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tok, ...H(sessTok) });
+    }
+    const headers = { "content-type": "application/json", ...(sessTok ? H(sessTok) : {}) };
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ customerId: custId, addressId: addrId, idempotencyKey: k, ...extra }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
+  };
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
   };
   const reservedOf = async (v) =>
     (await q(`SELECT reserved_quantity::text r FROM inventory WHERE product_variant_id = $1`, [v]))[0].r;
@@ -136,8 +150,8 @@ async function main() {
     return id;
   };
   const activate = async (id, ck) => patch(`/api/admin/promotions/${id}`, { status: "ACTIVE" }, ck);
-  const orderOf = async (orderId, custId) =>
-    (await get(`/api/store/orders/${orderId}?customerId=${custId}`)).body?.data?.order;
+  const orderOf = async (orderId, sessTok) =>
+    (await get(`/api/store/orders/${orderId}`, null, H(sessTok))).body?.data?.order;
 
   try {
     // Guards: server identity + logins + clean environment.
@@ -226,22 +240,26 @@ async function main() {
 
     // ================= CUSTOMER + ADDRESS =================
     const c1 = await post(`/api/store/customers/identify`, { phone: P_G1, firstName: "E2E" });
-    const idC1 = c1.body?.data?.id;
-    t("e2e-identify-new-201", c1.status === 201 && !!idC1 && noSecrets(c1.body), `${c1.status}`);
+    t("e2e-identify-new-201", c1.status === 201 && !!c1.body?.data?.id && noSecrets(c1.body), `${c1.status}`);
+    const ss1 = await sess(P_G1, "E2E");
+    const idC1 = ss1.id;
+    const tC1 = ss1.tok;
+    t("e2e-session-same-customer", idC1 === c1.body?.data?.id && !!tC1, `${idC1 === c1.body?.data?.id}`);
     const c1b = await post(`/api/store/customers/identify`, { phone: `+${CANON(P_G1)}`, firstName: "E2E" });
     t("e2e-identify-existing-200", c1b.status === 200 && c1b.body?.data?.id === idC1, `${c1b.status}`);
     const a1 = await post(`/api/admin/customers/${idC1}/addresses`,
       { label: "home", city: "Matai", area: "Center", street: "Nile", buildingNumber: "3", landmark: "school", phone: P_G1, isDefault: true }, ck);
     const idA1 = a1.body?.data?.id;
     t("e2e-address-default", a1.status === 201 && !!idA1, `${a1.status}`);
-    const c2 = await post(`/api/store/customers/identify`, { phone: P_G2, firstName: "E2E2" });
-    const idC2 = c2.body?.data?.id;
+    const ss2 = await sess(P_G2, "E2E2");
+    const idC2 = ss2.id;
+    const tC2 = ss2.tok;
     const a2 = await post(`/api/admin/customers/${idC2}/addresses`, { city: "Matai", phone: P_G2 }, ck);
     const idA2 = a2.body?.data?.id;
 
     // ================= CART + MERGE =================
     const gJ = await mkGuest([[PICK, "2"], [WPICK, "0.125"]]);
-    const mg = await post(`/api/store/cart/merge`, { customerId: idC1 }, null, { "x-guest-token": gJ.tok });
+    const mg = await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gJ.tok, ...H(tC1) });
     t("e2e-merge", mg.status === 200, `${mg.status}/${mg.body?.data?.merge?.mode}`);
 
     // ================= PROMOTION + COUPON (admin fixtures via real API) =================
@@ -262,21 +280,20 @@ async function main() {
     // gross 70.00; 10% LINE = 3.00; coupon 20.00; discountTotal 23.00;
     // delivery 20.00; total 67.00.
     const estJ = await post(`/api/store/orders/estimate`, {
-      customerId: idC1,
       lines: [{ productVariantId: PICK, quantity: "2" }, { productVariantId: WPICK, quantity: "0.125" }],
       couponCode: codeJ,
-    });
+    }, null, H(tC1));
     const ej = estJ.body?.data ?? {};
     t("e2e-estimate", estJ.status === 200 && num(ej.subtotal) === 70 && num(ej.discountTotal) === 23
       && num(ej.total) === 67, `${estJ.status}/${ej.subtotal}/${ej.discountTotal}/${ej.total}`);
-    const repJ = await post(`/api/store/cart/reprice`, { customerId: idC1 });
+    const repJ = await post(`/api/store/cart/reprice`, {}, null, H(tC1));
     t("e2e-reprice-200", repJ.status === 200, String(repJ.status));
 
     // ================= CHECKOUT =================
     const resJ330 = await reservedOf(PICK);
     const resJRomi = await reservedOf(WPICK);
     const kJ = key("journey");
-    const oJ = await checkout(null, idC1, idA1, kJ, { couponCode: codeJ }, false);
+    const oJ = await checkout(null, tC1, idA1, kJ, { couponCode: codeJ }, false);
     const OJ = oJ.body?.data?.order;
     t("e2e-checkout-201", oJ.status === 201 && OJ?.status === "CONFIRMED", `${oJ.status}`);
     t("e2e-totals", OJ != null && num(OJ.subtotalEstimated) === 70 && num(OJ.discountTotal) === 23
@@ -300,7 +317,7 @@ async function main() {
     t("e2e-cart-finalized", (await q(`SELECT status FROM carts WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 1`, [idC1]))[0]?.status === "CHECKED_OUT");
     // Idempotency replay on the journey key: same order, no second reservation.
     const resBeforeRp = await reservedOf(PICK);
-    const oJr = await checkout(null, idC1, idA1, kJ, { couponCode: codeJ }, false);
+    const oJr = await checkout(null, tC1, idA1, kJ, { couponCode: codeJ }, false);
     t("e2e-replay-same-order", oJr.status === 200 && oJr.body?.data?.order?.id === OJ?.id
       && oJr.body?.meta?.replay === true && (await reservedOf(PICK)) === resBeforeRp,
       `${oJr.status}`);
@@ -309,7 +326,7 @@ async function main() {
     await patch(`/api/admin/catalog/products/${pepsi.id}`, { name: "Pepsi MUTATED" }, ck);
     await patch(`/api/admin/catalog/variants/${PICK}/price`, { price: "17.00", reason: "bag drift test" }, ck);
     await patch(`/api/admin/customers/${idC1}/addresses/${idA1}`, { city: "MutatedCity", phone: P_G2 }, ck);
-    const OJ2 = await orderOf(OJ.id, idC1);
+    const OJ2 = await orderOf(OJ.id, tC1);
     const jP = (OJ2?.items ?? []).find((i) => i.productVariantId === PICK);
     t("e2e-snapshot-immune", jP?.productName === "Pepsi" && num(jP?.unitPrice) === 15
       && num(OJ2?.subtotalEstimated) === 70 && OJ2?.delivery?.city === "Matai"
@@ -320,7 +337,7 @@ async function main() {
     t("e2e-mutations-reverted", true);
     // Delete the used address: the order keeps its full snapshot.
     await del(`/api/admin/customers/${idC1}/addresses/${idA1}`, ck);
-    const OJ3 = await orderOf(OJ.id, idC1);
+    const OJ3 = await orderOf(OJ.id, tC1);
     t("e2e-order-survives-address-delete", OJ3?.delivery?.city === "Matai" && OJ3?.delivery?.street === "Nile");
 
     // ================= REPLACEMENT (on the journey order) =================
@@ -333,16 +350,14 @@ async function main() {
     const R1 = pR.body?.data;
     t("e2e-replacement-proposed", pR.status === 201 && R1?.status === "PROPOSED", `${pR.status}`);
     const resWBefore = await reservedOf(WPICK);
-    const dR = await post(`/api/store/orders/${OJ.id}/replacements/${R1.id}/decide`,
-      { customerId: idC1, action: "approve" });
+    const dR = await post(`/api/store/orders/${OJ.id}/replacements/${R1.id}/decide`, { action: "approve" }, null, H(tC1));
     t("e2e-replacement-approved", dR.status === 200 && dR.body?.data?.status === "CUSTOMER_APPROVED",
       `${dR.status}`);
-    const afterAppr = await orderOf(OJ.id, idC1);
+    const afterAppr = await orderOf(OJ.id, tC1);
     t("e2e-replacement-materialized", (afterAppr?.items ?? []).some((i) => i.productVariantId === WPICK
       && num(i.requestedQuantity) === 0.25)
       && num(await reservedOf(WPICK)) - num(resWBefore) === 0.25);
-    const dAgain = await post(`/api/store/orders/${OJ.id}/replacements/${R1.id}/decide`,
-      { customerId: idC1, action: "approve" });
+    const dAgain = await post(`/api/store/orders/${OJ.id}/replacements/${R1.id}/decide`, { action: "approve" }, null, H(tC1));
     t("e2e-replacement-twice-409", dAgain.status === 409, `${dAgain.status}`);
 
     // ================= CANCELLATION =================
@@ -350,7 +365,7 @@ async function main() {
     // moved to the 0.250 replacement line at approve time).
     const resC330 = await reservedOf(PICK);
     const resCW = await reservedOf(WPICK);
-    const cx = await post(`/api/store/orders/${OJ.id}/cancel`, { customerId: idC1 });
+    const cx = await post(`/api/store/orders/${OJ.id}/cancel`, {}, null, H(tC1));
     t("e2e-cancel-200", cx.status === 200 && cx.body?.data?.order?.status === "CANCELLED", `${cx.status}`);
     const resAfterCx330 = await reservedOf(PICK);
     const resAfterCxW = await reservedOf(WPICK);
@@ -358,12 +373,12 @@ async function main() {
     // releases the still-held WPICK 0.375 (0.125 line + 0.250 replacement line).
     t("e2e-cancel-released", num(resC330) - num(resAfterCx330) === 0
       && num(resCW) - num(resAfterCxW) === 0.375, `${resAfterCx330}/${resAfterCxW}`);
-    const cx2 = await post(`/api/store/orders/${OJ.id}/cancel`, { customerId: idC1 });
+    const cx2 = await post(`/api/store/orders/${OJ.id}/cancel`, {}, null, H(tC1));
     t("e2e-cancel-replay-409", cx2.status === 409
       && (await reservedOf(PICK)) === resAfterCx330
       && (await reservedOf(WPICK)) === resAfterCxW, `${cx2.status}`);
     // Foreign cancel denied.
-    const cxF = await post(`/api/store/orders/${OJ.id}/cancel`, { customerId: idC2 });
+    const cxF = await post(`/api/store/orders/${OJ.id}/cancel`, {}, null, H(tC2));
     t("e2e-cancel-foreign-404", cxF.status === 404, `${cxF.status}`);
 
     // ================= CROSS-DOMAIN CONCURRENCY GATE =================
@@ -376,15 +391,18 @@ async function main() {
     const gG1 = await mkGuest([[PICK, "1"]]);
     const gG2 = await mkGuest([[PICK, "1"]]);
     const [cG1, cG2] = await Promise.all([
-      checkout(gG1.tok, idC1, a1b.body?.data?.id, key("cg1"), { couponCode: cpG.body?.data?.code }),
-      checkout(gG2.tok, idC2, idA2, key("cg2"), { couponCode: cpG.body?.data?.code }),
+      checkout(gG1.tok, tC1, a1b.body?.data?.id, key("cg1"), { couponCode: cpG.body?.data?.code }),
+      checkout(gG2.tok, tC2, idA2, key("cg2"), { couponCode: cpG.body?.data?.code }),
     ]);
     const winCount = [cG1.status, cG2.status].filter((s) => s === 201).length;
     const usageN = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpG]))[0].used_count);
     t("e2e-coupon-race-single", winCount === 1 && usageN === 1, `${cG1.status}/${cG2.status}/used=${usageN}`);
     // Cancel + approve race on a fresh order: deterministic terminal state.
+    // (Clear the session cart first: a lost coupon-race branch leaves its
+    // lines behind, and the merge below would otherwise sum them in.)
+    await del(`/api/store/cart/items`, null, H(tC1));
     const gCR = await mkGuest([[PICK, "1"]]);
-    const oCR = await checkout(gCR.tok, idC1, a1b.body?.data?.id, key("cancelrace"));
+    const oCR = await checkout(gCR.tok, tC1, a1b.body?.data?.id, key("cancelrace"));
     t("e2e-cancelrace-setup", oCR.status === 201, `${oCR.status}`);
     const crItems = oCR.body?.data?.order?.items ?? [];
     const pCR = await post(`/api/admin/orders/${oCR.body?.data?.order?.id}/items/${crItems[0]?.id}/replacements`,
@@ -394,10 +412,10 @@ async function main() {
     const resBeforeCR = await reservedOf(PICK);
     const resBeforeCRW = await reservedOf(WPICK);
     const [cxR, apR] = await Promise.all([
-      post(`/api/store/orders/${idCR}/cancel`, { customerId: idC1 }),
-      post(`/api/store/orders/${idCR}/replacements/${pCR.body?.data?.id}/decide`, { customerId: idC1, action: "approve" }),
+      post(`/api/store/orders/${idCR}/cancel`, {}, null, H(tC1)),
+      post(`/api/store/orders/${idCR}/replacements/${pCR.body?.data?.id}/decide`, { action: "approve" }, null, H(tC1)),
     ]);
-    const finalCR = await orderOf(idCR, idC1);
+    const finalCR = await orderOf(idCR, tC1);
     const dPICK = num(await reservedOf(PICK)) - num(resBeforeCR);
     const dWPICK = num(await reservedOf(WPICK)) - num(resBeforeCRW);
     const legalStatus = (s) => [200, 404, 409, 422].includes(s);
@@ -416,11 +434,14 @@ async function main() {
     t("e2e-cancel-approve-deterministic", raceOk, raceWhy);
     t("e2e-cancel-approve-no-negative", num(await reservedOf(PICK)) >= 0 && num(await reservedOf(WPICK)) >= 0);
     // Same-cart double checkout: one order.
+    // Same-cart double checkout: one order. Merge once up front (the merge
+    // retires the guest token), then both checkouts race on the session cart.
     const gD = await mkGuest([[PICK, "1"]]);
+    await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": gD.tok, ...H(tC1) });
     const resBeforeD = await reservedOf(PICK);
     const [dd1, dd2] = await Promise.all([
-      checkout(gD.tok, idC1, a1b.body?.data?.id, key("dbl1")),
-      checkout(gD.tok, idC1, a1b.body?.data?.id, key("dbl2")),
+      checkout(null, tC1, a1b.body?.data?.id, key("dbl1")),
+      checkout(null, tC1, a1b.body?.data?.id, key("dbl2")),
     ]);
     const dStatuses = [dd1.status, dd2.status].sort().join(",");
     t("e2e-same-cart-double", dStatuses === "200,201"
@@ -494,6 +515,7 @@ async function main() {
       for (const ph of [P_G1, P_G2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {

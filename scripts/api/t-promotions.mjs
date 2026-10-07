@@ -75,10 +75,10 @@ async function main() {
     const r = await fetch(`${baseUrl}${path}`, { headers: cookie ? { cookie } : {} });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const post = async (path, data, cookie = null) => {
+  const post = async (path, data, cookie = null, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+      headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...headers },
       body: JSON.stringify(data),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -132,13 +132,27 @@ async function main() {
     }
     return tok;
   };
-  const orderWith = async (custId, addrId, lines, k, couponCode = null) => {
+  const H = (tok) => ({ "x-customer-token": tok });
+  const CPW = "Cust-Test-Pass-0001!";
+  const sess = async (phone, firstName) => {
+    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
+    if (reg.status === 201) {
+      return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
+    }
+    const r = await post(`/api/store/customers/session`, { phone, password: CPW });
+    return { id: r.body?.data?.customer?.id ?? null, tok: r.body?.data?.customerToken ?? null };
+  };
+  const orderWith = async (sessTok, addrId, lines, k, couponCode = null) => {
+    // Isolate: empty the session cart first (failed checkouts leave carts).
+    await fetch(`${baseUrl}/api/store/cart/items`, { method: "DELETE", headers: H(sessTok) });
     const tok = await mkCart(lines);
-    const body = { customerId: custId, addressId: addrId, idempotencyKey: k };
+    await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tok, ...H(sessTok) });
+    const body = { addressId: addrId, idempotencyKey: k };
     if (couponCode) body.couponCode = couponCode;
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-guest-token": tok },
+      headers: { "content-type": "application/json", ...H(sessTok) },
       body: JSON.stringify(body),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -180,10 +194,12 @@ async function main() {
     const bare = await loginAs(BARE_EMAIL, BARE_PW);
     t("logins-ok", store.status === 201 && owner.status === 201 && bare.status === 201);
     sc = store.cookie;
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_C1, firstName: "Promo1" });
-    const c2 = await post(`/api/store/customers/identify`, { phone: P_C2, firstName: "Promo2" });
-    const idC1 = c1.body.data.id;
-    const idC2 = c2.body.data.id;
+    const ss1 = await sess(P_C1, "Promo1");
+    const ss2 = await sess(P_C2, "Promo2");
+    const idC1 = ss1.id;
+    const idC2 = ss2.id;
+    const tC1 = ss1.tok;
+    const tC2 = ss2.tok;
     const a1 = await post(`/api/admin/customers/${idC1}/addresses`, { city: "Cairo", phone: P_C1 }, sc);
     const a2 = await post(`/api/admin/customers/${idC2}/addresses`, { city: "Giza", phone: P_C2 }, sc);
     const idA1 = a1.body.data.id;
@@ -224,7 +240,7 @@ async function main() {
     t("promo-get-200", pGet.status === 200 && pGet.body.data.targets.length === 1 && pGet.body.data.rules === null);
 
     // S1: line percent auto (only promo active).
-    const o1 = await orderWith(idC1, idA1, [[P330, "2"]], key("pct"));
+    const o1 = await orderWith(tC1, idA1, [[P330, "2"]], key("pct"));
     const O1 = o1.body?.data?.order;
     t("auto-percent-201", o1.status === 201 && O1 && num(O1.discountTotal) === 3 && num(O1.totalEstimated) === 47);
     const d1 = await discountsOf(O1.id);
@@ -248,7 +264,7 @@ async function main() {
     const idS2 = await mkPromo(
       { name: "BA8 10% s", type: "PERCENTAGE", scope: "LINE", discountPercent: "10.00", priority: 5, isStackable: true },
       { targetType: "VARIANT", targetId: P330 });
-    const o2 = await orderWith(idC1, idA1, [[P330, "2"]], key("stack"));
+    const o2 = await orderWith(tC1, idA1, [[P330, "2"]], key("stack"));
     const O2 = o2.body?.data?.order;
     t("stack-sequential", o2.status === 201 && O2 && num(O2.discountTotal) === 8.4 && num(O2.totalEstimated) === 41.6);
     // Exclusive: disable S1, add non-stackable 20% prio 10 -> only it applies.
@@ -256,7 +272,7 @@ async function main() {
     const idX = await mkPromo(
       { name: "BA8 20% x", type: "PERCENTAGE", scope: "LINE", discountPercent: "20.00", priority: 10 },
       { targetType: "VARIANT", targetId: P330 });
-    const oX = await orderWith(idC1, idA1, [[P330, "2"]], key("excl"));
+    const oX = await orderWith(tC1, idA1, [[P330, "2"]], key("excl"));
     t("stack-exclusive", oX.status === 201 && num(oX.body.data.order.discountTotal) === 6);
     await setStatus(idX, "DISABLED");
     await setStatus(idS2, "DISABLED");
@@ -265,7 +281,7 @@ async function main() {
     const idCap = await mkPromo(
       { name: "BA8 50% cap5", type: "PERCENTAGE", scope: "LINE", discountPercent: "50.00", priority: 50, isStackable: true },
       { targetType: "VARIANT", targetId: P330 }, { maximumDiscount: "5.00" });
-    const oCap = await orderWith(idC1, idA1, [[P330, "2"]], key("cap"));
+    const oCap = await orderWith(tC1, idA1, [[P330, "2"]], key("cap"));
     t("cap-pins", oCap.status === 201 && num(oCap.body.data.order.discountTotal) === 5);
     await setStatus(idCap, "DISABLED");
 
@@ -277,7 +293,7 @@ async function main() {
       { name: "BA8 future", type: "PERCENTAGE", scope: "LINE", discountPercent: "90.00", priority: 70, isStackable: true, startAt: "2030-01-01T00:00:00.000Z" },
       { targetType: "VARIANT", targetId: P330 });
     await setStatus(idPct, "ACTIVE");
-    const oSkip = await orderWith(idC1, idA1, [[P330, "2"]], key("skip"));
+    const oSkip = await orderWith(tC1, idA1, [[P330, "2"]], key("skip"));
     t("skip-minimum-scheduled", oSkip.status === 201 && num(oSkip.body.data.order.discountTotal) === 3);
     await setStatus(idPct, "DISABLED");
     await setStatus(idMin, "DISABLED");
@@ -290,7 +306,7 @@ async function main() {
       { name: "BA8 B2G1", type: "BUY_X_GET_Y", scope: "LINE", priority: 5 },
       { targetType: "VARIANT", targetId: P1L }, null,
       { buyQuantity: "2", getQuantity: "1", discountPercent: "100.00" });
-    const oBxg = await orderWith(idC1, idA1, [[P1L, "3"]], key("bxg"));
+    const oBxg = await orderWith(tC1, idA1, [[P1L, "3"]], key("bxg"));
     const OB = oBxg.body?.data?.order;
     t("bxgy-same", oBxg.status === 201 && OB && num(OB.discountTotal) === 30 && num(OB.totalEstimated) === 80);
     await setStatus(idBxg, "DISABLED");
@@ -301,7 +317,7 @@ async function main() {
       { name: "BA8 chips-dip", type: "BUY_X_GET_Y", scope: "LINE", priority: 4 },
       { targetType: "VARIANT", targetId: P330 }, null,
       { buyQuantity: "2", getQuantity: "1", discountPercent: "100.00", freeVariantId: P1L });
-    const oBxgX = await orderWith(idC1, idA1, [[P330, "2"]], key("bxgx"));
+    const oBxgX = await orderWith(tC1, idA1, [[P330, "2"]], key("bxgx"));
     const OBX = oBxgX.body?.data?.order;
     const freeLine = OBX ? OBX.items.find((i) => i.productVariantId === P1L) : null;
     t("bxgy-cross", oBxgX.status === 201 && OBX && freeLine && num(freeLine.unitPrice) === 30
@@ -333,7 +349,7 @@ async function main() {
     t("coupon-bad-promo-422", cpBadPromo.status === 422);
     const cpSpace = await post(`/api/admin/coupons`, { promotionId: idCp, code: "has space" }, sc);
     t("coupon-space-400", cpSpace.status === 400);
-    const oCp = await orderWith(idC1, idA1, [[P1L, "10"]], key("cpn"), "save50");
+    const oCp = await orderWith(tC1, idA1, [[P1L, "10"]], key("cpn"), "save50");
     const OC = oCp.body?.data?.order;
     t("coupon-apply-201", oCp.status === 201 && OC && num(OC.discountTotal) === 50 && num(OC.totalEstimated) === 270);
     const dc = await discountsOf(OC.id);
@@ -342,27 +358,27 @@ async function main() {
     t("coupon-usage-row", usage.length === 1 && usage[0].e === "50.00");
     const usedCt = await q(`SELECT used_count FROM coupons WHERE id = $1`, [idSave]);
     t("coupon-counter", usedCt[0].used_count === 1);
-    const oMin = await orderWith(idC1, idA1, [[P330, "1"]], key("cpmin"), "SAVE50");
+    const oMin = await orderWith(tC1, idA1, [[P330, "1"]], key("cpmin"), "SAVE50");
     t("coupon-minimum-422", oMin.status === 422);
-    const oUnk = await orderWith(idC1, idA1, [[P1L, "10"]], key("cpunk"), "NOPEZZ");
+    const oUnk = await orderWith(tC1, idA1, [[P1L, "10"]], key("cpunk"), "NOPEZZ");
     t("coupon-unknown-404", oUnk.status === 404);
-    const oPerCust = await orderWith(idC1, idA1, [[P1L, "10"]], key("cppc"), "SAVE50");
+    const oPerCust = await orderWith(tC1, idA1, [[P1L, "10"]], key("cppc"), "SAVE50");
     t("coupon-per-customer-422", oPerCust.status === 422);
     const cpDis = await patch(`/api/admin/coupons/${idSave}`, { isActive: false }, sc);
     t("coupon-disable-200", cpDis.status === 200 && cpDis.body.data.isActive === false);
-    const oDis = await orderWith(idC2, idA2, [[P1L, "10"]], key("cpdis"), "SAVE50");
+    const oDis = await orderWith(tC2, idA2, [[P1L, "10"]], key("cpdis"), "SAVE50");
     t("coupon-disabled-422", oDis.status === 422);
     await patch(`/api/admin/coupons/${idSave}`, { isActive: true }, sc);
     await patch(`/api/admin/coupons/${idSave}`, { endAt: "2020-01-01T00:00:00.000Z" }, sc);
-    const oExp2 = await orderWith(idC2, idA2, [[P1L, "10"]], key("cpexp2"), "SAVE50");
+    const oExp2 = await orderWith(tC2, idA2, [[P1L, "10"]], key("cpexp2"), "SAVE50");
     t("coupon-expired-422", oExp2.status === 422);
     await patch(`/api/admin/coupons/${idSave}`, { endAt: null }, sc);
     const cpLim = await post(`/api/admin/coupons`, { promotionId: idCp, code: "ONCEONLY", usageLimit: 1 }, sc);
     const idLim = cpLim.body.data.id;
     couponIds.add(idLim);
-    const oL1 = await orderWith(idC1, idA1, [[P1L, "10"]], key("cplim1"), "ONCEONLY");
+    const oL1 = await orderWith(tC1, idA1, [[P1L, "10"]], key("cplim1"), "ONCEONLY");
     t("coupon-limit-first-201", oL1.status === 201);
-    const oL2 = await orderWith(idC2, idA2, [[P1L, "10"]], key("cplim2"), "ONCEONLY");
+    const oL2 = await orderWith(tC2, idA2, [[P1L, "10"]], key("cplim2"), "ONCEONLY");
     t("coupon-limit-second-409", oL2.status === 409);
     t("coupon-limit-no-usage", (await q(`SELECT count(*)::int AS n FROM coupon_usages WHERE coupon_id = $1`, [idLim]))[0].n === 1);
 
@@ -372,15 +388,14 @@ async function main() {
     await setStatus(idPct, "ACTIVE");
     const est = await post(`/api/store/orders/estimate`, { lines: [{ productVariantId: P330, quantity: "2" }] });
     t("estimate-200", est.status === 200 && num(est.body.data.discountTotal) === 3 && num(est.body.data.total) === 47);
-    const oEst = await orderWith(idC1, idA1, [[P330, "2"]], key("estpar"));
+    const oEst = await orderWith(tC1, idA1, [[P330, "2"]], key("estpar"));
     t("estimate-parity", oEst.status === 201 && num(oEst.body.data.order.discountTotal) === num(est.body.data.discountTotal)
       && num(oEst.body.data.order.totalEstimated) === num(est.body.data.total));
     await setStatus(idPct, "DISABLED");
     const estCp = await post(`/api/store/orders/estimate`, {
       lines: [{ productVariantId: P1L, quantity: "10" }],
       couponCode: "save50",
-      customerId: idC2,
-    });
+    }, null, H(tC2));
     t("estimate-coupon", estCp.status === 200 && estCp.body.data.coupon && estCp.body.data.coupon.applicable === true
       && num(estCp.body.data.coupon.amount) === 50);
     const estBadCp = await post(`/api/store/orders/estimate`, {
@@ -398,7 +413,7 @@ async function main() {
 
     // ---------- cancel decrements ----------
     const usedBefore = (await q(`SELECT used_count FROM coupons WHERE id = $1`, [idSave]))[0].used_count;
-    const cx = await post(`/api/store/orders/${OC.id}/cancel`, { customerId: idC1 });
+    const cx = await post(`/api/store/orders/${OC.id}/cancel`, {}, null, H(tC1));
     t("cancel-discounted-200", cx.status === 200);
     const usedAfter = (await q(`SELECT used_count FROM coupons WHERE id = $1`, [idSave]))[0].used_count;
     t("cancel-decrements", usedAfter === usedBefore - 1);
@@ -449,6 +464,7 @@ async function main() {
       for (const ph of [P_C1, P_C2].map(CANON)) {
         const rows = await db.query(`SELECT id FROM customers WHERE phone = $1`, [ph]).catch(() => ({ rows: [] }));
         for (const r of rows.rows) {
+          await db.query(`DELETE FROM customer_sessions WHERE customer_id = $1`, [r.id]).catch(() => {});
           await db.query(`DELETE FROM customer_addresses WHERE customer_id = $1`, [r.id]).catch(() => {});
           const cc = await db.query(`SELECT id FROM carts WHERE customer_id = $1`, [r.id]).catch(() => ({ rows: [] }));
           for (const c of cc.rows) {
