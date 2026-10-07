@@ -217,9 +217,9 @@ promotions-conc 13 · replacements-conc 12 · admin-conc 8 · bab-catalog 46
 ### Start Here
 
 1. Verify `git rev-parse HEAD` == `git rev-parse origin/master` (post-
-   Phase-5 push, §"GIT STATE / POST-PUSH") and `git status --short` is
-   clean. If HEAD differs or the tree is dirty: STOP, do not
-   reset/rebase, report.
+   Phase-5 push: commit 2 HEAD, §"GIT STATE / POST-PUSH") and
+   `git status --short` is clean. If HEAD differs or the tree is dirty:
+   STOP, do not reset/rebase, report.
 2. The committed change set since `328bf89`: Phases 1+2+2.5+3+4 (51
    modified + 22 untracked groups, audited in the superseded block below)
    + Phase 5 (§"PHASE 5 FIXES": orders/writes reserve, cart liveness ×2,
@@ -289,11 +289,15 @@ Do NOT execute any of the above now — this task ends at the handoff update
 * Branch: `master`.
 * Pre-commit HEAD (session start, == origin/master then):
   `328bf899f9016fe1b7b1d9e3c821606c3b14e24b`.
-* Commit 1 (code + docs): `feat: finalize backend development (Phase 5 audit fixes) and synchronize project state`.
-* Commit 2 (handoff HEAD-pointer refresh, docs-only): `docs: record Phase 5 post-push HEAD`.
-* Post-push verification (this session): local HEAD == origin/master,
-  working tree clean — exact hashes recorded in the final report below and
-  in §"NEXT SESSION START POINT" (HEAD == origin/master rule).
+* Commit 1 (code + docs): `afbcc63e963e150a4de2dd518a7517c65331698c`
+  `feat: finalize backend development (Phase 5 audit fixes) and synchronize
+  project state` — pushed `328bf89..afbcc63 master -> master` (no force).
+* Commit 2 (this edit, handoff HEAD-pointer refresh, docs-only): `docs:
+  record Phase 5 post-push HEAD`.
+* Post-push verification (this session): local HEAD == origin/master ==
+  `afbcc63` after commit 1 (clean tree); final HEAD == origin/master after
+  commit 2 (clean tree) — exact hashes in §"NEXT SESSION START POINT"
+  (HEAD == origin/master rule).
 * Correctly untracked/ignored (never committed): `scripts/set-super-admin-
   password-local.ps1`, `_recovery/`, `.agents/`, `.claude/`, `.cursor/`,
   `.devin/`, `.env*`, `C:\Users\MEGA\AppData\Local\Temp\opencode/` probes.
