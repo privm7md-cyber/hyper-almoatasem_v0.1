@@ -1,7 +1,9 @@
 // Storefront order cancel (owner-scoped, unpicked orders only).
-// PHASE 2: the owner is the server-verified session — no customerId in
-// body. NEW|CONFIRMED|PREPARING-unpicked → CANCELLED with reservation
-// release (zero movements), one tx. Picked/further states → 409.
+// Access is session ownership XOR guest order credential (BG-Guest-Order):
+// registered path unchanged (no customerId in body); guest path presents
+// `x-guest-order-token` and records actor GUEST/NULL. NEW|CONFIRMED|
+// PREPARING-unpicked → CANCELLED with reservation release (zero movements),
+// one tx. Picked/further states → 409. Expired credential → 410.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
@@ -10,6 +12,7 @@ import { orderCancelSchema } from "@/lib/orders/validation";
 import { getCustomerOrder, getOrderFull } from "@/lib/orders/queries";
 import { cancelOrder } from "@/lib/orders/writes";
 import { requireCustomer } from "@/lib/customers/session";
+import { requireGuestOrder } from "@/lib/orders/guest-access";
 import { toOrder } from "@/lib/orders/serialize";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -32,13 +35,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    const me = await requireCustomer(request);
-    const owned = await getCustomerOrder(id, me.customerId);
-    if (!owned) {
-      const r = fail(new ApiError("NOT_FOUND", "Order not found."));
-      return NextResponse.json(r.body, { status: r.status });
+    const me = await requireCustomer(request).catch(() => null);
+    if (me) {
+      const owned = await getCustomerOrder(id, me.customerId);
+      if (!owned) {
+        const r = fail(new ApiError("NOT_FOUND", "Order not found."));
+        return NextResponse.json(r.body, { status: r.status });
+      }
+      await cancelOrder({ orderId: id, actorType: "CUSTOMER", actorId: me.customerId });
+    } else {
+      await requireGuestOrder(request, id);
+      await cancelOrder({ orderId: id, actorType: "GUEST", actorId: null });
     }
-    await cancelOrder({ orderId: id, actorType: "CUSTOMER", actorId: me.customerId });
     const full = await getOrderFull(id);
     if (!full) {
       const r = fail(new ApiError("NOT_FOUND", "Order not found."));

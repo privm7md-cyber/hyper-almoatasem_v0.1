@@ -16,6 +16,9 @@
 #   __Host-customer-session / x-customer-token header (server-verified,
 #   owner server-derived, revocable);
 #   store carts: x-guest-token XOR customer session;
+#   guest orders (BG-Guest-Order): per-order credential in x-guest-order-token
+#   header (hash-only at rest, 90d fixed TTL, keep-same on replay, revocable);
+#   order number / phone alone never authorize;
 # - order creation: Idempotency-Key header and/or body idempotencyKey
 #   (header wins ties; both-different → 400; neither → 400).
 # Validation strategy: scripts/api/t-ba-a-contract.mjs asserts bidirectional
@@ -105,6 +108,12 @@ components:
       in: header
       required: true
       description: 64-hex guest bearer proving cart ownership.
+      schema:
+        type: string
+    GuestOrderTokenHeaderOpt:
+      name: x-guest-order-token
+      in: header
+      description: 64-hex per-order guest credential (BG-Guest-Order). Raw token issued once at guest order creation (or admin rotation); SHA-256 hash only at rest; bound to the path order id; never in URL. Absent on the registered (session) path.
       schema:
         type: string
     IdempotencyKeyHeaderOpt:
@@ -395,6 +404,7 @@ paths:
         '201': { description: Registered + authenticated session. }
         '400': { description: Invalid registration. }
         '409': { description: Phone already registered. }
+        '429': { description: Registration throttled (isolated IP 30 + phone-digest 10 per 15 min buckets). }
   /api/store/customers/password:
     patch:
       tags: [store-customers]
@@ -604,28 +614,35 @@ paths:
   /api/store/orders:
     post:
       tags: [store-orders]
-      summary: Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT). Customer-only (session required). Replay → 200 + meta.replay.
+      summary: Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT + guest credential issuance). Session XOR guest context. Replay → 200 + meta.replay (keep-same: no token on replay).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeaderOpt'
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [addressId]
               properties:
-                addressId: { $ref: '#/components/schemas/UUID' }
+                addressId: { $ref: '#/components/schemas/UUID', description: Registered path only — owned address entity. XOR with guestAddress/guestContact. }
+                guestAddress:
+                  type: object
+                  description: Guest path only — inline delivery payload (city/area/village/street/buildingNumber/landmark/phone), snapshots only, no address entity.
+                guestContact:
+                  type: object
+                  description: Guest path only — inline contact (firstName/lastName), snapshot only.
                 idempotencyKey: { $ref: '#/components/schemas/IdempotencyKey' }
                 couponCode: { type: string, nullable: true }
       responses:
-        '201': { description: Created order (snapshots frozen). }
-        '200': { description: Idempotent replay (meta.replay true). }
-        '400': { description: Conflicting idempotency keys (header vs body) or neither supplied. }
-        '401': { description: Missing/invalid/expired customer session (guests identify first). }
+        '201': { description: Created order (snapshots frozen). Guest creations also return guestOrderToken (raw, exactly once). }
+        '200': { description: Idempotent replay (meta.replay true, meta.guestTokenIssued false). }
+        '400': { description: Conflicting idempotency keys; neither key supplied; ambiguous identity (session + guest payload, or guest token + addressId); neither guestAddress nor guestContact complete. }
+        '401': { description: Neither valid session nor guest cart bearer. }
         '404': { description: No ACTIVE cart / address. }
         '409': { description: Key used with different terms; stock short; price drift (new key needed). }
-        '422': { description: Empty cart, unsellable variant, coupon invalid. }
+        '422': { description: Empty cart, unsellable variant, coupon invalid (incl. per-customer-limited coupon on guest path). }
+        '429': { description: Guest creation bucket exceeded (10/15min/IP). }
     get:
       tags: [store-orders]
       summary: Own-order history (session-scoped).
@@ -660,40 +677,48 @@ paths:
   /api/store/orders/{id}:
     get:
       tags: [store-orders]
-      summary: Own order detail (session-scoped, else 404).
+      summary: Own order detail (session ownership XOR per-order guest credential).
       parameters:
         - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/GuestOrderTokenHeaderOpt'
       responses:
         '200': { description: Order with snapshot lines + history. }
-        '401': { description: Missing/invalid/expired customer session. }
-        '404': { description: Unknown or foreign order. }
+        '401': { description: Missing/invalid/revoked credential or session. }
+        '404': { description: Unknown, foreign, or cross-kind order (never leaked). }
+        '410': { description: Expired guest credential. }
+        '429': { description: Guest read bucket exceeded (60/15min/IP). }
   /api/store/orders/{id}/cancel:
     post:
       tags: [store-orders]
-      summary: Customer cancel (session-scoped; unpicked states only; releases holds, no movements).
+      summary: Customer/guest cancel (owner-scoped; unpicked states only; releases holds, no movements; guest records GUEST/NULL actor).
       parameters:
         - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/GuestOrderTokenHeaderOpt'
       responses:
         '200': { description: CANCELLED order. }
-        '401': { description: Missing/invalid/expired customer session. }
+        '401': { description: Missing/invalid/revoked credential or session. }
         '404': { description: Unknown or foreign order. }
         '409': { description: Picked/further state. }
+        '410': { description: Expired guest credential. }
   /api/store/orders/{id}/replacements:
     get:
       tags: [store-orders]
-      summary: List an order's replacement proposals (session-scoped).
+      summary: List an order's replacement proposals (session ownership XOR per-order guest credential).
       parameters:
         - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/GuestOrderTokenHeaderOpt'
       responses:
         '200': { description: Proposal list. }
-        '401': { description: Missing/invalid/expired customer session. }
+        '401': { description: Missing/invalid/revoked credential or session. }
         '404': { description: Unknown or foreign order. }
+        '410': { description: Expired guest credential. }
   /api/store/orders/{id}/replacements/{replacementId}/decide:
     post:
       tags: [store-orders]
-      summary: Customer approve/reject (session-scoped; approve runs R10 materialization).
+      summary: Customer/guest approve-reject (approve runs R10 materialization; guest records GUEST/NULL decider).
       parameters:
         - $ref: '#/components/parameters/IdPath'
+        - $ref: '#/components/parameters/GuestOrderTokenHeaderOpt'
         - name: replacementId
           in: path
           required: true
@@ -709,9 +734,10 @@ paths:
                 action: { type: string, enum: [approve, reject] }
       responses:
         '200': { description: Decided proposal. }
-        '401': { description: Missing/invalid/expired customer session. }
+        '401': { description: Missing/invalid/revoked credential or session. }
         '404': { description: Unknown/foreign proposal. }
         '409': { description: No longer PROPOSED, or substitute short. }
+        '410': { description: Expired guest credential. }
   # ---------------- admin: catalog (products.*) ----------------
   /api/admin/catalog/brands:
     get:
@@ -1124,7 +1150,7 @@ paths:
     get:
       tags: [admin-orders]
       x-permission: orders.view
-      summary: Order detail.
+      summary: Order detail (guest orders render with null customer; contact from snapshots).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: Order. }, '404': { description: Unknown id. } }
   /api/admin/orders/{id}/cancel:
@@ -1137,6 +1163,24 @@ paths:
         '200': { description: CANCELLED order. }
         '404': { description: Unknown id. }
         '409': { description: Picked/further state. }
+  /api/admin/orders/{id}/credential/revoke:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Revoke an order's live guest credential (BG-Guest-Order; idempotent; audited; raw tokens never surface).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: '{ revoked: true }.' }
+        '404': { description: Unknown order or no live credential (indistinguishable). }
+  /api/admin/orders/{id}/credential/rotate:
+    post:
+      tags: [admin-orders]
+      x-permission: orders.update
+      summary: Rotate an order's guest credential (BG-Guest-Order recovery path; atomically revokes + reissues; audited; fresh raw token returned exactly once).
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200': { description: '{ guestOrderToken } (fresh raw token, once).' }
+        '404': { description: Unknown order or non-guest order (indistinguishable). }
   /api/admin/orders/{id}/prepare:
     post:
       tags: [admin-orders]

@@ -221,7 +221,9 @@ export function allocateShares(
 
 export interface PromoPhaseInput {
   lines: CheckoutLineInput[];
-  customerId: string;
+  /** Registered path: customer id. Guest path (BG-Guest-Order): null —
+   * per-customer-limited coupons are then inapplicable (422). */
+  customerId: string | null;
   couponCode: string | null;
   effectivePromos: EffectivePromoRow[];
   categoryTree: Map<string, string | null>;
@@ -627,7 +629,8 @@ export async function estimateOnly(input: {
 
 export interface PersistPromoInput {
   orderId: string;
-  customerId: string;
+  /** Guest orders persist a NULL customer usage row (BGGO-D004). */
+  customerId: string | null;
   comp: PromoPhaseResult;
   /** Bought variantId → item id, plus free tempKey → item id. */
   keyToItemId: Map<string, string>;
@@ -755,7 +758,7 @@ async function applyCoupon(
   tx: Prisma.TransactionClient,
   rawCode: string,
   lines: EvalLine[],
-  customerId: string,
+  customerId: string | null,
   sub: (lineCid: string, targetCid: string) => boolean,
 ): Promise<CouponAppResult | null> {
   let code: string;
@@ -782,6 +785,12 @@ async function applyCoupon(
     throw conflict("Coupon usage limit reached.", { code });
   }
   if (cp.per_customer_limit !== null) {
+    // Guests own no customer identity: per-customer-limited coupons cannot
+    // be evaluated for them (BGGO-D004) — same meaning as the estimate
+    // path's "Customer required." inapplicability, enforced here as 422.
+    if (customerId === null) {
+      throw businessRule("Coupon requires a customer account.", null);
+    }
     const used = await countActiveUsages(tx, cp.id, customerId);
     if (used >= cp.per_customer_limit) {
       throw businessRule("Coupon per-customer limit reached.", null);

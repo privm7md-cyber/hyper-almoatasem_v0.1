@@ -6,10 +6,23 @@
 // surface — login itself stays uniform). Guest-row conversion happens
 // transparently for unregistered phones. Strict: no customerId,
 // password_hash, is_registered, or timestamps from clients.
+// G5 rate limiting: isolated IP (30/15min) + HMAC-bound canonical-phone
+// (10/15min, secret REG_RATE_LIMIT_PHONE_SECRET) buckets on the shared
+// customer table — checked AFTER Zod parse (malformed bodies burn no budget)
+// and BEFORE hashing/DB writes (each attempt burns Argon2 + a tx).
+// Rejection is generic 429; a missing/invalid secret fails closed (500).
 // Sets the HttpOnly session cookie AND returns the token.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail } from "@/lib/api/respond";
+import {
+  REG_REGISTER_IP_LIMIT,
+  REG_REGISTER_PHONE_LIMIT,
+  checkAndRecordRateLimit,
+  customerRegIpBucket,
+  customerRegPhoneBucket,
+} from "@/lib/auth/rate-limit";
+import { normalizeIdentityPhone } from "@/lib/customers/phone";
 import { customerRegisterSchema } from "@/lib/customers/validation";
 import { registerCustomer } from "@/lib/customers/auth";
 import {
@@ -35,6 +48,51 @@ export async function POST(request: Request) {
     const r = fail(new ApiError("VALIDATION", "Invalid registration."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // G5 gate: IP bucket always; HMAC phone bucket only when the phone
+  // canonicalizes (ladder-invalid input still burns IP budget, matching the
+  // login uniform-budget posture — but never a phone bucket it can't key).
+  // Phone keys are secret-bound (never raw, never plain SHA-256); a missing
+  // or invalid secret fails closed here with a generic 500 — no fallback.
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+  try {
+    const ipGate = await checkAndRecordRateLimit(
+      customerRegIpBucket(ip),
+      REG_REGISTER_IP_LIMIT,
+      undefined,
+      "customer_auth_rate_limits",
+    );
+    if (!ipGate.allowed) {
+      const r = fail(new ApiError("RATE_LIMITED", "Too many requests.", null, true));
+      return NextResponse.json(r.body, { status: r.status });
+    }
+  } catch {
+    const r = fail(new ApiError("INTERNAL", "Unexpected error.", null, false));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  let canonical: string | null = null;
+  try {
+    canonical = normalizeIdentityPhone(parsed.data.phone);
+  } catch {
+    canonical = null;
+  }
+  if (canonical !== null) {
+    let phoneGate: { allowed: boolean };
+    try {
+      phoneGate = await checkAndRecordRateLimit(
+        customerRegPhoneBucket(canonical),
+        REG_REGISTER_PHONE_LIMIT,
+        undefined,
+        "customer_auth_rate_limits",
+      );
+    } catch {
+      const r = fail(new ApiError("INTERNAL", "Unexpected error.", null, false));
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    if (!phoneGate.allowed) {
+      const r = fail(new ApiError("RATE_LIMITED", "Too many requests.", null, true));
+      return NextResponse.json(r.body, { status: r.status });
+    }
+  }
   const out = await registerCustomer(
     {
       phone: parsed.data.phone,
@@ -43,7 +101,7 @@ export async function POST(request: Request) {
       password: parsed.data.password,
     },
     {
-      ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+      ip,
       userAgent: request.headers.get("user-agent"),
     },
   );

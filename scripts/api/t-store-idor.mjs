@@ -159,13 +159,15 @@ async function main() {
     const repListA = await get(`/api/store/orders/${idOrdA}/replacements`, H(sA.tok));
     t("repl-A-list-200", repListA.status === 200 && Array.isArray(repListA.body?.data), `${repListA.status}`);
 
-    // ---------- guest-token-only checkout refused ----------
+    // ---------- guest token + owned addressId is rejected (BG-Guest-Order:
+    // guests use inline guestAddress/guestContact, never another owner's
+    // addressId; full guest creation is covered in t-guest-orders) ----------
     const gG = await post(`/api/store/cart`, {});
     const tokG = gG.body?.data?.guestToken;
     const gidG = gG.body?.data?.cart?.id;
     await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "1" }, { "x-guest-token": tokG });
     const gCo = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("guest") }, { "x-guest-token": tokG });
-    t("checkout-guest-only-401", gCo.status === 401, `${gCo.status}`);
+    t("checkout-guest-addressId-400", gCo.status === 400, `${gCo.status}`);
     await db.query(`DELETE FROM cart_items WHERE cart_id = $1`, [gidG]).catch(() => {});
     await db.query(`DELETE FROM carts WHERE id = $1`, [gidG]).catch(() => {});
 

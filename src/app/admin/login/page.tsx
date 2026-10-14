@@ -4,6 +4,7 @@ import { LoginForm } from "./LoginForm";
 
 export const metadata = {
   title: "تسجيل الدخول — هايبر المعتصم",
+  robots: { index: false, follow: false },
 };
 
 export default async function AdminLoginPage() {

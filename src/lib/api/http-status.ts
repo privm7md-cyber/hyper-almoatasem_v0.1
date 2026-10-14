@@ -17,6 +17,10 @@ export function statusForCode(code: ApiErrorCode): number {
       return 403;
     case "NOT_FOUND":
       return 404;
+    case "GONE":
+      // Expired guest order credential (BG-Guest-Order): the resource is
+      // intentionally gone, distinct from invalid credentials (401).
+      return 410;
     case "CONFLICT":
       return 409;
     case "BUSINESS_RULE":

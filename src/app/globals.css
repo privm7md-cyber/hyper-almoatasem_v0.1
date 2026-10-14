@@ -1,26 +1,115 @@
 @import "tailwindcss";
 
+/*
+ * FE-1 foundation tokens. Values: locked palette (FP-10 §4) + semantic roles (FP-10 §5,
+ * D06 adopted as V1 defaults) + DS additions (z-index/opacity/motion). Single light theme for V1
+ * (no dark mode per contract — the boilerplate dark query was removed deliberately).
+ */
+
 :root {
+  /* Locked brand values — never redefine. */
+  --brand-purple: #511d9c;
+  --brand-orange: #ff7100;
+  --text-orange: #c2410c;
+  --text-ink: #1b1530;
+  --surface-purple: #eee8f5;
+  --surface-orange: #fff1e6;
+  --status-success: #15803d;
+  --status-error: #c62828;
+
+  /* Semantic roles (FP-10 §5). */
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: var(--text-ink);
+  --surface-card: #ffffff;
+  --surface-subtle: #f6f5f9;
+  --text-secondary: #5b556e;
+  --text-disabled: #a8a3b8;
+  --border-default: #e4e1ec;
+  --border-strong: #c9c4d8;
+  --success-bg: #e7f4ec;
+  --error-bg: #fbe9e9;
+  --warning-fg: #b45309;
+  --warning-bg: #fef3c7;
+  --info-fg: #1d4ed8;
+  --info-bg: #e8effd;
+  --overlay-scrim: rgba(27, 21, 48, 0.5);
+  --focus-ring: var(--brand-purple);
+
+  /* Shape / elevation / motion / layers (FP-10 §13, DS §2). */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-dialog: 16px;
+  --radius-badge: 9999px;
+  --shadow-subtle: 0 1px 2px rgba(27, 21, 48, 0.06);
+  --shadow-elevated: 0 8px 24px rgba(27, 21, 48, 0.16);
+  --motion-micro: 120ms;
+  --motion-short: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --z-sticky: 10;
+  --z-drawer: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+  --opacity-disabled: 0.55;
+
+  /* Spacing base (4px system, FP-10 §10). */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-brand: var(--brand-purple);
+  --color-accent: var(--brand-orange);
+  --color-ink: var(--text-ink);
+  --color-secondary: var(--text-secondary);
+  --color-error: var(--status-error);
+  --color-success: var(--status-success);
+  --color-success: var(--status-success);
+  --color-focus: var(--focus-ring);
+  --color-line: var(--border-default);
+  --color-line-strong: var(--border-strong);
+  --color-purple-surface: var(--surface-purple);
+  --color-orange-surface: var(--surface-orange);
+  --color-warning-fg: var(--warning-fg);
+  --z-toast: 60;
+  --shadow-subtle: 0 1px 2px rgba(27, 21, 48, 0.06);
+  --shadow-elevated: 0 8px 24px rgba(27, 21, 48, 0.16);
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-dialog: 16px;
+  --radius-badge: 9999px;
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-dialog: var(--radius-dialog);
+  --radius-badge: var(--radius-badge);
+  --font-sans: var(--font-cairo);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-cairo), system-ui, "Segoe UI", Tahoma, Arial, sans-serif;
+}
+
+/* Visible keyboard focus everywhere (contract: never rely on color alone). */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Motion discipline: micro-transitions only; data-dense lists opt out per-component. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

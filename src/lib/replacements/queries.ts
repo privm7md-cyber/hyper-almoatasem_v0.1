@@ -51,6 +51,20 @@ export async function listReplacementsForCustomerOrder(orderId: string, customer
   });
 }
 
+/**
+ * Storefront guest list: replacements of one proven guest order
+ * (BG-Guest-Order). The route proves credential ownership first; this
+ * re-asserts the guest separation (customer_id IS NULL) before listing.
+ */
+export async function listReplacementsForGuestOrder(orderId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, customerId: true },
+  });
+  if (!order || order.customerId !== null) return null;
+  return listReplacementsByOrder(orderId);
+}
+
 /** Admin list: replacements of one order (order existence checked first). */
 export async function listReplacementsByOrder(orderId: string) {
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } });

@@ -95,6 +95,42 @@ t("list-bool-explicit", (() => {
   const bad = adminCustomerListQuerySchema.safeParse({ registered: true });
   return ok.success && !bad.success;
 })());
+const regPhoneBucket = await import("../../src/lib/auth/reg-phone-bucket.ts");
+// --- G5-A HMAC phone-bucket keys (deterministic test-only secrets) ---
+const TSECRET = "ab".repeat(32); // 64-hex test secret (harness-only, never real)
+const TSECRETB = "cd".repeat(32);
+const withSecret = (s, fn) => {
+  const prev = process.env.REG_RATE_LIMIT_PHONE_SECRET;
+  try {
+    if (s === undefined) delete process.env.REG_RATE_LIMIT_PHONE_SECRET;
+    else process.env.REG_RATE_LIMIT_PHONE_SECRET = s;
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.REG_RATE_LIMIT_PHONE_SECRET;
+    else process.env.REG_RATE_LIMIT_PHONE_SECRET = prev;
+  }
+};
+const PH = "201010000001";
+t("hmac-same-phone-same-key", withSecret(TSECRET, () =>
+  regPhoneBucket.regPhoneBucketKey(PH) === regPhoneBucket.regPhoneBucketKey(PH)));
+t("hmac-distinct-phones", withSecret(TSECRET, () =>
+  regPhoneBucket.regPhoneBucketKey(PH) !== regPhoneBucket.regPhoneBucketKey("201010000002")));
+t("hmac-secret-bound", withSecret(TSECRET, () => {
+  const a = regPhoneBucket.regPhoneBucketKey(PH);
+  return withSecret(TSECRETB, () => regPhoneBucket.regPhoneBucketKey(PH) !== a);
+}));
+t("hmac-normalized-equivalence", withSecret(TSECRET, () =>
+  regPhoneBucket.regPhoneBucketKey(normalizeIdentityPhone("01010000001")) ===
+  regPhoneBucket.regPhoneBucketKey(normalizeIdentityPhone("+201010000001"))));
+t("hmac-key-shape-private", withSecret(TSECRET, () => {
+  const k = regPhoneBucket.regPhoneBucketKey(PH);
+  return k.startsWith("reg:cust-acct:") && /^[0-9a-f]{64}$/.test(k.slice("reg:cust-acct:".length))
+    && !k.includes("2010") && !k.includes("0101");
+}));
+t("hmac-missing-throws", (() => { try { withSecret(undefined, () => regPhoneBucket.regPhoneBucketKey(PH)); return false; } catch { return true; } })());
+t("hmac-empty-throws", (() => { try { withSecret("   ", () => regPhoneBucket.regPhoneBucketKey(PH)); return false; } catch { return true; } })());
+t("hmac-short-throws", (() => { try { withSecret("short-secret", () => regPhoneBucket.regPhoneBucketKey(PH)); return false; } catch { return true; } })());
+t("hmac-raw32-accepted", withSecret("x".repeat(32), () => /^reg:cust-acct:[0-9a-f]{64}$/.test(regPhoneBucket.regPhoneBucketKey(PH))));
 t("lock-order-asc", JSON.stringify(orderLockIds(["b", "a"])) === JSON.stringify(["a", "b"]));
 
 done();

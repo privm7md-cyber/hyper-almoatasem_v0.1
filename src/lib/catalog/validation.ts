@@ -58,6 +58,13 @@ const SORT_DIRS = ["asc", "desc"] as const;
 
 export const productTypeSchema = z.enum(PRODUCT_TYPES);
 export const sizeUnitSchema = z.enum(SIZE_UNITS);
+/** Product sale/inventory unit (L3 Direction A): the closed sale model is
+ * PIECE/KG/GRAM only (frozen weight rule + OpenAPI contract). LITER/ML stay
+ * in `sizeUnitSchema` for descriptive variant package-size metadata — they
+ * are never valid product sale units, so they are rejected here at the
+ * boundary (400, like every other malformed enum input) instead of reaching
+ * the domain weight rule (422). */
+export const productUnitSchema = z.enum(["PIECE", "KG", "GRAM"] as const);
 export const codeTypeSchema = z.enum(CODE_TYPES);
 
 const sortSchema = z.object({
@@ -138,7 +145,7 @@ export const productInputSchema = strictObject({
   categoryId: uuidSchema,
   brandId: uuidSchema.nullish(),
   productType: productTypeSchema,
-  unit: sizeUnitSchema,
+  unit: productUnitSchema,
   saleStepGrams: z.number().int().positive().nullish(),
   isActive: z.boolean().nullish(),
 });

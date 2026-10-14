@@ -1,69 +1,126 @@
-import Image from "next/image";
+// FE-2 storefront homepage (server): live reads via src/lib/frontend/storefront-reads.
+// Fresh data per request (force-dynamic); each section fails independently into honest
+// empty/error states — one source failing never blanks the page. No offers feed exists,
+// so the Offers section is omitted by contract (FP03-C2), never faked.
 
-export default function Home() {
+import type { Metadata } from "next";
+import Link from "next/link";
+import { StoreShell } from "@/components/store/store-shell";
+import { ProductCard } from "@/components/store/product-card";
+import { EmptyState, ErrorState } from "@/components/ui/states";
+import { SectionTitle } from "@/components/ui/container";
+import {
+  getFeaturedProducts,
+  getHomeCategories,
+  type HomeProductCard,
+} from "@/lib/frontend/storefront-reads";
+import type { CategoryShape } from "@/lib/catalog/serialize";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "الرئيسية",
+  description: "احتياجات بيتك بسهولة ووضوح، وثقة في كل خطوة.",
+};
+
+async function CategoriesSection() {
+  let categories: CategoryShape[] | null = null;
+  let failed = false;
+  try {
+    categories = await getHomeCategories();
+  } catch {
+    failed = true;
+  }
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <section aria-labelledby="home-categories" className="mt-8">
+      <SectionTitle>
+        <span id="home-categories">الأقسام</span>
+      </SectionTitle>
+      {failed || categories === null ? (
+        <div className="mt-3">
+          <ErrorState title="تعذّر تحميل الأقسام" text="حاول إعادة تحميل الصفحة." />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      ) : categories.length === 0 ? (
+        <div className="mt-3">
+          <EmptyState title="لا توجد أقسام حاليًا" hint="عُد لاحقًا لتصفح أقسام المتجر." />
         </div>
-      </main>
-    </div>
+      ) : (
+        <ul className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {categories.map((c) => (
+            <li
+              key={c.id}
+              className="rounded-card border border-line bg-white p-4 text-center font-bold"
+            >
+              <Link
+                href={`/c/${c.id}/${encodeURIComponent(c.slug)}`}
+                className="text-brand"
+                aria-label={`قسم ${c.name}`}
+              >
+                {c.name}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+async function FeaturedSection() {
+  let products: HomeProductCard[] | null = null;
+  let failed = false;
+  try {
+    products = await getFeaturedProducts();
+  } catch {
+    failed = true;
+  }
+  return (
+    <section aria-labelledby="home-featured" className="mt-8">
+      <SectionTitle>
+        <span id="home-featured">منتجات من المتجر</span>
+      </SectionTitle>
+      <p className="mt-1 text-sm text-secondary">مختارات حديثة من الكتالوج — بلا ادعاء أكثر مبيعًا.</p>
+      {failed || products === null ? (
+        <div className="mt-3">
+          <ErrorState title="تعذّر تحميل المنتجات" text="حاول إعادة تحميل الصفحة." />
+        </div>
+      ) : products.length === 0 ? (
+        <div className="mt-3">
+          <EmptyState title="لا توجد منتجات حاليًا" hint="عُد لاحقًا لتصفح المنتجات." />
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {products.map((p) => (
+            <ProductCard key={p.id} product={p} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <StoreShell>
+      <section aria-labelledby="home-hero" className="mt-6 rounded-card bg-purple-surface p-6 md:p-10">
+        <h1 id="home-hero" className="text-2xl font-extrabold md:text-3xl">
+          احتياجات بيتك بسهولة ووضوح
+        </h1>
+        <p className="mt-2 text-secondary">وثقة في كل خطوة.</p>
+      </section>
+      <div id="categories">
+        <CategoriesSection />
+      </div>
+      <FeaturedSection />
+      <p className="mt-6 text-sm">
+        <Link href="/categories" className="font-semibold text-brand">
+          تصفح كل الأقسام
+        </Link>
+        {" · "}
+        <Link href="/brands" className="font-semibold text-brand">
+          العلامات التجارية
+        </Link>
+      </p>
+    </StoreShell>
   );
 }

@@ -1,40 +1,64 @@
+// FE-10B dashboard (evolved in place): identity card (kept) + honest operational links.
+// No metrics endpoints exist — no KPIs, charts, or counts are shown or implied (D43).
+
+import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/rbac";
-import { logoutAction } from "@/app/actions/auth";
 
 export const metadata = {
   title: "لوحة الإدارة — هايبر المعتصم",
+  robots: { index: false, follow: false },
 };
+
+const SECTIONS = [
+  { href: "/admin/orders", label: "الطلبات", hint: "قائمة الطلبات وحالاتها" },
+  { href: "/admin/products", label: "المنتجات", hint: "الكتالوج والأسعار" },
+  { href: "/admin/inventory", label: "المخزون", hint: "الأرصدة والحركات" },
+  { href: "/admin/customers", label: "العملاء", hint: "السجلات والعناوين" },
+  { href: "/admin/promotions", label: "العروض", hint: "القواعد والاستهداف" },
+];
 
 export default async function AdminDashboardPage() {
   const admin = await requireAdmin();
+  const can = (perm: string) => admin.permissions.includes(perm);
   return (
-    <div dir="rtl" className="flex min-h-screen items-center justify-center bg-zinc-50">
-      <main className="w-full max-w-lg rounded-2xl bg-white p-8 shadow">
-        <h1 className="text-xl font-semibold">لوحة الإدارة</h1>
-        <dl className="mt-4 space-y-2 text-sm">
+    <main className="grid gap-4">
+      <h1 className="text-xl font-bold">لوحة الإدارة</h1>
+      <section aria-label="بيانات الجلسة" className="rounded-card border border-line bg-white p-4">
+        <dl className="grid gap-1 text-sm">
           <div className="flex gap-2">
-            <dt className="text-zinc-600">الاسم:</dt>
+            <dt className="text-secondary">الاسم:</dt>
             <dd>{admin.user.name}</dd>
           </div>
           <div className="flex gap-2">
-            <dt className="text-zinc-600">البريد:</dt>
-            <dd>{admin.user.email}</dd>
+            <dt className="text-secondary">البريد:</dt>
+            <dd>
+              <bdi>{admin.user.email}</bdi>
+            </dd>
           </div>
           <div className="flex gap-2">
-            <dt className="text-zinc-600">الأدوار:</dt>
+            <dt className="text-secondary">الأدوار:</dt>
             <dd>{admin.roles.join("، ")}</dd>
           </div>
-          <div className="flex gap-2">
-            <dt className="text-zinc-600">الصلاحيات:</dt>
-            <dd>{admin.permissions.length}</dd>
-          </div>
         </dl>
-        <form action={logoutAction} className="mt-6">
-          <button type="submit" className="rounded bg-zinc-900 px-4 py-2 text-white">
-            تسجيل الخروج
-          </button>
-        </form>
-      </main>
-    </div>
+      </section>
+      <section aria-label="الأقسام التشغيلية">
+        <ul className="grid gap-3 md:grid-cols-2">
+          {SECTIONS.map((s) => (
+            <li key={s.href} className="rounded-card border border-line bg-white p-4">
+              <Link href={s.href} className="font-bold text-brand">
+                {s.label}
+              </Link>
+              <p className="mt-1 text-sm text-secondary">{s.hint}</p>
+              {!can("orders.view") && s.href === "/admin/orders" ? (
+                <p className="mt-1 text-xs text-secondary">يتطلب صلاحية — الصفحة سترد بالمنع.</p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <p className="text-xs text-secondary">
+        لا تعرض هذه اللوحة مؤشرات رقمية: لا توجد endpoints للمقاييس — أي رقم معروض لاحقًا يجب أن يأتي من مصدر معتمد.
+      </p>
+    </main>
   );
 }

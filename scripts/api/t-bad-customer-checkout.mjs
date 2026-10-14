@@ -507,10 +507,11 @@ async function main() {
       && (await q(`SELECT customer_id::text AS c FROM orders WHERE id = $1::uuid`, [oC4.body?.data?.order?.id]))[0]?.c === idC4,
       `${oC4.status}`);
 
-    // ================= SESSION IDENTITY BINDING (PHASE 2) ======
+    // ================= SESSION IDENTITY BINDING (PHASE 2 + BG-GUEST-ORDER)
     // Guest carts no longer check out on a claimed (customerId, addressId)
-    // pair: checkout requires the server-verified session. A guest token
-    // alone answers 401 (identify first, then merge).
+    // pair. No identity side at all answers 401; a guest token paired with
+    // an owned addressId answers 400 (wrong-side payload — guests use inline
+    // guestAddress/guestContact, covered in t-guest-orders).
     const gFb = await mkGuest([[P330, "1"]]);
     const oFb = await checkout(null, idA1, key("frozenbind"));
     t("session-binding-guest-401", oFb.status === 401, String(oFb.status));
@@ -522,7 +523,7 @@ async function main() {
       });
       return { status: r.status };
     })();
-    t("session-binding-token-only-401", oFbTok.status === 401, String(oFbTok.status));
+    t("session-binding-token-wrong-side-400", oFbTok.status === 400, String(oFbTok.status));
   } finally {
     try {
       const auditIdsAfter = (await q(`SELECT id::text AS id FROM audit_logs`)).map((r) => r.id);

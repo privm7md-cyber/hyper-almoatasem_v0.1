@@ -288,8 +288,10 @@ model CartItem {
 model Order {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orderNumber            String    @unique @map("order_number") @db.VarChar(24)
-  customerId             String    @map("customer_id") @db.Uuid
-  customer               Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  // NULL for true account-less guest orders (BG-Guest-Order): identity and
+  // contact live in the order snapshots + the guest credential row.
+  customerId             String?   @map("customer_id") @db.Uuid
+  customer               Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   cartId                 String?   @map("cart_id") @db.Uuid
   cart                   Cart?     @relation(fields: [cartId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   idempotencyKey         String?   @unique @map("idempotency_key") @db.VarChar(64)
@@ -314,6 +316,9 @@ model Order {
   history                OrderStatusHistory[]
   discounts              OrderDiscount[]
   couponUsages           CouponUsage[]
+  // History rows included (revoked credentials stay); exactly one LIVE row
+  // is enforced by partial UQ uq_guest_order_credentials_order_live.
+  guestCredentials     GuestOrderCredential[]
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
 
@@ -489,8 +494,10 @@ model CouponUsage {
   id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   couponId                 String    @map("coupon_id") @db.Uuid
   coupon                   Coupon    @relation(fields: [couponId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  customerId               String    @map("customer_id") @db.Uuid
-  customer                 Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  // NULL for guest-order usage rows (per-customer-limited coupons stay
+  // 422 for guests; global limits still enforced).
+  customerId               String?   @map("customer_id") @db.Uuid
+  customer                 Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   orderId                  String    @unique @map("order_id") @db.Uuid // 1 coupon per order
   order                    Order     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   estimatedDiscountAmount  Decimal   @map("estimated_discount_amount") @db.Decimal(10, 2)
@@ -763,4 +770,38 @@ model CustomerAuthRateLimit {
 
   @@id([bucketKey, windowStart])
   @@map("customer_auth_rate_limits")
+}
+
+// ============================ BG-GUEST-ORDER ================================
+// Per-order guest access credential: only token HASHES live here (SHA-256 hex
+// of the 256-bit opaque token returned once at issuance). One row per order;
+// fixed expiry (no sliding); revocation by flag (rows are history, never
+// deleted by the app). Raw-SQL reads/writes (credential + expiry gating stay
+// in SQL, same posture as customer_sessions).
+model GuestOrderCredential {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId   String    @map("order_id") @db.Uuid
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  // SHA-256 hex of the 256-bit opaque token. Never the raw token.
+  tokenHash String    @unique @map("token_hash") @db.VarChar(128)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("guest_order_credentials")
+  @@index([expiresAt], map: "idx_guest_order_credentials_expiry")
+}
+
+// Serverless-safe guest order rate-limit buckets. bucket_key is opaque to
+// the DB (e.g. "guest-order:ip:<ip>"); rows are TTL-pruned by the
+// application. Isolated table: guest accounting never shares admin/customer
+// buckets. Atomic bump: INSERT ... ON CONFLICT DO UPDATE (single statement).
+model GuestOrderRateLimit {
+  bucketKey   String   @map("bucket_key") @db.VarChar(128)
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  attempts    Int      @default(1)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([bucketKey, windowStart])
+  @@map("guest_order_rate_limits")
 }

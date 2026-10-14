@@ -247,8 +247,11 @@ async function approveSteps(
   tx: Prisma.TransactionClient,
   ctx: ApprovalContext,
   status: "CUSTOMER_APPROVED" | "AUTO_ACCEPTED",
-  deciderType: "CUSTOMER" | "SYSTEM",
-  deciderId: string,
+  // GUEST approves record CUSTOMER_APPROVED (customer-side approval semantic
+  // for an unauthenticated customer) with NULL decided_by_id — no new frozen
+  // status invented, so no trigger change is needed.
+  deciderType: "CUSTOMER" | "SYSTEM" | "GUEST",
+  deciderId: string | null,
 ): Promise<void> {
   for (const vid of orderLockIds([ctx.origVariantId, ctx.sub.variantId])) {
     await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${vid}::uuid FOR UPDATE`;
@@ -347,8 +350,9 @@ export interface DecideArgs {
   replacementId: string;
   expectedOrderId: string | null;
   outcome: "approve" | "reject";
-  deciderType: "CUSTOMER" | "STAFF";
-  deciderId: string;
+  deciderType: "CUSTOMER" | "STAFF" | "GUEST";
+  /** Guest deciders carry NULL (no customer row exists). */
+  deciderId: string | null;
 }
 
 /**
@@ -359,9 +363,14 @@ export interface DecideArgs {
  * via the PROPOSED gate (never silent, never partial).
  */
 export async function decideReplacement(args: DecideArgs): Promise<string> {
-  // Frozen actor semantics: approval is an explicit CUSTOMER decision;
+  // Frozen actor semantics: approval is an explicit customer-side decision
+  // (CUSTOMER session owner or GUEST credential holder for that order);
   // staff may only withdraw (reject). Enforced in-domain, not just routes.
-  if (args.outcome === "approve" && args.deciderType !== "CUSTOMER") {
+  if (
+    args.outcome === "approve" &&
+    args.deciderType !== "CUSTOMER" &&
+    args.deciderType !== "GUEST"
+  ) {
     throw businessRule("Only the customer can approve a replacement.", null);
   }
   try {
@@ -375,9 +384,9 @@ export async function decideReplacement(args: DecideArgs): Promise<string> {
                  decided_by_id = ${args.deciderId}::uuid
            WHERE id = ${args.replacementId}::uuid`;
         // PRE-BA-11 decision #2: staff withdrawals (the admin surface)
-        // pair an audit row in this same tx; customer self-service
+        // pair an audit row in this same tx; customer/guest self-service
         // decisions stay unaudited (store behavior byte-identical).
-        if (args.deciderType === "STAFF") {
+        if (args.deciderType === "STAFF" && args.deciderId !== null) {
           await auditInTx(tx, {
             action: "replacements.withdraw",
             userId: args.deciderId,
@@ -389,8 +398,15 @@ export async function decideReplacement(args: DecideArgs): Promise<string> {
         }
         return args.replacementId;
       }
-      // Narrowed by the entry guard: approve implies CUSTOMER decider.
-      await approveSteps(tx, ctx, "CUSTOMER_APPROVED", "CUSTOMER", args.deciderId);
+      // Narrowed by the entry guard: approve implies a customer-side
+      // decider (CUSTOMER session owner or GUEST credential holder).
+      await approveSteps(
+        tx,
+        ctx,
+        "CUSTOMER_APPROVED",
+        args.deciderType === "GUEST" ? "GUEST" : "CUSTOMER",
+        args.deciderId,
+      );
       return args.replacementId;
     });
   } catch (error) {

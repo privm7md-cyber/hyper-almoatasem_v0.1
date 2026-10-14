@@ -29,6 +29,7 @@ import {
 } from "@/lib/cart/totals";
 import type { CartOwner } from "@/lib/cart/queries";
 import { applyPromotions, persistPromoRows } from "@/lib/promotions/checkout";
+import { issueGuestOrderCredential } from "@/lib/orders/guest-access";
 
 /** RFC 9562 UUIDv7 (frozen app-ID strategy; local copy — previous BA
  * modules are not modified for reuse). */
@@ -74,10 +75,27 @@ export class CartConsumedError extends ApiError {
   }
 }
 
+export interface GuestCheckoutContext {
+  contact: { firstName: string; lastName: string | null };
+  address: {
+    city: string;
+    area: string | null;
+    village: string | null;
+    street: string | null;
+    buildingNumber: string | null;
+    landmark: string | null;
+    phone: string;
+  };
+}
+
 export interface CreateOrderArgs {
   owner: CartOwner;
-  customerId: string;
-  addressId: string;
+  /** Registered path: customer id. Guest path (BG-Guest-Order): null. */
+  customerId: string | null;
+  /** Registered path: owned address entity id. Guest path: null. */
+  addressId: string | null;
+  /** Guest path only: inline contact + address (snapshots only, no entity). */
+  guest: GuestCheckoutContext | null;
   idempotencyKey: string;
   /** Optional coupon code (normalized + validated server-side; absent = autos only). */
   couponCode?: string | null;
@@ -86,6 +104,12 @@ export interface CreateOrderArgs {
 export interface CreateOrderResult {
   orderId: string;
   replay: boolean;
+  /**
+   * Guest path, fresh creation only: the raw order credential, returned
+   * exactly once. Null on replays (keep-same: the client retains the
+   * first-issued token) and on the registered path.
+   */
+  guestToken: string | null;
 }
 
 interface PricedLine {
@@ -172,12 +196,14 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
 
   const keyHit = await findOrderByIdempotencyKey(args.idempotencyKey);
   if (keyHit) {
-    if (keyHit.cartId === subjectHint.id) return { orderId: keyHit.id, replay: true };
+    if (keyHit.cartId === subjectHint.id) {
+      return { orderId: keyHit.id, replay: true, guestToken: null };
+    }
     throw conflict("Idempotency key was already used with different terms.", { key: args.idempotencyKey });
   }
 
   try {
-    const orderId = await prisma.$transaction(async (tx) => {
+    const out = await prisma.$transaction(async (tx) => {
       const carts = await tx.$queryRaw<Array<{ id: string; status: string; expired: boolean }>>`
         SELECT id::text AS id, status,
           (expires_at IS NOT NULL AND expires_at <= now()) AS expired
@@ -186,15 +212,42 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         throw new CartConsumedError(subjectHint.id);
       }
 
-      const customer = await tx.customer.findUnique({ where: { id: args.customerId } });
-      if (!customer) throw new ApiError("NOT_FOUND", "Customer not found.", null);
-      if (!customer.isActive || customer.deletedAt !== null) {
-        throw businessRule("Customer is not active.", null);
+      // Registered path: verified customer + owned address entity.
+      // Guest path (BG-Guest-Order): no customer row (never invented —
+      // hidden/temporary customers are rejected); the inline address
+      // payload below becomes order snapshots only.
+      const customer =
+        args.customerId === null
+          ? null
+          : await tx.customer.findUnique({ where: { id: args.customerId } });
+      if (args.customerId !== null) {
+        if (!customer) throw new ApiError("NOT_FOUND", "Customer not found.", null);
+        if (!customer.isActive || customer.deletedAt !== null) {
+          throw businessRule("Customer is not active.", null);
+        }
       }
-      const address = await tx.customerAddress.findFirst({
-        where: { id: args.addressId, customerId: args.customerId },
-      });
-      if (!address) throw new ApiError("NOT_FOUND", "Address not found.", null);
+      const ownedAddress =
+        args.addressId === null || args.customerId === null
+          ? null
+          : await tx.customerAddress.findFirst({
+              where: { id: args.addressId, customerId: args.customerId },
+            });
+      if (args.addressId !== null && !ownedAddress) {
+        throw new ApiError("NOT_FOUND", "Address not found.", null);
+      }
+      if (args.customerId === null && args.guest === null) {
+        throw new ApiError("VALIDATION", "Guest checkout context is required.", null);
+      }
+      const guestCtx = args.guest;
+      const address = ownedAddress ?? {
+        city: (guestCtx as GuestCheckoutContext).address.city,
+        area: (guestCtx as GuestCheckoutContext).address.area,
+        village: (guestCtx as GuestCheckoutContext).address.village,
+        street: (guestCtx as GuestCheckoutContext).address.street,
+        buildingNumber: (guestCtx as GuestCheckoutContext).address.buildingNumber,
+        landmark: (guestCtx as GuestCheckoutContext).address.landmark,
+        phone: (guestCtx as GuestCheckoutContext).address.phone,
+      };
 
       const lines = await tx.cartItem.findMany({
         where: { cartId: subjectHint.id },
@@ -375,7 +428,14 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         SELECT nextval('order_number_seq')::int AS n, to_char(now(), 'YYYYMMDD') AS d`;
       const orderNumber = formatOrderNumber(seq[0].d, seq[0].n);
       const orderId = newUuidV7();
-      const customerName = `${customer.firstName}${customer.lastName ? ` ${customer.lastName}` : ""}`.trim();
+      // Guest snapshots come from the inline contact/address payload (the
+      // address phone doubles as the customer phone snapshot — guests own
+      // no contact row; phone is contact data here, never an auth factor).
+      const customerName =
+        customer !== null
+          ? `${customer.firstName}${customer.lastName ? ` ${customer.lastName}` : ""}`.trim()
+          : `${guestCtx?.contact.firstName ?? ""}${guestCtx?.contact.lastName ? ` ${guestCtx.contact.lastName}` : ""}`.trim();
+      const customerPhone = customer !== null ? customer.phone : address.phone;
       await tx.$executeRaw`
         INSERT INTO orders (id, order_number, customer_id, cart_id, idempotency_key,
           status, subtotal_estimated, discount_total, delivery_fee, total_estimated,
@@ -386,7 +446,7 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
           ${args.idempotencyKey}, 'NEW', ${formatPiastres(subtotalCents)}::numeric,
           ${formatPiastres(discountCents)}::numeric,
           ${formatPiastres(feeCents)}::numeric, ${formatPiastres(totalCents)}::numeric,
-          ${customerName}, ${customer.phone},
+          ${customerName}, ${customerPhone},
           ${address.city}, ${address.area}, ${address.village}, ${address.street},
           ${address.buildingNumber}, ${address.landmark}, ${address.phone})`;
       // Item rows with direct-discount mirrors (bought lines + free lines);
@@ -432,29 +492,40 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         comp: promo,
         keyToItemId,
       });
+      // Guest actions record actor_type 'GUEST' with NULL actor_id (BGGO-D005:
+      // SYSTEM-as-stand-in was rejected as dishonest attribution).
+      const historyActor = args.customerId === null ? "GUEST" : "CUSTOMER";
       await tx.$executeRaw`
         INSERT INTO order_status_history (id, order_id, old_status, new_status, actor_type, actor_id)
-        VALUES (${newUuidV7()}::uuid, ${orderId}::uuid, NULL, 'NEW', 'CUSTOMER', ${args.customerId}::uuid)`;
+        VALUES (${newUuidV7()}::uuid, ${orderId}::uuid, NULL, 'NEW', ${historyActor}, ${args.customerId}::uuid)`;
       await tx.$executeRaw`
         INSERT INTO order_status_history (id, order_id, old_status, new_status, actor_type, actor_id)
-        VALUES (${newUuidV7()}::uuid, ${orderId}::uuid, 'NEW', 'CONFIRMED', 'CUSTOMER', ${args.customerId}::uuid)`;
+        VALUES (${newUuidV7()}::uuid, ${orderId}::uuid, 'NEW', 'CONFIRMED', ${historyActor}, ${args.customerId}::uuid)`;
       await tx.$executeRaw`UPDATE orders SET status = 'CONFIRMED' WHERE id = ${orderId}::uuid`;
       await tx.$executeRaw`UPDATE carts SET status = 'CHECKED_OUT' WHERE id = ${subjectHint.id}::uuid`;
-      return orderId;
+      // Guest credential issuance (same tx — no order without credential, no
+      // credential without order). Raw token returned once (BGGO-D002).
+      const guestToken =
+        args.customerId === null ? (await issueGuestOrderCredential(tx, orderId)).token : null;
+      return { orderId, guestToken };
     });
-    return { orderId, replay: false };
+    // Keep-same on replay (BGGO-D011): replays carry no token — the client
+    // retains the first-issued credential. No rotation, no invalidation race.
+    return { orderId: out.orderId, replay: false, guestToken: out.guestToken };
   } catch (error) {
     if (error instanceof CartConsumedError) {
       // Same-cart race loser: the winner's committed order replays.
       const winner = await findOrderByCart(subjectHint.id);
-      if (winner) return { orderId: winner.id, replay: true };
+      if (winner) return { orderId: winner.id, replay: true, guestToken: null };
       throw conflict("Cart is no longer available for ordering.", { cartId: subjectHint.id });
     }
     if (error instanceof ApiError) throw error;
     if (pgCodeOf(error) === "23505") {
       // Lost the idempotency INSERT race: reselect + same cart rule.
       const winner = await findOrderByIdempotencyKey(args.idempotencyKey);
-      if (winner && winner.cartId === subjectHint.id) return { orderId: winner.id, replay: true };
+      if (winner && winner.cartId === subjectHint.id) {
+        return { orderId: winner.id, replay: true, guestToken: null };
+      }
       throw conflict("Idempotency key was already used with different terms.", { key: args.idempotencyKey });
     }
     throw error;
@@ -463,8 +534,9 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
 
 export interface CancelOrderArgs {
   orderId: string;
-  actorType: "CUSTOMER" | "STAFF";
-  actorId: string;
+  actorType: "CUSTOMER" | "STAFF" | "GUEST";
+  /** Guest cancels carry NULL (no customer row exists). */
+  actorId: string | null;
 }
 
 /**
@@ -536,7 +608,7 @@ export async function cancelOrder(args: CancelOrderArgs): Promise<string> {
       // PRE-BA-11 decision #2: staff cancels pair an audit row in this same
       // tx (customer self-service cancels stay unaudited — not admin
       // mutations — so store behavior is byte-identical).
-      if (args.actorType === "STAFF") {
+      if (args.actorType === "STAFF" && args.actorId !== null) {
         await auditInTx(tx, {
           action: "orders.cancel",
           userId: args.actorId,

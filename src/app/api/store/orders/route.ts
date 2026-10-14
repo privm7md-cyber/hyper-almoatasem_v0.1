@@ -1,13 +1,17 @@
 // Storefront orders: create (POST) + own-order list (GET).
-// PHASE 2 identity: the customer is the server-verified session —
-// customerId NEVER travels in body/query. Orders are customer-only:
-// guests identify (session) first, then merge + checkout. A guest token
-// alone answers 401; token + session answers 400.
-// POST body { addressId, idempotencyKey? } + optional `Idempotency-Key`
-// header (BA-A contract: header wins when both carry the same key; both
-// present but different → 400; at least one required). Creation is one tx
-// (reserve + snapshots + history + CHECKED_OUT); replays answer 200 with
-// meta.replay, fresh orders 201. No OTP/login invented.
+// Identity is XOR (BG-Guest-Order): the server-verified customer session
+// (registered path, owned addressId) XOR the guest cart bearer + inline
+// guest address/contact (guest path, snapshots only, no account).
+// customerId NEVER travels in body/query. No identity side at all answers
+// 401; present-but-wrong-side payloads answer 400 (guest token + addressId,
+// or session + guest payload — ambiguous).
+// POST body { addressId XOR (guestAddress + guestContact), idempotencyKey? }
+// + optional `Idempotency-Key` header (BA-A contract: header wins when both
+// carry the same key; both present but different → 400; at least one
+// required). Creation is one tx (reserve + snapshots + history +
+// CHECKED_OUT + guest credential issuance); replays answer 200 with
+// meta.replay (keep-same: no token on replay), fresh guest orders 201 with
+// the raw credential returned exactly once. No OTP/login invented.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
@@ -18,6 +22,11 @@ import { createOrder } from "@/lib/orders/writes";
 import { toOrder, toOrderListItem } from "@/lib/orders/serialize";
 import { resolveStoreOwner } from "@/lib/cart/owner";
 import { requireCustomer } from "@/lib/customers/session";
+import {
+  GUEST_ORDER_CREATE_BUCKET_LIMIT,
+  checkAndRecordRateLimit,
+  guestOrderCreateBucket,
+} from "@/lib/auth/rate-limit";
 
 /** Canonical idempotency header name (BA-A contract). */
 export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
@@ -53,14 +62,59 @@ export async function POST(request: Request) {
   }
   try {
     const owner = await resolveStoreOwner(request);
-    if (!owner || owner.kind !== "customer") {
+    if (!owner) {
+      // No identity side at all: 401 (matches the documented contract and
+      // the pre-guest behavior — absence of credentials is unauthenticated,
+      // while a present-but-wrong-side payload is 400 below).
       const r = fail(new ApiError("UNAUTHENTICATED", "Authentication is required.", null, false));
       return NextResponse.json(r.body, { status: r.status });
     }
+    const wantsGuest = parsed.data.addressId == null;
+    // XOR discipline: each side uses exactly its own payload (BGGO-D015).
+    if (owner.kind === "customer" && wantsGuest) {
+      const r = fail(new ApiError("VALIDATION", "Authenticated checkout requires addressId."));
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    if (owner.kind === "guest" && !wantsGuest) {
+      const r = fail(new ApiError("VALIDATION", "Guest checkout requires guestAddress and guestContact."));
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    if (owner.kind === "guest") {
+      // Anonymous creation surface: fail-closed IP bucket first (BGGO-D009).
+      const gate = await checkAndRecordRateLimit(
+        guestOrderCreateBucket(request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null),
+        GUEST_ORDER_CREATE_BUCKET_LIMIT,
+        undefined,
+        "guest_order_rate_limits",
+      );
+      if (!gate.allowed) {
+        const r = fail(new ApiError("RATE_LIMITED", "Too many requests.", null, true));
+        return NextResponse.json(r.body, { status: r.status });
+      }
+    }
     const out = await createOrder({
       owner,
-      customerId: owner.customerId,
-      addressId: parsed.data.addressId,
+      customerId: owner.kind === "customer" ? owner.customerId : null,
+      addressId: parsed.data.addressId ?? null,
+      guest:
+        owner.kind === "guest"
+          ? {
+              contact: {
+                firstName: parsed.data.guestContact?.firstName as string,
+                lastName: (parsed.data.guestContact?.lastName as string | null | undefined) ?? null,
+              },
+              address: {
+                city: parsed.data.guestAddress?.city as string,
+                area: (parsed.data.guestAddress?.area as string | null | undefined) ?? null,
+                village: (parsed.data.guestAddress?.village as string | null | undefined) ?? null,
+                street: (parsed.data.guestAddress?.street as string | null | undefined) ?? null,
+                buildingNumber:
+                  (parsed.data.guestAddress?.buildingNumber as string | null | undefined) ?? null,
+                landmark: (parsed.data.guestAddress?.landmark as string | null | undefined) ?? null,
+                phone: parsed.data.guestAddress?.phone as string,
+              },
+            }
+          : null,
       idempotencyKey,
       couponCode: parsed.data.couponCode ?? null,
     });
@@ -69,7 +123,14 @@ export async function POST(request: Request) {
       const r = fail(new ApiError("NOT_FOUND", "Order not found."));
       return NextResponse.json(r.body, { status: r.status });
     }
-    const r = out.replay ? ok({ order: toOrder(full) }, { replay: true }) : created({ order: toOrder(full) });
+    if (out.replay) {
+      const r = ok({ order: toOrder(full) }, { replay: true, guestTokenIssued: false });
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    const r =
+      out.guestToken !== null
+        ? created({ order: toOrder(full), guestOrderToken: out.guestToken })
+        : created({ order: toOrder(full) });
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {
     const r = fail(error);

@@ -10,7 +10,16 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve as resolvePath } from "node:path";
 
 export async function resolve(specifier, context, next) {
-  if (
+  // `@/*` mirrors tsconfig paths (`./src/*`) for sources that use the
+  // Next.js alias (e.g. catalog/validation.ts). Test-only, additive:
+  // previously these specifiers all failed under plain node.
+  if (specifier.startsWith("@/")) {
+    const repoRoot = resolvePath(fileURLToPath(import.meta.url), "..", "..", "..");
+    const candidate = resolvePath(repoRoot, "src", specifier.slice(2) + ".ts");
+    if (existsSync(candidate)) {
+      return { url: pathToFileURL(candidate).href, shortCircuit: true };
+    }
+  }  if (
     (specifier.startsWith("./") || specifier.startsWith("../")) &&
     !/\.[a-zA-Z0-9]+$/.test(specifier)
   ) {

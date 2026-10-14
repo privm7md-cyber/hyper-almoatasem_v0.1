@@ -188,6 +188,12 @@ async function main() {
     t("admin-filter-inactive", inactiveFilter.status === 200 && inactiveFilter.body.data.some((c) => c.id === catCreate.body.data.id));
     const badWeight = await post("/api/admin/catalog/products", { name: "Bad W", categoryId: catCreate.body.data.id, productType: "WEIGHT", unit: "PIECE" }, store.cookie);
     t("admin-weight-rule-422", badWeight.status === 422);
+    // L3 Direction A: LITER/ML are not product sale units (boundary 400-class,
+    // like every other malformed enum input — not the domain 422).
+    const literUnit = await post("/api/admin/catalog/products", { name: "Bad L", categoryId: catCreate.body.data.id, productType: "PIECE", unit: "LITER" }, store.cookie);
+    t("admin-liter-unit-400", literUnit.status === 400);
+    const mlUnit = await post("/api/admin/catalog/products", { name: "Bad M", categoryId: catCreate.body.data.id, productType: "WEIGHT", unit: "ML", saleStepGrams: 250 }, store.cookie);
+    t("admin-ml-unit-400", mlUnit.status === 400);
     const noParent = await post("/api/admin/catalog/products", { name: "No Parent", categoryId: "02800000-0000-7000-8000-000000009999", productType: "PIECE", unit: "PIECE" }, store.cookie);
     t("admin-unknown-category-422", noParent.status === 422);
     const patchMiss = await patch("/api/admin/catalog/categories/02800000-0000-7000-8000-000000009999", { name: "Z" }, store.cookie);
@@ -205,6 +211,10 @@ async function main() {
     track("variants", varCreate.body.data.id);
     const varDup = await post(`/api/admin/catalog/products/${prodCreate.body.data.id}/variants`, { name: "Pack 6", price: "1.00" }, store.cookie);
     t("admin-duplicate-variant-409", varDup.status === 409);
+    // L3 Direction A: variant package-size metadata keeps the full unit set.
+    const mlVariant = await post(`/api/admin/catalog/products/${prodCreate.body.data.id}/variants`, { name: "Bottle 330", sizeValue: "0.330", sizeUnit: "ML", price: "30.00" }, store.cookie);
+    t("admin-variant-ml-size-201", mlVariant.status === 201 && isUuid(mlVariant.body.data.id));
+    track("variants", mlVariant.body.data.id);
     const badCompare = await patch(`/api/admin/catalog/variants/${varCreate.body.data.id}`, { compareAtPrice: "10.00" }, store.cookie);
     t("admin-compare-below-price-422", badCompare.status === 422);
     const histBefore = await q(`SELECT count(*)::int AS n FROM product_price_history WHERE product_variant_id = $1`, [varCreate.body.data.id]);

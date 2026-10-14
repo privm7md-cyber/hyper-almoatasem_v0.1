@@ -145,7 +145,8 @@ export function toCoupon(c: Coupon): CouponShape {
 export interface UsageShape {
   id: string;
   couponId: string;
-  customerId: string;
+  /** NULL for guest-order usage rows (BG-Guest-Order). */
+  customerId: string | null;
   orderId: string;
   estimatedDiscount: string;
   finalDiscount: string | null;

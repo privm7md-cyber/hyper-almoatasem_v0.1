@@ -51,3 +51,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON customer_auth_rate_limits TO hyper_app;
 -- customers: the app role already holds SELECT + UPDATE (lockout/login
 -- columns) from the admin-auth round; phone+password login, registration,
 -- and password change use exactly those rights — no new grant needed.
+
+-- guest_order_credentials (20261008_guest_orders): full lifecycle except
+-- delete (rows are history) — mirrors customer_sessions (no DELETE anywhere).
+GRANT SELECT, INSERT, UPDATE ON guest_order_credentials TO hyper_app;
+
+-- guest_order_rate_limits (20261008_guest_orders): buckets incl. TTL
+-- cleanup (needs DELETE) — mirrors customer_auth_rate_limits.
+GRANT SELECT, INSERT, UPDATE, DELETE ON guest_order_rate_limits TO hyper_app;

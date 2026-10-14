@@ -16,6 +16,7 @@ export type ApiErrorCode =
   | "UNAUTHENTICATED"
   | "FORBIDDEN"
   | "NOT_FOUND"
+  | "GONE"
   | "CONFLICT"
   | "BUSINESS_RULE"
   | "RATE_LIMITED"
