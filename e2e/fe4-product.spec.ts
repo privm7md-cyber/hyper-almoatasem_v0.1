@@ -31,7 +31,7 @@ test("PDP route honors slug canonicalization contract (unknown stays 404)", asyn
   expect(res?.status()).toBe(404);
 });
 
-test("regression: home, search, categories, admin login, prototype intact", async ({ page }) => {
+test("regression: home, search, categories, admin login, prototype isolated (404)", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /احتياجات بيتك/ })).toBeVisible();
   await page.goto("/search");
@@ -40,6 +40,6 @@ test("regression: home, search, categories, admin login, prototype intact", asyn
   await expect(page.getByRole("heading", { name: "الأقسام" })).toBeVisible();
   await page.goto("/admin/login");
   await expect(page.getByRole("heading", { name: /تسجيل دخول الإدارة/ })).toBeVisible();
-  await page.goto("/prototype");
-  await expect(page.getByText(/INTERACTIVE PROTOTYPE — MOCK DATA/).first()).toBeVisible();
+  const proto = await page.goto("/prototype");
+  expect(proto?.status()).toBe(404);
 });

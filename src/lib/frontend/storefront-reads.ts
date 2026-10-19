@@ -5,7 +5,7 @@
 import "server-only";
 
 import { getBrand, getCategory, getProduct, listBrands, listCategories, listProducts, listVariantsByProduct } from "@/lib/catalog/queries";
-import { getInventory } from "@/lib/inventory/queries";
+import { getInventory, productHasInventoryRows } from "@/lib/inventory/queries";
 import { searchProducts } from "@/lib/catalog/search";
 import { listImages } from "@/lib/catalog/media";
 import { getProductStockStatus } from "@/lib/inventory/queries";
@@ -32,7 +32,6 @@ export interface HomeProductCard {
   brandName: string | null;
 }
 
-const HOME_LIMIT = 12;
 const FEATURED_LIMIT = 8;
 const PAGE_LIMIT = 12;
 const OPTION_LIMIT = 100;
@@ -69,33 +68,64 @@ export async function getAllBrands(): Promise<BrandShape[]> {
   return page.rows.map(toBrand);
 }
 
-/** Top-level active categories (parent == null), name-ordered. */
-export async function getHomeCategories(): Promise<CategoryShape[]> {
-  const page = await listCategories({
-    limit: HOME_LIMIT,
-    cursor: null,
-    sort: "name",
-    dir: "asc",
-    search: null,
-    parent: "null",
-    active: null,
-  });
-  return page.rows.map(toCategory);
+/**
+ * Homepage category sections (real tree): all main categories plus their
+ * subcategories grouped under the parent, from ONE bounded fetch — no counts,
+ * no fabricated rows. Empty children lists are honest (rendered as-is).
+ */
+export interface HomeCategorySections {
+  mains: CategoryShape[];
+  subs: { parent: CategoryShape; children: CategoryShape[] }[];
 }
 
-/** Enrich list rows with the display facts cards need. Bounded: callers cap input rows. */
+export async function getHomeCategorySections(): Promise<HomeCategorySections> {
+  const all = await getAllCategories(); // bounded OPTION_LIMIT fetch
+  const mains = all.filter((c) => c.parentId === null).sort(byName);
+  const byParent = new Map<string, CategoryShape[]>();
+  for (const c of all) {
+    if (c.parentId === null) continue;
+    const list = byParent.get(c.parentId) ?? [];
+    list.push(c);
+    byParent.set(c.parentId, list);
+  }
+  const parentIndex = new Map(mains.map((m) => [m.id, m]));
+  const subs: HomeCategorySections["subs"] = [];
+  for (const [parentId, children] of byParent) {
+    const parent = parentIndex.get(parentId) ?? null;
+    if (!parent) continue; // orphan row: omit, never fake a parent label
+    children.sort(byName);
+    subs.push({ parent, children });
+  }
+  subs.sort((a, b) => byName(a.parent, b.parent));
+  return { mains, subs };
+}
+
+function byName(a: { name: string }, b: { name: string }): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/** Enrich list rows with the display facts cards need. Bounded: callers cap input rows.
+ * Stock semantics (mandate + import reality): the catalog ships WITHOUT inventory
+ * rows, so a product with no inventory rows renders "unknown" ("التوفر غير مؤكد");
+ * only rows that exist with zero availability render "oos" ("غير متوفر"). */
 export async function enrichCards(
   rows: { id: string; name: string; slug: string; unit: string; brand: { name: string } | null }[],
 ): Promise<HomeProductCard[]> {
   return Promise.all(
     rows.map(async (row) => {
-      const [variants, images, stock] = await Promise.all([
+      const [variants, images, stock, hasInventoryRows] = await Promise.all([
         listVariantsByProduct(row.id, false, 1, null),
         listImages(row.id),
         getProductStockStatus(row.id).catch(() => null),
+        productHasInventoryRows(row.id).catch(() => false),
       ]);
       const first = variants.rows[0] ? toVariant(variants.rows[0]) : null;
       const primary = images.find((im) => im.isPrimary) ?? images[0] ?? null;
+      const stockState: HomeProductCard["stock"] = !hasInventoryRows
+        ? "unknown"
+        : stock && stock.isInStock
+          ? "in"
+          : "oos";
       return {
         id: row.id,
         name: row.name,
@@ -103,7 +133,7 @@ export async function enrichCards(
         unit: row.unit,
         price: first ? first.price : null,
         compareAt: first ? first.compareAtPrice : null,
-        stock: stock === null ? "unknown" : stock.isInStock ? "in" : "oos",
+        stock: stockState,
         image: primary ? primary.url : null,
         brandName: row.brand ? row.brand.name : null,
       };

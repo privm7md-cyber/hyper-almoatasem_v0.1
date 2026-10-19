@@ -17,6 +17,7 @@ import {
   listCategoryProducts,
 } from "@/lib/frontend/storefront-reads";
 import { LISTING_SORT_OPTIONS, parseListingParams, sortKeyFor } from "@/lib/frontend/listing-params";
+import { slugMatches, wireSlugOf } from "@/lib/frontend/slug";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function CategoryPage({
   const sp = await searchParams;
   const category = await getCategoryById(id).catch(() => null);
   if (!category) notFound();
-  if (slug !== category.slug) permanentRedirect(`/c/${category.id}/${encodeURIComponent(category.slug)}`);
+  if (!slugMatches(slug, category.slug)) permanentRedirect(`/c/${category.id}/${wireSlugOf(category.slug)}`);
 
   const query = parseListingParams(sp, "listing");
   let page: Awaited<ReturnType<typeof listCategoryProducts>> | null = null;

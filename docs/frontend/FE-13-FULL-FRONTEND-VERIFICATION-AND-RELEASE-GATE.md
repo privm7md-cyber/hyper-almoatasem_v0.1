@@ -214,3 +214,37 @@ shell 6 · ui button 5 · ui field 2 · ui states 4 · ui toast 2 · lib a11y 2 
 **Gate 1: RESOLVED with reproducible evidence.** The discrepancy was mixed baselines
 (64-based "55 new" vs 96-based "+23"), not lost coverage. No repair needed; documentation
 corrected here, historical figures preserved above as point-in-time truths.
+
+---
+
+## 16. Addendum — Publication & Preview Deployment (2026-10-14)
+
+**Commit (authorized, reviewed, pushed):** `7596ac7d0ec5a465081430f4eafce94b1becf2d2`
+(parent `83253fe9…`), message "milestone: consolidate backend completion and frontend admin
+hardening/verification" — 243 files (+28658/−1342), `git diff --check` exit 0, secret scan
+clean (9 pattern hits all code identifiers, zero values). Excluded and preserved in tree:
+`docs/AGENT-HANDOFF.md` (protected), `test-results/` (artifacts),
+`scripts/set-super-admin-password-local.ps1` (self-declared never-commit). No amend/rewrite/
+force-push. GitHub commit:
+`https://github.com/privm7md-cyber/hyper-almoatasem_v0.1/commit/7596ac7d0ec5a465081430f4eafce94b1becf2d2`
+Branch (pushed, remote == local == `7596ac7`):
+`https://github.com/privm7md-cyber/hyper-almoatasem_v0.1/tree/preview/fe11-fe13-verified`
+`master` was NOT pushed (remote `master` still `83253fe9`); local `master` advanced to the
+commit as the branch point — no production trigger (dedicated preview branch used instead).
+No merge into any production branch, no promotion, no env-var or settings changes.
+
+**Vercel Preview (target=preview, Ready, build 57s, 328 outputs, commit-branch alias
+`...-git-preview-fe11-fe-...`):**
+`https://hyper-almoatasem-v0-1-ho6uoceuv-privm7md-cyber.vercel.app`
+Preview env holds `DATABASE_URL`/`DIRECT_URL`/`REG_RATE_LIMIT_PHONE_SECRET` (names only).
+
+**Anonymous smoke test: BLOCKED by Vercel Deployment Protection.** All routes return HTTP
+200 serving the Vercel SSO login wall ("Log in to Vercel", verified by screenshot
+`/` @1280; `/categories`, `/search`, `/login` same wall; no search landmark present).
+This is platform access control, not an app defect — changing it would mean altering
+project settings, which is prohibited. Owner (Vercel-authenticated) can open the URL;
+anonymous/public testing is not possible in this state. **Zero business mutations performed**
+(spec used read-only GETs; temp spec deleted afterward). Local rendering evidence stands
+(FE-13 §7 screenshots + 11/11 DB-independent E2E); deployed-app visual verification awaits
+an owner decision on preview visibility. This is a Preview verification state, never a
+production Go-live.

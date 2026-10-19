@@ -61,9 +61,9 @@ test("RTL + bidi prices hold on homepage", async ({ page }) => {
   if (priceTexts > 0) expect(bdiCount).toBeGreaterThan(0);
 });
 
-test("regression: admin login + prototype intact", async ({ page }) => {
+test("regression: admin login + prototype isolated (404)", async ({ page }) => {
   await page.goto("/admin/login");
   await expect(page.getByRole("heading", { name: /تسجيل دخول الإدارة/ })).toBeVisible();
-  await page.goto("/prototype");
-  await expect(page.getByText(/INTERACTIVE PROTOTYPE — MOCK DATA/).first()).toBeVisible();
+  const proto = await page.goto("/prototype");
+  expect(proto?.status()).toBe(404);
 });

@@ -27,10 +27,8 @@ export function AdminTable({
         </thead>
         <tbody>
           {rows.map((cells, i) => (
-            // eslint-disable-next-line react/no-array-index-key
             <tr key={i} className="border-b border-line last:border-0">
               {cells.map((c, j) => (
-                // eslint-disable-next-line react/no-array-index-key
                 <td key={j} className="whitespace-nowrap px-3 py-2">
                   {c}
                 </td>

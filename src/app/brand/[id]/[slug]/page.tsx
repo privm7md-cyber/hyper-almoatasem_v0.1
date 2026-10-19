@@ -15,6 +15,7 @@ import {
   listBrandProducts,
 } from "@/lib/frontend/storefront-reads";
 import { LISTING_SORT_OPTIONS, parseListingParams, sortKeyFor } from "@/lib/frontend/listing-params";
+import { slugMatches, wireSlugOf } from "@/lib/frontend/slug";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function BrandPage({
   const sp = await searchParams;
   const brand = await getBrandById(id).catch(() => null);
   if (!brand) notFound();
-  if (slug !== brand.slug) permanentRedirect(`/brand/${brand.id}/${encodeURIComponent(brand.slug)}`);
+  if (!slugMatches(slug, brand.slug)) permanentRedirect(`/brand/${brand.id}/${wireSlugOf(brand.slug)}`);
 
   const query = parseListingParams(sp, "listing");
   let page: Awaited<ReturnType<typeof listBrandProducts>> | null = null;

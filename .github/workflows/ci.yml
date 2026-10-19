@@ -1,8 +1,9 @@
 # Backend CI — hermetic checks only (no database server, no secrets).
 #
 # Scope rationale (documented, do not silently widen):
-# - typecheck + lint + unit suites + PGlite frozen-SQL suites + build are
-#   fully hermetic: they never open a network connection.
+# - typecheck + lint + unit suites + component tests (Vitest, jsdom) +
+#   PGlite frozen-SQL suites + build are fully hermetic: they never open a
+#   network connection.
 # - The live-API matrix (scripts/api/t-*.mjs against a scratch PostgreSQL)
 #   stays a LOCAL gate: it needs provisioned fixtures (products, users with
 #   known test passwords) plus login-bucket spacing, neither of which belongs
@@ -39,7 +40,9 @@ jobs:
         run: npm ci
 
       - name: Install dependencies (db harness)
-        run: npm ci --prefix db/tests
+        # The db/tests harness ships package.json without a lockfile, so
+        # npm ci would fail; install from package.json instead.
+        run: npm install --prefix db/tests --no-audit --no-fund
 
       - name: Typecheck
         run: npx tsc --noEmit
@@ -64,6 +67,9 @@ jobs:
           node scripts/api/t-promotions-unit.mjs
           node scripts/api/t-replacements-unit.mjs
           node scripts/api/t-admin-unit.mjs
+
+      - name: Component & page tests (Vitest, jsdom, no DB)
+        run: npx vitest run
 
       - name: Frozen-SQL suites (PGlite, no server)
         run: |

@@ -9,3 +9,9 @@ scripts/set-super-admin-password-local.ps1
 .cursor/
 .devin/
 docs/recovery-verification.md
+test-results/
+/src/app/_prototype/
+.env
+.env.local
+.env.*
+!.env.example

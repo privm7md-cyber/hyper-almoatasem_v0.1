@@ -5,6 +5,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Search } from "lucide-react";
 
 export function SearchBox({ initial = "" }: { initial?: string }) {
   const router = useRouter();
@@ -31,13 +32,15 @@ export function SearchBox({ initial = "" }: { initial?: string }) {
         placeholder="ابحث عن منتج…"
         minLength={2}
         maxLength={120}
-        className="min-h-[44px] w-full rounded-control border border-line bg-white px-3 text-base text-ink"
+        className="min-h-[44px] w-full rounded-control border border-line bg-white px-3 text-base text-ink transition-colors duration-200 hover:border-line-strong focus:border-brand"
       />
       <button
         type="submit"
-        className="min-h-[44px] shrink-0 rounded-control bg-brand px-5 font-semibold text-white"
+        aria-label="بحث"
+        className="vxp-primary-btn inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-control bg-brand px-4 font-semibold text-white md:px-5"
       >
-        بحث
+        <Search size={18} aria-hidden="true" />
+        <span className="hidden sm:inline">بحث</span>
       </button>
     </form>
   );

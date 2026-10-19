@@ -87,6 +87,15 @@ export function getInventory(variantId: string) {
   });
 }
 
+/** Whether the product has ANY inventory row at all. Import honesty: the
+ * catalog ships without inventory data, so absence of rows must render as
+ * "unknown" on storefront cards — never the view's collapsed is_in_stock
+ * false, which would claim "غير متوفر" without an owner-side stock decision. */
+export async function productHasInventoryRows(productId: string): Promise<boolean> {
+  const count = await prisma.inventory.count({ where: { variant: { productId } } });
+  return count > 0;
+}
+
 /** Raw-SQL read of the frozen product_stock_status VIEW (no Prisma model).
  * Single definition of "product in stock" (REVIEW-02). */
 export async function getProductStockStatus(productId: string): Promise<{

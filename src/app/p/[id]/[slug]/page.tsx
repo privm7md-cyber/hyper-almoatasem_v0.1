@@ -8,6 +8,7 @@ import { StoreShell } from "@/components/store/store-shell";
 import { ProductGallery } from "@/components/store/product-gallery";
 import { PurchasePanel } from "@/components/store/purchase-panel";
 import { getProductPage } from "@/lib/frontend/storefront-reads";
+import { slugMatches, wireSlugOf } from "@/lib/frontend/slug";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export default async function ProductPage({
   const { id, slug } = await params;
   const product = await getProductPage(id).catch(() => null);
   if (!product) notFound();
-  if (slug !== product.slug) permanentRedirect(`/p/${product.id}/${encodeURIComponent(product.slug)}`);
+  if (!slugMatches(slug, product.slug)) permanentRedirect(`/p/${product.id}/${wireSlugOf(product.slug)}`);
 
   return (
     <StoreShell>

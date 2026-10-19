@@ -42,9 +42,16 @@
   --radius-badge: 9999px;
   --shadow-subtle: 0 1px 2px rgba(27, 21, 48, 0.06);
   --shadow-elevated: 0 8px 24px rgba(27, 21, 48, 0.16);
+  --shadow-lift: 0 10px 30px rgba(27, 21, 48, 0.1);
   --motion-micro: 120ms;
   --motion-short: 200ms;
+  --motion-med: 320ms;
+  --motion-section: 520ms;
+  --motion-hero: 640ms;
   --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ink-purple-deep: color-mix(in srgb, var(--brand-purple) 82%, var(--text-ink));
+  --ink-purple-soft: color-mix(in srgb, var(--brand-purple) 55%, var(--text-ink));
   --z-sticky: 10;
   --z-drawer: 40;
   --z-dialog: 50;
@@ -112,4 +119,152 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  /* Scroll/entrance reveals must never hide content when motion is reduced. */
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* Hero entrance: settled composition immediately — no re-run delays can hide it. */
+  [class*="hero-enter"] {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/*
+ * Homepage visual-excellence layer (VXP). Composited properties only
+ * (transform / opacity); no layout-shifting animation; gated above for
+ * prefers-reduced-motion.
+ */
+
+@keyframes vxp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vxp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vxp-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.hero-enter {
+  opacity: 0;
+  animation: vxp-rise var(--motion-hero) var(--motion-ease-soft) forwards;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+.hero-enter-fade {
+  opacity: 0;
+  animation: vxp-fade 900ms var(--motion-ease) forwards;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+.hero-enter-pop {
+  opacity: 0;
+  animation: vxp-scale-in 700ms var(--motion-ease-soft) forwards;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+/* IntersectionObserver-driven section reveal (client Reveal wrapper). */
+[data-reveal] {
+  transition:
+    opacity var(--motion-section) var(--motion-ease-soft),
+    transform var(--motion-section) var(--motion-ease-soft);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal="pending"] {
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+[data-reveal="in"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Respect the data-saver / older-engine case: no IO utility -> nothing hidden. */
+.no-io [data-reveal] {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Reusable interactive-card treatment (category tiles, product cards). */
+.vxp-card {
+  transition:
+    transform var(--motion-short) var(--motion-ease),
+    box-shadow var(--motion-short) var(--motion-ease),
+    border-color var(--motion-short) var(--motion-ease),
+    background-color var(--motion-short) var(--motion-ease);
+}
+
+@media (hover: hover) {
+  .vxp-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+.vxp-card:active {
+  transform: translateY(0) scale(0.99);
+}
+
+/* Primary brand-button treatment: token-derived hover depth (no raw hexes). */
+.vxp-primary-btn {
+  transition:
+    background-color var(--motion-short) var(--motion-ease),
+    transform var(--motion-micro) var(--motion-ease),
+    box-shadow var(--motion-short) var(--motion-ease);
+}
+
+.vxp-primary-btn:hover {
+  background-color: var(--ink-purple-deep);
+  box-shadow: var(--shadow-subtle);
+}
+
+.vxp-primary-btn:active {
+  background-color: var(--ink-purple-soft);
+  transform: translateY(1px);
+}
+
+/* Accent (orange) button — ink text for AA contrast on warm surface. */
+.vxp-accent-btn {
+  transition:
+    filter var(--motion-short) var(--motion-ease),
+    transform var(--motion-micro) var(--motion-ease),
+    box-shadow var(--motion-short) var(--motion-ease);
+}
+
+.vxp-accent-btn:hover {
+  filter: brightness(1.06);
+  box-shadow: var(--shadow-lift);
+}
+
+.vxp-accent-btn:active {
+  transform: translateY(1px);
+  filter: brightness(0.97);
 }

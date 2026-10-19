@@ -12,7 +12,7 @@ export default defineConfig({
   },
   webServer: {
     command: "npx next dev -p 3141",
-    url: "http://localhost:3141/prototype",
+    url: "http://localhost:3141/",
     reuseExistingServer: true,
     timeout: 180000,
   },
