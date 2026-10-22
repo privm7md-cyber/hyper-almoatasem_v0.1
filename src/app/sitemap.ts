@@ -12,10 +12,6 @@ import { wireSlugOf } from "@/lib/frontend/slug";
 // Nothing private is listed: no admin, no session, no cart / checkout /
 // account / orders, no unpublished pages, and no preview or localhost host
 // (the host comes from the same origin resolution the metadata uses).
-//
-// The static list holds ONLY routes that exist in this release. A sitemap URL
-// that answers 404 is a crawl defect, so a page is added here in the same
-// commit that introduces the route.
 
 const PRODUCT_PAGE_SIZE = 1000;
 const CATEGORY_LIMIT = 5000;
@@ -41,6 +37,12 @@ const STATIC_PAGES: {
   { path: "/", priority: 1, changeFrequency: "daily" },
   { path: "/categories", priority: 0.9, changeFrequency: "weekly" },
   { path: "/brands", priority: 0.7, changeFrequency: "weekly" },
+  { path: "/about", priority: 0.5, changeFrequency: "monthly" },
+  { path: "/faq", priority: 0.6, changeFrequency: "monthly" },
+  { path: "/delivery", priority: 0.5, changeFrequency: "monthly" },
+  { path: "/cancellation", priority: 0.5, changeFrequency: "monthly" },
+  { path: "/replacement", priority: 0.5, changeFrequency: "monthly" },
+  { path: "/order-help", priority: 0.6, changeFrequency: "monthly" },
 ];
 
 export interface ProductRef {
