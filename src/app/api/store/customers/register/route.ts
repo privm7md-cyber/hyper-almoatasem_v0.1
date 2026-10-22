@@ -26,14 +26,12 @@ import { normalizeIdentityPhone } from "@/lib/customers/phone";
 import { customerRegisterSchema } from "@/lib/customers/validation";
 import { registerCustomer } from "@/lib/customers/auth";
 import {
-  CUSTOMER_SESSION_COOKIE,
+  customerSessionCookieName,
   CUSTOMER_SESSION_TTL_SECONDS,
   sessionExpiryIso,
 } from "@/lib/customers/session";
 import { getCustomer } from "@/lib/customers/queries";
 import { toCustomer } from "@/lib/customers/serialize";
-
-const isProd = process.env.NODE_ENV === "production";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -117,9 +115,15 @@ export async function POST(request: Request) {
   }
   const r = created({ customer: toCustomer(row), customerToken: out.token, expiresAt: sessionExpiryIso() });
   const res = NextResponse.json(r.body, { status: r.status });
+  // The cookie NAME follows the environment policy and `Secure` is mandatory
+  // for a `__Host-` cookie (Phase-12: the storefront session had the same
+  // "browser drops the cookie" defect as the admin session).
+  const sessionCookie = customerSessionCookieName();
   res.headers.set(
     "Set-Cookie",
-    `${CUSTOMER_SESSION_COOKIE}=${encodeURIComponent(out.token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${CUSTOMER_SESSION_TTL_SECONDS}${isProd ? "; Secure" : ""}`,
+    `${sessionCookie}=${encodeURIComponent(out.token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${CUSTOMER_SESSION_TTL_SECONDS}${
+      sessionCookie.startsWith("__Host-") ? "; Secure" : ""
+    }`,
   );
   return res;
 }

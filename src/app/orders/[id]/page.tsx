@@ -1,6 +1,7 @@
 // FE-7 order detail (server, dual policy): session-owned OR guest-credential-held reads.
 // Path id is display-only (never authorization). States: invalid-id / login-gated / expired /
 // not-found / readable. No GPS/ETA/live claims — state + authoritative fields only.
+// Phase-11: every dead end now offers a real way back (sign in / orders list).
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -62,7 +63,18 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <StoreShell>
           <div className="mt-6">
             <p className="font-bold">انتهت صلاحية الوصول إلى هذا الطلب</p>
-            <p className="mt-2 text-sm text-secondary">تواصل مع الدعم لمراجعة طلبك.</p>
+            <p className="mt-2 text-sm text-secondary">
+              انتهت صلاحية رابط الطلب. سجّل الدخول من جديد أو افتح الطلب من صفحة طلباتك.
+            </p>
+            <p className="mt-2 text-sm">
+              <Link href="/login" className="font-semibold text-brand">
+                تسجيل الدخول
+              </Link>
+              <span className="mx-2 text-secondary">·</span>
+              <Link href="/orders" className="font-semibold text-brand">
+                طلباتي
+              </Link>
+            </p>
           </div>
         </StoreShell>
       );
@@ -176,6 +188,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </section>
         ) : null}
         <CancelButton orderId={order.id} canCancel={canCancel} />
+        <p className="text-sm">
+          <Link href="/orders" className="font-semibold text-brand">
+            كل طلباتي
+          </Link>
+        </p>
       </div>
     </StoreShell>
   );

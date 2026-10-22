@@ -13,13 +13,20 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function CheckoutPage() {
+export default async function CheckoutPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ coupon?: string }>;
+}) {
+  const sp = await searchParams;
+  // The cart hands its coupon code over so the customer does not retype it.
+  const coupon = typeof sp.coupon === "string" ? sp.coupon.trim().slice(0, 64) : "";
   return (
     <StoreShell>
       <div className="mt-6">
         <PageTitle>إتمام الطلب</PageTitle>
       </div>
-      <CheckoutFlow />
+      <CheckoutFlow initialCoupon={coupon} />
     </StoreShell>
   );
 }

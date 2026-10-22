@@ -14,15 +14,22 @@ const nextConfig: NextConfig = {
   // production TLS yet; enabling it prematurely is worse than absent).
   // These three are safe for pure-JSON API responses and future same-origin
   // frontend: MIME-sniffing off, referrer same-origin, framing same-origin.
+  //
+  // Phase-12: the same protections now also cover the HTML pages (the API
+  // header block used to match `/api/:path*` only). A Content-Security-Policy
+  // is deliberately NOT added: the App Router needs inline bootstrap scripts,
+  // and a policy that has to allow 'unsafe-inline' is theatre — it is recorded
+  // as an open item instead.
   async headers() {
+    const securityHeaders = [
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "same-origin" },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+    ];
     return [
       {
-        source: "/api/:path*",
-        headers: [
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "same-origin" },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
-        ],
+        source: "/:path*",
+        headers: securityHeaders,
       },
     ];
   },

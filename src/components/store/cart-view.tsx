@@ -5,6 +5,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { AppError, apiRequest } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/states";
@@ -140,7 +141,20 @@ export function CartView() {
     );
   }
 
-  function merge() {
+  async function merge() {
+    // The merge is a customer-session operation: without a session it cannot
+    // succeed. Probe it first and say so instead of failing with a raw API
+    // message (Phase-11: a control must never appear to do nothing).
+    try {
+      const session = await apiRequest<{ customer: unknown }>("/api/store/customers/session");
+      if (!session || !("customer" in session)) {
+        setCouponNote("سجّل الدخول أولًا لدمج سلتك مع حسابك.");
+        return;
+      }
+    } catch {
+      setCouponNote("تعذّر التحقق من الجلسة. سجّل الدخول ثم أعد المحاولة.");
+      return;
+    }
     return mutate(
       () => apiRequest<{ cart: CartDTO }>("/api/store/cart/merge", { method: "POST", headers: guestHeaders() }),
       "تم دمج سلة الضيف في حسابك.",
@@ -167,8 +181,8 @@ export function CartView() {
       if (est.coupon && !est.coupon.applicable) {
         setCouponNote(est.coupon.reason ?? "الكوبون غير صالح.");
       } else if (est.coupon && est.coupon.applicable) {
-        setCouponNote(null);
-        notify("success", "تم تطبيق الكوبون.");
+        setCouponNote("الكوبون صالح — سيُطبَّق على الطلب عند التأكيد.");
+        notify("success", "تم التحقق من الكوبون.");
       }
     } catch (error) {
       if (!mounted.current) return;
@@ -229,7 +243,26 @@ export function CartView() {
   if (state === "empty" || !cart || cart.lines.length === 0) {
     return (
       <div className="mt-6">
-        <EmptyState title="سلتك فاضية" hint="ابدأ التسوق من الأقسام أو البحث." />
+        <EmptyState
+          title="سلتك فاضية"
+          hint="ابدأ التسوق من الأقسام أو البحث."
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                href="/categories"
+                className="vxp-primary-btn inline-flex min-h-[44px] items-center justify-center rounded-control bg-brand px-5 font-semibold text-white"
+              >
+                تصفّح الأقسام
+              </Link>
+              <Link
+                href="/search"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-control border border-line-strong px-5 font-semibold text-ink"
+              >
+                ابحث عن منتج
+              </Link>
+            </div>
+          }
+        />
       </div>
     );
   }
@@ -313,7 +346,7 @@ export function CartView() {
           </Button>
         </div>
         {couponNote ? (
-          <p role={couponNote.includes("تم تطبيق") ? "status" : "alert"} className="mt-2 text-sm text-secondary">
+          <p role={couponNote.includes("صالح") ? "status" : "alert"} className="mt-2 text-sm text-secondary">
             {couponNote}
           </p>
         ) : null}
@@ -324,6 +357,23 @@ export function CartView() {
           <Button variant="secondary" disabled={busy} onClick={() => void merge()}>
             دمج سلة الضيف في حسابي
           </Button>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+          <Link
+            href={coupon.trim() === "" ? "/checkout" : `/checkout?coupon=${encodeURIComponent(coupon.trim())}`}
+            className="vxp-primary-btn inline-flex min-h-[48px] items-center justify-center rounded-control bg-brand px-6 font-semibold text-white"
+          >
+            متابعة الشراء
+          </Link>
+          <Link
+            href="/categories"
+            className="inline-flex min-h-[48px] items-center justify-center rounded-control border border-line-strong px-5 font-semibold text-ink"
+          >
+            متابعة التسوق
+          </Link>
+          <p className="text-xs text-secondary">
+            السعر النهائي يُحتسب على الخادم عند تأكيد الطلب.
+          </p>
         </div>
       </div>
     </div>

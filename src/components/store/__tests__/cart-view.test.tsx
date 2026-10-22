@@ -111,4 +111,49 @@ describe("cart-view", () => {
     const sent = JSON.stringify(spy.mock.calls.map((c) => c[1]));
     expect(sent).not.toMatch(/guest-order-token|x-guest-order-token/);
   });
+
+  it("offers the checkout and the catalogue once the cart has lines (Phase-11)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ data: { cart: CART }, meta: {} })));
+    renderCart();
+    await screen.findByText("أرز");
+    const checkout = screen.getByRole("link", { name: "متابعة الشراء" });
+    expect(checkout.getAttribute("href")).toBe("/checkout");
+    expect(screen.getByRole("link", { name: "متابعة التسوق" }).getAttribute("href")).toBe("/categories");
+  });
+
+  it("carries the coupon code into the checkout link (Phase-11)", async () => {
+    const spy = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: { cart: CART }, meta: {} }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: {
+            subtotal: "640.00",
+            discountTotal: "20.00",
+            deliveryFee: "20.00",
+            total: "640.00",
+            coupon: { code: "SAVE10", applicable: true, reason: null, amount: "20.00" },
+          },
+          meta: {},
+        }),
+      );
+    vi.stubGlobal("fetch", spy);
+    renderCart();
+    await screen.findByText("أرز");
+    fireEvent.change(screen.getByLabelText("كود الكوبون"), { target: { value: "SAVE10" } });
+    fireEvent.click(screen.getByRole("button", { name: "تطبيق" }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    const href = screen.getByRole("link", { name: "متابعة الشراء" }).getAttribute("href");
+    expect(href).toBe("/checkout?coupon=SAVE10");
+  });
+
+  it("offers a way back when the cart is empty (Phase-11)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ data: { cart: { ...CART, lines: [], subtotal: "0.00" } }, meta: {} })),
+    );
+    renderCart();
+    expect(await screen.findByText("سلتك فاضية")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "تصفّح الأقسام" }).getAttribute("href")).toBe("/categories");
+    expect(screen.getByRole("link", { name: "ابحث عن منتج" }).getAttribute("href")).toBe("/search");
+  });
 });

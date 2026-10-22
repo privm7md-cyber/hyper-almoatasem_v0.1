@@ -45,7 +45,17 @@ describe("store shell", () => {
     const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
     expect(hrefs.length).toBeGreaterThan(0);
     for (const href of hrefs) {
-      expect(["/", "/search"]).toContain(href);
+      // Phase-11: the footer exposes the real catalogue / cart / account
+      // destinations as well; every one of them is an existing route.
+      expect([
+        "/",
+        "/search",
+        "/categories",
+        "/brands",
+        "/cart",
+        "/account",
+        "/orders",
+      ]).toContain(href);
     }
     expect(screen.getByText(/احتياجات بيتك/)).toBeInTheDocument();
   });

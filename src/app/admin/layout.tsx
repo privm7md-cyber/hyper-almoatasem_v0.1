@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { getCurrentAdmin } from "@/lib/auth/rbac";
 import { logoutAction } from "@/app/actions/auth";
+import { AdminNav } from "@/components/admin/admin-nav";
 
 interface NavItem {
   href: string;
@@ -59,13 +60,22 @@ const GROUPS: NavGroup[] = [
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await getCurrentAdmin();
   const can = (perm: string | null) => perm === null || (admin?.permissions.includes(perm) ?? false);
+  // The permitted navigation is computed HERE (server side, from the session
+  // permission snapshot) and handed to the nav island as plain data — the
+  // island never decides what a role may see.
+  const groups = GROUPS.map((group) => ({
+    title: group.title,
+    items: group.items.filter((item) => can(item.perm)).map((item) => ({ href: item.href, label: item.label })),
+  })).filter((group) => group.items.length > 0);
   return (
     <div dir="rtl" className="min-h-screen bg-zinc-50">
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-3 px-4 py-3">
-          <Link href="/admin" className="text-lg font-extrabold text-brand">
-            هايبر المعتصم <span className="text-sm font-semibold text-secondary">— الإدارة</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/admin" className="text-lg font-extrabold text-brand">
+              هايبر المعتصم <span className="text-sm font-semibold text-secondary">— الإدارة</span>
+            </Link>
+          </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-secondary">{admin ? admin.user.name : "غير مسجّل"}</span>
             {admin ? (
@@ -79,31 +89,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-4 py-4 md:flex-row">
-        <nav aria-label="أقسام الإدارة" className="md:w-56 md:shrink-0">
-          <ul className="grid gap-4 md:gap-4">
-            {GROUPS.map((group) => {
-              const visible = group.items.filter((item) => can(item.perm));
-              if (visible.length === 0) return null;
-              return (
-                <li key={group.title}>
-                  <p className="mb-1 text-xs font-bold text-secondary">{group.title}</p>
-                  <ul className="grid gap-1">
-                    {visible.map((item) => (
-                      <li key={item.href}>
-                        <Link
-                          href={item.href}
-                          className="block min-h-[44px] rounded-control px-3 py-2 text-sm font-semibold text-ink hover:bg-purple-surface"
-                        >
-                          {item.label}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        <AdminNav groups={groups} />
         <div className="min-w-0 flex-1">{children}</div>
       </div>
     </div>

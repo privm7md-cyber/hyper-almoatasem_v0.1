@@ -32,6 +32,12 @@ export const PROD_SESSION_COOKIE_NAME = "__Host-admin-session";
 /** Local-development-only session cookie (no `__Host-` prefix, never in production). */
 export const DEV_SESSION_COOKIE_NAME = "hyper-admin-session-dev";
 
+/** Production customer session cookie (frozen name — never renamed). */
+export const PROD_CUSTOMER_SESSION_COOKIE_NAME = "__Host-customer-session";
+
+/** Local-development-only customer session cookie (no `__Host-` prefix). */
+export const DEV_CUSTOMER_SESSION_COOKIE_NAME = "hyper-customer-session-dev";
+
 /**
  * The production dataset name. A local process pointed at THIS database is
  * NOT a safe place to weaken cookie attributes, even over plain HTTP: the
@@ -95,6 +101,21 @@ export function isDevSessionCookieAllowed(env: CookiePolicyEnv = process.env): b
 /** The cookie name this process must set, read and clear. */
 export function sessionCookieName(env: CookiePolicyEnv = process.env): string {
   return isDevSessionCookieAllowed(env) ? DEV_SESSION_COOKIE_NAME : PROD_SESSION_COOKIE_NAME;
+}
+
+/**
+ * The customer-session cookie name for this process.
+ *
+ * The storefront session had the same defect the admin session had: a
+ * `__Host-` cookie without `Secure` outside production, which browsers reject
+ * outright — so a customer signed in on a plain-HTTP localhost and then
+ * appeared signed out. The production name and its `Secure` flag are
+ * unchanged; a real local development process gets its own non-prefixed name.
+ */
+export function customerSessionCookieName(env: CookiePolicyEnv = process.env): string {
+  return isDevSessionCookieAllowed(env)
+    ? DEV_CUSTOMER_SESSION_COOKIE_NAME
+    : PROD_CUSTOMER_SESSION_COOKIE_NAME;
 }
 
 /**

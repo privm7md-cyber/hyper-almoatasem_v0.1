@@ -115,8 +115,10 @@ async function FeaturedSection() {
 export default function HomePage() {
   return (
     <StoreShell>
-      <div id="categories">
+      <div>
         <HomeHero />
+      </div>
+      <div id="categories">
         <CategoriesSection />
       </div>
       <FeaturedSection />

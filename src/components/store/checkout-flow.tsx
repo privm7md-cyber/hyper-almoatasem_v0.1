@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppError, apiRequest } from "@/lib/frontend/api-client";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
@@ -53,7 +54,7 @@ function fingerprint(parts: (string | null | undefined)[]): string {
   return parts.map((p) => p ?? "").join("|");
 }
 
-export function CheckoutFlow() {
+export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string }) {
   const router = useRouter();
   const { notify } = useToast();
   const [phase, setPhase] = useState<"loading" | "ready" | "failed">("loading");
@@ -62,7 +63,7 @@ export function CheckoutFlow() {
   const [lines, setLines] = useState<CartLine[]>([]);
   const [addressId, setAddressId] = useState<string>("");
   const [guest, setGuest] = useState({ city: "", phone: "", firstName: "", street: "" });
-  const [coupon, setCoupon] = useState("");
+  const [coupon, setCoupon] = useState(initialCoupon);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewNote, setPreviewNote] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -245,7 +246,26 @@ export function CheckoutFlow() {
   if (lines.length === 0) {
     return (
       <div className="mt-6">
-        <EmptyState title="السلة فارغة" hint="أضف منتجات قبل إتمام الطلب." />
+        <EmptyState
+          title="السلة فارغة"
+          hint="أضف منتجات قبل إتمام الطلب."
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link
+                href="/cart"
+                className="vxp-primary-btn inline-flex min-h-[44px] items-center justify-center rounded-control bg-brand px-5 font-semibold text-white"
+              >
+                راجع السلة
+              </Link>
+              <Link
+                href="/categories"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-control border border-line-strong px-5 font-semibold text-ink"
+              >
+                تصفّح الأقسام
+              </Link>
+            </div>
+          }
+        />
       </div>
     );
   }

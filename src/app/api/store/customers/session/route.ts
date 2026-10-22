@@ -17,7 +17,7 @@ import { fail, ok } from "@/lib/api/respond";
 import { customerLoginSchema } from "@/lib/customers/validation";
 import { authenticateCustomer } from "@/lib/customers/auth";
 import {
-  CUSTOMER_SESSION_COOKIE,
+  customerSessionCookieName,
   CUSTOMER_SESSION_TTL_SECONDS,
   readCustomerToken,
   requireCustomer,
@@ -27,10 +27,13 @@ import {
 import { getCustomer } from "@/lib/customers/queries";
 import { toAddress, toCustomer } from "@/lib/customers/serialize";
 
-const isProd = process.env.NODE_ENV === "production";
-
 function cookieAttrs(maxAge: number): string {
-  return `${CUSTOMER_SESSION_COOKIE}=__VALUE__; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isProd ? "; Secure" : ""}`;
+  // The cookie NAME follows the environment policy (production keeps the
+  // `__Host-` prefix; a real local development process uses its own
+  // non-prefixed name) and `Secure` is mandatory for a `__Host-` cookie.
+  const name = customerSessionCookieName();
+  const secure = name.startsWith("__Host-");
+  return `${name}=__VALUE__; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
 }
 
 function clientIp(request: Request): string | null {

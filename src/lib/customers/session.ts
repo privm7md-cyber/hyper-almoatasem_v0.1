@@ -16,10 +16,11 @@ import { hashToken, newOpaqueToken } from "@/lib/auth/tokens";
 import {
   CUSTOMER_SESSION_COOKIE,
   CUSTOMER_TOKEN_HEADER,
+  customerSessionCookieName,
   readCustomerToken,
 } from "./cookies";
 
-export { CUSTOMER_SESSION_COOKIE, CUSTOMER_TOKEN_HEADER, readCustomerToken };
+export { CUSTOMER_SESSION_COOKIE, CUSTOMER_TOKEN_HEADER, customerSessionCookieName, readCustomerToken };
 // Customer session lifetime: 30 days, fixed (product-tunable constant —
 export const CUSTOMER_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 

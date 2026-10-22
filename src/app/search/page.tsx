@@ -1,6 +1,8 @@
 // FE-3 search results (server): extends the FE-2 minimal page (kept, not replaced).
 // Contract: q 2..120, relevance/newest sorts, category/brand/type/price/inStock filters,
 // keyset load-more; no autocomplete/facets. Result pages stay noindex (SAP decision).
+// Phase-11: the results page renders a SECOND search box next to the header one,
+// so it gets its own landmark name and field label (no duplicate ids/names).
 
 import type { Metadata } from "next";
 import { StoreShell } from "@/components/store/store-shell";
@@ -59,7 +61,11 @@ export default async function SearchPage({
       <div className="mt-6">
         <PageTitle>البحث في المنتجات</PageTitle>
         <div className="mt-3 max-w-[560px]">
-          <SearchBox initial={raw} />
+          <SearchBox
+            initial={raw}
+            label="البحث في صفحة النتائج"
+            hint="عدّل كلمة البحث"
+          />
         </div>
       </div>
       {valid !== null ? (
