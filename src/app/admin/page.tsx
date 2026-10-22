@@ -10,11 +10,11 @@ export const metadata = {
 };
 
 const SECTIONS = [
-  { href: "/admin/orders", label: "الطلبات", hint: "قائمة الطلبات وحالاتها" },
-  { href: "/admin/products", label: "المنتجات", hint: "الكتالوج والأسعار" },
-  { href: "/admin/inventory", label: "المخزون", hint: "الأرصدة والحركات" },
-  { href: "/admin/customers", label: "العملاء", hint: "السجلات والعناوين" },
-  { href: "/admin/promotions", label: "العروض", hint: "القواعد والاستهداف" },
+  { href: "/admin/orders", label: "الطلبات", hint: "قائمة الطلبات وحالاتها", perm: "orders.view" },
+  { href: "/admin/products", label: "المنتجات", hint: "الكتالوج والأسعار", perm: "products.view" },
+  { href: "/admin/inventory", label: "المخزون", hint: "الأرصدة والحركات", perm: "inventory.view" },
+  { href: "/admin/customers", label: "العملاء", hint: "السجلات والعناوين", perm: "customers.view" },
+  { href: "/admin/promotions", label: "العروض", hint: "القواعد والاستهداف", perm: "promotions.view" },
 ];
 
 export default async function AdminDashboardPage() {
@@ -49,8 +49,10 @@ export default async function AdminDashboardPage() {
                 {s.label}
               </Link>
               <p className="mt-1 text-sm text-secondary">{s.hint}</p>
-              {!can("orders.view") && s.href === "/admin/orders" ? (
-                <p className="mt-1 text-xs text-secondary">يتطلب صلاحية — الصفحة سترد بالمنع.</p>
+              {!can(s.perm) ? (
+                <p className="mt-1 text-xs text-secondary">
+                  يتطلب صلاحية <span dir="ltr" className="font-mono">{s.perm}</span> — الصفحة سترد بالمنع.
+                </p>
               ) : null}
             </li>
           ))}

@@ -1,8 +1,10 @@
 // Admin customer registration: staff-assisted guest → registered upgrade.
-// Permission: customers.view (documented closest-capability mapping — see
-// [id]/route.ts). Policy + Argon2id via the existing auth infrastructure;
-// the secret travels only in this request body, is hashed server-side, and
-// is never logged or returned. Already-registered (or raced) → 409.
+// Permission: customers.manage (Phase-10 remediation, G03 — the customer
+// domain is split into a read capability and a write capability; setting a
+// customer credential is a write). Policy + Argon2id via the existing auth
+// infrastructure; the secret travels only in this request body, is hashed
+// server-side, and is never logged or returned. Already-registered (or raced)
+// → 409.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
@@ -13,7 +15,7 @@ import { upgradeToRegistered } from "@/lib/customers/writes";
 import { toCustomer } from "@/lib/customers/serialize";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const gate = await adminOrDeny("customers.view");
+  const gate = await adminOrDeny("customers.manage");
   if ("denied" in gate) return gate.denied;
   const { id } = await context.params;
   if (!uuidSchema.safeParse(id).success) {

@@ -40,3 +40,45 @@ export async function adminOrDeny(
   }
   return { admin: auth.admin };
 }
+
+/**
+ * Requires EVERY listed permission (Phase-10 remediation, G01). Used where a
+ * resource exposes two distinct capabilities — e.g. a variant carries the
+ * product structure (`products.view`) AND the selling price (`prices.view`).
+ * The first missing key produces the same 401/403 envelope as `denyUnless`;
+ * the response never says WHICH key was missing.
+ */
+export async function denyUnlessAll(
+  permissions: string[],
+): Promise<NextResponse | null> {
+  for (const permission of permissions) {
+    const denied = await denyUnless(permission);
+    if (denied) return denied;
+  }
+  return null;
+}
+
+/**
+ * `adminOrDeny` for a resource that needs several capabilities at once
+ * (Phase-10 remediation, G01): e.g. editing a variant's price field needs
+ * both `products.update` (the variant) and `prices.update` (the price).
+ */
+export async function adminOrDenyAll(
+  permissions: string[],
+): Promise<{ admin: AdminContext } | { denied: NextResponse }> {
+  let admin: AdminContext | null = null;
+  for (const permission of permissions) {
+    const auth = await checkPermission(permission);
+    if (auth.ok === false) {
+      const r = fail(
+        new ApiError(
+          auth.code === "UNAUTHENTICATED" ? "UNAUTHENTICATED" : "FORBIDDEN",
+          auth.code === "UNAUTHENTICATED" ? "Authentication required." : "Forbidden.",
+        ),
+      );
+      return { denied: NextResponse.json(r.body, { status: r.status }) };
+    }
+    admin = auth.admin;
+  }
+  return { admin: admin as AdminContext };
+}

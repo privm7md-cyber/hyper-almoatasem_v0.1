@@ -3,7 +3,7 @@
 // ============================================================================
 // Seeds ONLY the minimal bootstrap data required to run the system, with exact
 // values from the authoritative source `db/phase5-seed-example.sql`:
-//   roles (2) -> permissions (31) -> role_permissions (31 + 24) ->
+//   roles (2) -> permissions (32) -> role_permissions (32 + 25) ->
 //   store_settings (8) -> owner identity (1) -> user_roles (1)
 // Everything else (catalog, customers, carts, orders, promotions, ...) is
 // BUSINESS DATA and enters later via application/import/admin flows — never here.
@@ -124,6 +124,13 @@ const PERMISSIONS = [
   { id: "02800000-0000-7000-8000-000000000129", key: "settings.manage", description: "Change store settings" },
   { id: "02800000-0000-7000-8000-000000000130", key: "audit_logs.view", description: "Read audit trail" },
   { id: "02800000-0000-7000-8000-000000000131", key: "notifications.view", description: "Read own notifications" },
+  // Phase-10 remediation (G03): the read/write split of the customer domain.
+  // `customers.view` authorizes READING customer records and their addresses
+  // ONLY. Mutating a customer (profile, password registration, address
+  // create/update/delete) needs this separate write capability. Granted to the
+  // two seeded business roles (SUPER_ADMIN + STORE_ADMIN) — never to a
+  // read-only role, and never to every operator by default.
+  { id: "02800000-0000-7000-8000-000000000132", key: "customers.manage", description: "Edit customers and their addresses (write capability)" },
 ];
 
 // STORE_ADMIN holds everything EXCEPT the platform-security capabilities.
@@ -350,7 +357,7 @@ async function main() {
       users: Number((await q(`SELECT count(*) AS n FROM users`))[0].n),
       userRoles: Number((await q(`SELECT count(*) AS n FROM user_roles`))[0].n),
     };
-    const expected = { roles: 2, permissions: 31, rolePermissions: 55, storeSettings: 8, users: 1, userRoles: 1 };
+    const expected = { roles: 2, permissions: 32, rolePermissions: 57, storeSettings: 8, users: 1, userRoles: 1 };
     const countMismatch = Object.keys(expected).filter((k) => counts[k] !== expected[k]);
     console.log(JSON.stringify({ ...report, counts, expected }, null, 2));
     if (countMismatch.length > 0 || report.extraGrants.length > 0) {

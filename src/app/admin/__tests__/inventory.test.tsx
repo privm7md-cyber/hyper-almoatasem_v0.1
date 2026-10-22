@@ -16,6 +16,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
 vi.mock("@/lib/auth/rbac", () => ({
   requireAdmin: vi.fn(),
   requirePermission: vi.fn(),
@@ -59,11 +62,11 @@ function invRow(i: number) {
 }
 
 type InvRows = Awaited<ReturnType<typeof listInventory>>;
-const authed = () => {
+const authed = (permissions = ["inventory.view", "inventory.adjust"]) => {
   vi.mocked(requirePermission).mockResolvedValue({
     user: { id: "u", name: "n", email: "e" },
     roles: [],
-    permissions: ["inventory.view"],
+    permissions,
   });
   vi.mocked(listMovements).mockResolvedValue([]);
 };
@@ -206,5 +209,29 @@ describe("admin inventory pagination (GAP-1 fix)", () => {
     expect(listMovements).not.toHaveBeenCalled();
     vi.mocked(requirePermission).mockRejectedValueOnce(REDIRECT);
     await expect(AdminInventoryPage({ searchParams: sp({}) })).rejects.toThrow("NEXT_REDIRECT");
+  });
+
+  it("hides the stock-write controls without inventory.adjust and names the missing key", async () => {
+    authed(["inventory.view"]);
+    vi.mocked(listInventory).mockResolvedValueOnce([invRow(0)] as unknown as InvRows);
+    const { container } = render(
+      <ToastProvider>{await AdminInventoryPage({ searchParams: sp({}) })}</ToastProvider>,
+    );
+    // The read table stays; the write forms do not — a control the server would
+    // refuse (403) must not be rendered as if it worked.
+    expect(screen.getByText("تعديل يدوي (inventory.adjust)")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "حفظ التعديل" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "حفظ الحد" })).toBeNull();
+    expect(container.textContent).toContain("inventory.adjust");
+  });
+
+  it("renders the stock-write controls when inventory.adjust is held", async () => {
+    authed(["inventory.view", "inventory.adjust"]);
+    vi.mocked(listInventory).mockResolvedValueOnce([invRow(0)] as unknown as InvRows);
+    render(
+      <ToastProvider>{await AdminInventoryPage({ searchParams: sp({}) })}</ToastProvider>,
+    );
+    expect(screen.getByRole("button", { name: "حفظ التعديل" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "حفظ الحد" })).toBeVisible();
   });
 });

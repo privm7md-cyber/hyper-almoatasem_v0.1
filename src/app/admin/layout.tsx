@@ -29,6 +29,7 @@ const GROUPS: NavGroup[] = [
     title: "الكتالوج والمخزون",
     items: [
       { href: "/admin/products", label: "المنتجات", perm: "products.view" },
+      { href: "/admin/taxonomy", label: "التصنيفات والعلامات", perm: "products.view" },
       { href: "/admin/inventory", label: "المخزون", perm: "inventory.view" },
     ],
   },
@@ -48,6 +49,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/users", label: "المستخدمون", perm: "users.view" },
       { href: "/admin/roles", label: "الأدوار", perm: "roles.view" },
+      { href: "/admin/permissions", label: "سجل الصلاحيات", perm: "roles.view" },
       { href: "/admin/settings", label: "الإعدادات", perm: "settings.view" },
       { href: "/admin/audit-logs", label: "سجل التدقيق", perm: "audit_logs.view" },
     ],

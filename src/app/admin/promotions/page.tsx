@@ -6,6 +6,7 @@ import Link from "next/link";
 import { requirePermission } from "@/lib/auth/rbac";
 import { listPromotions } from "@/lib/promotions/queries";
 import { EmptyState, ErrorState } from "@/components/ui/states";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { PromotionCreateForm } from "@/components/admin/promotion-forms";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export default async function AdminPromotionsPage({
 }: {
   searchParams: Promise<{ status?: string; search?: string; cursor?: string }>;
 }) {
-  await requirePermission("promotions.view");
+  const admin = await requirePermission("promotions.view");
   const sp = await searchParams;
   const status = typeof sp.status === "string" && ["DRAFT", "ACTIVE", "DISABLED"].includes(sp.status) ? sp.status : null;
   const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 160) : null;
@@ -84,9 +85,11 @@ export default async function AdminPromotionsPage({
         </p>
       ) : null}
       <section aria-label="إنشاء عرض" className="rounded-card border border-line bg-white p-4">
-        <h2 className="font-bold">عرض جديد (يُنشأ كمسودة — فعّله بعد إضافة الاستهداف)</h2>
+        <h2 className="font-bold">عرض جديد (promotions.create) — يُنشأ كمسودة، فعّله بعد إضافة الاستهداف</h2>
         <div className="mt-2">
-          <PromotionCreateForm />
+          <PermissionGate permissions={admin.permissions} required="promotions.create" action="إنشاء العروض">
+            <PromotionCreateForm />
+          </PermissionGate>
         </div>
       </section>
     </main>

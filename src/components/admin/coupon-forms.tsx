@@ -4,11 +4,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 export function CouponCreateForm() {
+  const router = useRouter();
   const { notify } = useToast();
   const [promotionId, setPromotionId] = useState("");
   const [code, setCode] = useState("");
@@ -40,6 +42,7 @@ export function CouponCreateForm() {
         },
       });
       notify("success", "تم إنشاء الكوبون.");
+      router.refresh();
       setPromotionId("");
       setCode("");
       setUsageLimit("");

@@ -20,6 +20,7 @@ function Note({ text }: { text: string | null }) {
 }
 
 export function RoleCreateForm() {
+  const router = useRouter();
   const { notify } = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -43,6 +44,7 @@ export function RoleCreateForm() {
       notify("success", "تم إنشاء الدور.");
       setName("");
       setDescription("");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الإنشاء."));
     } finally {
@@ -79,6 +81,7 @@ export function RolePatchForm({
   description: string | null;
   isActive: boolean;
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [nextName, setNextName] = useState(name);
   const [nextActive, setNextActive] = useState(isActive);
@@ -100,6 +103,7 @@ export function RolePatchForm({
         body: { name: nextName.trim(), isActive: nextActive },
       });
       notify("success", "تم حفظ الدور.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
     } finally {
@@ -140,6 +144,7 @@ export function RoleDeleteButton({ id, memberCount }: { id: string; memberCount:
     try {
       await apiRequest(`/api/admin/roles/${id}`, { method: "DELETE" });
       notify("success", "تم حذف الدور.");
+      router.refresh();
       router.push("/admin/roles");
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحذف."));
@@ -193,6 +198,7 @@ export function RoleGrantsManager({
   granted: string[];
   allPermissions: { id: string; key: string; description: string | null }[];
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [permissionId, setPermissionId] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -207,6 +213,7 @@ export function RoleGrantsManager({
       await apiRequest(`/api/admin/roles/${roleId}/grants`, { method: "POST", body: { permissionId } });
       notify("success", "تم منح الصلاحية.");
       setPermissionId("");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر المنح."));
     } finally {
@@ -215,12 +222,17 @@ export function RoleGrantsManager({
   }
 
   async function detach(pid: string) {
+    if (pending) return;
     setNote(null);
+    setPending(true);
     try {
       await apiRequest(`/api/admin/roles/${roleId}/grants/${pid}`, { method: "DELETE" });
       notify("success", "تم سحب الصلاحية.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر السحب."));
+    } finally {
+      setPending(false);
     }
   }
 
@@ -236,7 +248,12 @@ export function RoleGrantsManager({
             <li key={key} className="flex items-center justify-between gap-2 rounded-card border border-line bg-white px-3 py-2 text-sm">
               <span dir="ltr" className="font-mono">{key}</span>
               {row ? (
-                <button type="button" onClick={() => void detach(row.id)} className="min-h-[44px] px-3 font-semibold text-error">
+                <button
+                  type="button"
+                  onClick={() => void detach(row.id)}
+                  disabled={pending}
+                  className="min-h-[44px] px-3 font-semibold text-error disabled:cursor-not-allowed disabled:opacity-55"
+                >
                   سحب
                 </button>
               ) : null}

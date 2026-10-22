@@ -4,11 +4,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 export function CustomerRegisterForm({ customerId }: { customerId: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [password, setPassword] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export function CustomerRegisterForm({ customerId }: { customerId: string }) {
         body: { password },
       });
       notify("success", "تم تسجيل العميل.");
+      router.refresh();
       setPassword("");
     } catch (error) {
       setNote(displayFailure(error, "تعذّر التسجيل."));

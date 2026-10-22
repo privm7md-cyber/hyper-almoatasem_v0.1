@@ -1,6 +1,6 @@
 // Security suite over HTTP (scratch-only).
 // ctx: { baseUrl, dbName, owner: {email,password}, store: {email,password} }
-import { makeClient, sql, resetAuthState, GENERIC_MSG, COOKIE_NAME } from "./_client.mjs";
+import { makeClient, sql, resetAuthState, GENERIC_MSG, sessionCookieName, sessionCookie } from "./_client.mjs";
 
 export async function run(ctx, serverLogs) {
   const results = [];
@@ -51,13 +51,13 @@ export async function run(ctx, serverLogs) {
       a.post("/api/admin/session", { email: owner.email, password: owner.password }),
       b.post("/api/admin/session", { email: owner.email, password: owner.password }),
     ]);
-    t("distinct_tokens", r1.res.status === 201 && r2.res.status === 201 && a.jar[COOKIE_NAME] !== b.jar[COOKIE_NAME], "");
+    t("distinct_tokens", r1.res.status === 201 && r2.res.status === 201 && sessionCookie(a.jar) !== sessionCookie(b.jar), "");
   }
   // 5. stolen revoked token rejected.
   {
     const c = makeClient(baseUrl);
     await c.post("/api/admin/session", { email: store.email, password: store.password });
-    const raw = c.jar[COOKIE_NAME];
+    const raw = sessionCookie(c.jar);
     await sql(dbName, `UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = encode(digest(convert_to($1,'UTF8'),'sha256'),'hex')`, [raw]);
     const g = await c.get("/api/admin/session");
     t("stolen_revoked_rejected", g.res.status === 401, `status=${g.res.status}`);
@@ -66,7 +66,7 @@ export async function run(ctx, serverLogs) {
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password }, { headers: { Origin: "https://evil.test" } });
-    t("csrf_origin_rejected", r.res.status === 403 && !c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("csrf_origin_rejected", r.res.status === 403 && !sessionCookie(c.jar), `status=${r.res.status}`);
   }
   // 7. XSS periphery: no secrets in login HTML; session cookie HttpOnly.
   {
@@ -75,7 +75,7 @@ export async function run(ctx, serverLogs) {
     const leaksSecrets = html.includes(owner.password) || html.includes("token_hash") || html.includes("password_hash");
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    const sc = (r.setCookies.find((s) => s.startsWith(COOKIE_NAME + "=")) || "").toLowerCase();
+    const sc = (r.setCookies.find((s) => s.startsWith(sessionCookieName(c.jar) + "=")) || "").toLowerCase();
     t("xss_no_secrets", !leaksSecrets && sc.includes("httponly"), `html=${html.length}b`);
   }
   // 8. escalation: store admin cannot touch super-only surface (also absence of owner email in 403 page).
@@ -95,7 +95,7 @@ export async function run(ctx, serverLogs) {
     await sql(dbName, `UPDATE users SET is_active = FALSE WHERE email=$1`, [store.email]);
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: store.email, password: store.password });
-    t("disabled_login_denied", r.res.status === 401 && !c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("disabled_login_denied", r.res.status === 401 && !sessionCookie(c.jar), `status=${r.res.status}`);
     await sql(dbName, `UPDATE users SET is_active = TRUE WHERE email=$1`, [store.email]);
   }
   // 11. rotation kills sessions (bootstrap-style rotation replicated by direct update + revoke-all).

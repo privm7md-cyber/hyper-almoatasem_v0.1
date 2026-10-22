@@ -10,6 +10,7 @@ import { uuidSchema } from "@/lib/api/validation";
 import { codePatchSchema } from "@/lib/catalog/validation";
 import { deleteCode, patchCode } from "@/lib/catalog/writes";
 import { prisma } from "@/lib/db";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 async function validId(context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -54,6 +55,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid product code."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const row = await patchCode(id, parsed.data, gate.admin.user.id);
     if (!row) {

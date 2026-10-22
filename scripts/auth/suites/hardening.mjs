@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import "dotenv/config";
 import argon2 from "argon2";
-import { makeClient, sql, resetAuthState, COOKIE_NAME } from "./_client.mjs";
+import { makeClient, sql, resetAuthState, sessionCookie } from "./_client.mjs";
 
 export async function run(ctx) {
   const results = [];
@@ -23,7 +23,7 @@ export async function run(ctx) {
   // ---- TIME-1: session exact boundary (expires_at == now -> rejected) ----
   {
     const c = await loginAs(owner);
-    const raw = c.jar[COOKIE_NAME];
+    const raw = sessionCookie(c.jar);
     await pg(`UPDATE admin_sessions SET created_at = now() - interval '8 hours', expires_at = now() WHERE token_hash = encode(digest(convert_to($1,'UTF8'),'sha256'),'hex')`, [raw]);
     const g = await c.get("/api/admin/session");
     t("time_session_exact_boundary", g.res.status === 401, `status=${g.res.status}`);
@@ -111,7 +111,7 @@ export async function run(ctx) {
     await b.post("/api/admin/session", { email: owner.email, password: owner.password });
     const ga = await a.get("/api/admin/session");
     const gb = await b.get("/api/admin/session");
-    t("cookie_concurrent_sessions", ga.res.status === 200 && gb.res.status === 200 && a.jar[COOKIE_NAME] !== b.jar[COOKIE_NAME], "");
+    t("cookie_concurrent_sessions", ga.res.status === 200 && gb.res.status === 200 && sessionCookie(a.jar) !== sessionCookie(b.jar), "");
   }
   // ---- DEPLOY-1/2/3: argon2 native, node runtime, build id ----
   {

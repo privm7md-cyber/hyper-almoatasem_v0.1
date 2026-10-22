@@ -1,9 +1,12 @@
 // PHASE 5 tests — real PostgreSQL (PGlite) on SHIPPED files.
 // TEST-ENV SHIMS ONLY (never shipped): pgcrypto line neutralised in-memory + stub
 // gen_random_uuid(); all tests send explicit UUIDs. Shipped bytes untouched.
-const { PGlite } = require('@electric-sql/pglite');
-const fs = require('fs');
-const path = require('path');
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DBDIR = path.join(__dirname, '..');
 let seq = 900000;
 const uid = () => '02800000-0000-7000-8000-' + String(seq++).padStart(12, '0');
@@ -34,11 +37,12 @@ const bad = (n, e) => { fail++; console.log('FAIL ' + n + ' :: ' + String(e && e
   try {
     // ---- seed baseline ----
     const seed = async (t, w) => Number((await q(`SELECT COUNT(*) c FROM ${t} ${w || ''}`)).rows[0].c);
-    (await seed('roles') === 2 && await seed('permissions') === 31) ? ok('SEED roles=2 permissions=31') : bad('SEED base');
-    (await seed('role_permissions', `WHERE role_id='02800000-0000-7000-8000-000000000001'`) === 31
-      && await seed('role_permissions', `WHERE role_id='02800000-0000-7000-8000-000000000002'`) === 24)
-      ? ok('SEED matrix 31 / 24') : bad('SEED matrix');
-    (await seed('store_settings') === 8) ? ok('SEED settings=8') : bad('SEED settings');
+    if ((await seed('roles') === 2 && await seed('permissions') === 32)) ok('SEED roles=2 permissions=32');
+    else bad('SEED base');
+    if ((await seed('role_permissions', `WHERE role_id='02800000-0000-7000-8000-000000000001'`) === 32
+      && await seed('role_permissions', `WHERE role_id='02800000-0000-7000-8000-000000000002'`) === 25)) ok('SEED matrix 32 / 25');
+    else bad('SEED matrix');
+    if ((await seed('store_settings') === 8)) ok('SEED settings=8'); else bad('SEED settings');
 
     // ---- users ----
     await q(`INSERT INTO users (id, name, email) VALUES ($1,'No At','no-at')`, [uid()])
@@ -91,18 +95,19 @@ const bad = (n, e) => { fail++; console.log('FAIL ' + n + ' :: ' + String(e && e
     // ---- matrix (effective grants) ----
     const allKeys = (await q(`SELECT key FROM permissions`)).rows.map(x => x.key);
     const seff = await eff(owner);
-    (seff.length === 31 && allKeys.every(k => seff.includes(k))) ? ok('M1 SUPER_ADMIN effective = all 31') : bad('M1 super', seff.length);
+    if ((seff.length === 31 && allKeys.every(k => seff.includes(k)))) ok('M1 SUPER_ADMIN effective = all 31');
+    else bad('M1 super', seff.length);
     const storeU = (await q(`INSERT INTO users (id, name, email) VALUES ($1,'Store','store@x.com') RETURNING id`, [uid()])).rows[0].id;
     await q(`INSERT INTO user_roles (user_id, role_id) VALUES ($1,'02800000-0000-7000-8000-000000000002')`, [storeU]);
     const meff = await eff(storeU);
     const banned = ['users.view', 'users.manage', 'roles.view', 'roles.manage', 'settings.view', 'settings.manage', 'audit_logs.view'];
-    (meff.length === 24 && banned.every(k => !meff.includes(k)) && meff.includes('products.update') && meff.includes('notifications.view'))
-      ? ok('M2 STORE_ADMIN = 24, security keys excluded') : bad('M2 store', meff.length);
+    if ((meff.length === 24 && banned.every(k => !meff.includes(k)) && meff.includes('products.update') && meff.includes('notifications.view'))) ok('M2 STORE_ADMIN = 24, security keys excluded');
+    else bad('M2 store', meff.length);
     await q(`UPDATE roles SET is_active=FALSE WHERE id='02800000-0000-7000-8000-000000000002'`);
-    (await eff(storeU)).length === 0 ? ok('M3 disabled role authorizes nothing') : bad('M3 disabled role');
+    if ((await eff(storeU)).length === 0) ok('M3 disabled role authorizes nothing'); else bad('M3 disabled role');
     await q(`UPDATE roles SET is_active=TRUE WHERE id='02800000-0000-7000-8000-000000000002'`);
     await q(`UPDATE users SET is_active=FALSE WHERE id=$1`, [storeU]);
-    (await eff(storeU)).length === 0 ? ok('M4 disabled user authorizes nothing') : bad('M4 disabled user');
+    if ((await eff(storeU)).length === 0) ok('M4 disabled user authorizes nothing'); else bad('M4 disabled user');
     await q(`UPDATE users SET is_active=TRUE WHERE id=$1`, [storeU]);
 
     // ---- audit ----
@@ -118,9 +123,9 @@ const bad = (n, e) => { fail++; console.log('FAIL ' + n + ' :: ' + String(e && e
       VALUES ($1,'ADMIN','prices.update','product_variants','01800000-0000-7000-8000-000000000201',
       '{"price": "15.00"}','{"price": "17.00"}','127.0.0.1') RETURNING id`, [owner])).rows[0].id;
     const aq = (await q(`SELECT new_values->>'price' p FROM audit_logs WHERE id=$1`, [aid])).rows[0].p;
-    (aq === '17.00') ? ok('A5 JSONB payload queryable') : bad('A5 JSONB', aq);
+    if ((aq === '17.00')) ok('A5 JSONB payload queryable'); else bad('A5 JSONB', aq);
     const noUpd = await q(`SELECT COUNT(*) c FROM information_schema.columns WHERE table_name='audit_logs' AND column_name='updated_at'`);
-    (noUpd.rows[0].c == 0) ? ok('A6 no updated_at on audit (immutable)') : bad('A6 updated_at exists');
+    if ((noUpd.rows[0].c == 0)) ok('A6 no updated_at on audit (immutable)'); else bad('A6 updated_at exists');
 
     // ---- settings ----
     const setOK = [['BOOLEAN', 'true'], ['INTEGER', '-30'], ['NUMERIC', '20.00'], ['TEXT', 'anything {} ['], ['JSON', '{"a":[1,2]}']];
@@ -135,22 +140,22 @@ const bad = (n, e) => { fail++; console.log('FAIL ' + n + ' :: ' + String(e && e
     // ---- notifications ----
     const n1 = (await q(`INSERT INTO notifications (user_id, type, title, message, data) VALUES ($1,'order.created','New order','Order HM-1 placed','{"order_number":"HM-1"}') RETURNING id`, [owner])).rows[0].id;
     const nr = (await q(`SELECT read_at r, data->>'order_number' o FROM notifications WHERE id=$1`, [n1])).rows[0];
-    (nr.r === null && nr.o === 'HM-1') ? ok('N1 unread default + JSONB data') : bad('N1', JSON.stringify(nr));
+    if ((nr.r === null && nr.o === 'HM-1')) ok('N1 unread default + JSONB data'); else bad('N1', JSON.stringify(nr));
     const uB = (await q(`INSERT INTO users (id, name, email) VALUES ($1,'E','e@x.com') RETURNING id`, [uid()])).rows[0].id;
     const inboxB = await q(`SELECT COUNT(*) c FROM notifications WHERE user_id=$1`, [uB]);
-    (inboxB.rows[0].c == 0) ? ok('N2 inbox isolated per user') : bad('N2 isolation');
+    if ((inboxB.rows[0].c == 0)) ok('N2 inbox isolated per user'); else bad('N2 isolation');
     await q(`DELETE FROM users WHERE id=$1`, [uB]); // uB has nothing: no mappings, no audit, no notifications
     const goneB = await q(`SELECT COUNT(*) c FROM users WHERE id=$1`, [uB]);
-    (goneB.rows[0].c == 0) ? ok('N3 unreferenced user deletable (no RESTRICT trip)') : bad('N3 delete');
+    if ((goneB.rows[0].c == 0)) ok('N3 unreferenced user deletable (no RESTRICT trip)'); else bad('N3 delete');
     const uC = (await q(`INSERT INTO users (id, name, email) VALUES ($1,'F','f@x.com') RETURNING id`, [uid()])).rows[0].id;
     await q(`INSERT INTO notifications (user_id, type, title, message) VALUES ($1,'system','Hi','x')`, [uC]);
     await q(`DELETE FROM users WHERE id=$1`, [uC]);
     const left = await q(`SELECT COUNT(*) c FROM notifications WHERE user_id=$1`, [uC]);
-    (left.rows[0].c == 0) ? ok('N4 inbox CASCADEs with user (non-evidentiary)') : bad('N4 cascade');
+    if ((left.rows[0].c == 0)) ok('N4 inbox CASCADEs with user (non-evidentiary)'); else bad('N4 cascade');
 
     // ---- cross-domain: no admin_* duplicates; frozen CHECKs alive ----
     const adm = await q(`SELECT COUNT(*) c FROM information_schema.tables WHERE table_name LIKE 'admin\\_%'`);
-    (adm.rows[0].c == 0) ? ok('X1 no admin_* duplicate entities') : bad('X1 duplicates');
+    if ((adm.rows[0].c == 0)) ok('X1 no admin_* duplicate entities'); else bad('X1 duplicates');
     await q(`INSERT INTO products (category_id, product_type, unit, name, slug) VALUES ('01800000-0000-7000-8000-000000000001','WEIGHT','PIECE','x','x-frozen-probe')`)
       .then(() => bad('X2 frozen weight rule alive', 'accepted')).catch((e) => /chk_products_weight_rule/.test(e.message) ? ok('X2 frozen weight rule alive') : bad('X2', e));
     await q(`INSERT INTO product_codes (product_variant_id, code, type) VALUES ('01800000-0000-7000-8000-000000000201','2010106','BARCODE')`)
@@ -159,18 +164,18 @@ const bad = (n, e) => { fail++; console.log('FAIL ' + n + ' :: ' + String(e && e
     // ---- counts ----
     const tcount = await q(`SELECT COUNT(*) c FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'
       AND table_name IN ('users','roles','user_roles','permissions','role_permissions','audit_logs','store_settings','notifications')`);
-    (tcount.rows[0].c == 8) ? ok('C-COUNT 8/8 Phase 5 tables') : bad('C-COUNT', tcount.rows[0].c);
+    if ((tcount.rows[0].c == 8)) ok('C-COUNT 8/8 Phase 5 tables'); else bad('C-COUNT', tcount.rows[0].c);
     const fkcount = await q(`SELECT COUNT(*) c FROM pg_constraint WHERE contype='f' AND conrelid IN
       ('users'::regclass,'roles'::regclass,'user_roles'::regclass,'permissions'::regclass,'role_permissions'::regclass,
        'audit_logs'::regclass,'store_settings'::regclass,'notifications'::regclass)`);
     // user_roles 2 + role_permissions 2 + audit 1 + notifications 1 = 6
-    (fkcount.rows[0].c == 6) ? ok('C-FK 6 new FKs (mappings ×4, audit, inbox)') : bad('C-FK', fkcount.rows[0].c);
+    if ((fkcount.rows[0].c == 6)) ok('C-FK 6 new FKs (mappings ×4, audit, inbox)'); else bad('C-FK', fkcount.rows[0].c);
     const uqcount = await q(`SELECT COUNT(*) c FROM pg_constraint WHERE contype='u' AND conrelid IN
       ('users'::regclass,'roles'::regclass,'user_roles'::regclass,'permissions'::regclass,'role_permissions'::regclass,
        'audit_logs'::regclass,'store_settings'::regclass,'notifications'::regclass)`);
     // users email + roles name + user_roles pair + permissions key + role_permissions pair
     // + settings key = 6 table CONSTRAINTs (the partial phone UQ is an index, not counted here)
-    (uqcount.rows[0].c == 6) ? ok('C-UQ 6 new uniques (+1 partial index)') : bad('C-UQ', uqcount.rows[0].c);
+    if ((uqcount.rows[0].c == 6)) ok('C-UQ 6 new uniques (+1 partial index)'); else bad('C-UQ', uqcount.rows[0].c);
 
     console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`);
     process.exitCode = fail ? 1 : 0;

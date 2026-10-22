@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { listCoupons } from "@/lib/promotions/queries";
 import { toCoupon } from "@/lib/promotions/serialize";
 import { EmptyState, ErrorState } from "@/components/ui/states";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { CouponCreateForm } from "@/components/admin/coupon-forms";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function AdminCouponsPage({
 }: {
   searchParams: Promise<{ search?: string; cursor?: string }>;
 }) {
-  await requirePermission("coupons.view");
+  const admin = await requirePermission("coupons.view");
   const sp = await searchParams;
   const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 64) : null;
   const cursor = typeof sp.cursor === "string" && sp.cursor !== "" ? sp.cursor : null;
@@ -74,9 +75,11 @@ export default async function AdminCouponsPage({
         </p>
       ) : null}
       <section aria-label="إنشاء كوبون" className="rounded-card border border-line bg-white p-4">
-        <h2 className="font-bold">كوبون جديد (يرتبط بعرض موجود)</h2>
+        <h2 className="font-bold">كوبون جديد (coupons.create) — يرتبط بعرض موجود</h2>
         <div className="mt-2">
-          <CouponCreateForm />
+          <PermissionGate permissions={admin.permissions} required="coupons.create" action="إنشاء الكوبونات">
+            <CouponCreateForm />
+          </PermissionGate>
         </div>
       </section>
     </main>

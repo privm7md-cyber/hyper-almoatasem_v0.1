@@ -13,6 +13,7 @@
 // Prints JSON, never secrets.
 import "dotenv/config";
 import { Client } from "pg";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -87,8 +88,8 @@ async function main() {
     body: JSON.stringify({ email: STORE_EMAIL, password: STORE_PW }),
   });
   const setCookie = loginRes.headers.get("set-cookie") || "";
-  const match = setCookie.match(/__Host-admin-session=([^;]+)/);
-  const cookie = match ? `__Host-admin-session=${match[1]}` : null;
+  const ck = extractSessionCookie(setCookie);
+  const cookie = ck ? ck.header : null;
   if (loginRes.status !== 201 || !cookie) {
     console.error("REFUSED_LOGIN: store test user login failed");
     process.exit(1);

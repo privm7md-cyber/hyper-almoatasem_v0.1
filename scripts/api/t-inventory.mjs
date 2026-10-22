@@ -8,6 +8,7 @@
 // All mutations run against dedicated BA-3 test variants (03800000-*);
 // fixtures (Romi/Pepsi) are read-only here. Prints JSON, never secrets.
 import crypto from "node:crypto";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import argon2 from "argon2";
 import "dotenv/config";
 import { Client } from "pg";
@@ -103,8 +104,8 @@ async function main() {
       body: JSON.stringify({ email, password }),
     });
     const setCookie = r.headers.get("set-cookie") || "";
-    const match = setCookie.match(/__Host-admin-session=([^;]+)/);
-    return { status: r.status, cookie: match ? `__Host-admin-session=${match[1]}` : null };
+    const ck = extractSessionCookie(setCookie);
+    return { status: r.status, cookie: ck ? ck.header : null };
   };
 
   const invOf = async (v) =>

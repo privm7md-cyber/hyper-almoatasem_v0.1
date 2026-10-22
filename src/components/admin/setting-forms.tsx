@@ -5,6 +5,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -18,6 +19,7 @@ export function SettingEditForm({
   value: string;
   valueType: string;
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [next, setNext] = useState(value);
   const [note, setNote] = useState<string | null>(null);
@@ -35,6 +37,7 @@ export function SettingEditForm({
     try {
       await apiRequest(`/api/admin/settings/${settingKey}`, { method: "PATCH", body: { value: next } });
       notify("success", "تم حفظ الإعداد.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
     } finally {

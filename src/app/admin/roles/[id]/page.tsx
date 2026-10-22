@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { getRole, listPermissions, listRoleMembers } from "@/lib/admin/queries";
 import { toRole } from "@/lib/admin/serialize";
 import { AdminSection } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { RolePatchForm, RoleDeleteButton, RoleGrantsManager } from "@/components/admin/role-forms";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminRoleDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission("roles.view");
+  const admin = await requirePermission("roles.view");
   const { id } = await params;
   const row = await getRole(id).catch(() => null);
   if (!row) notFound();
@@ -35,14 +36,18 @@ export default async function AdminRoleDetailPage({ params }: { params: Promise<
         {role.isActive ? "نشط" : "موقوف"} · {row._count.userRoles} عضوًا (لقطة قراءة فقط)
       </p>
       <AdminSection title="البيانات (roles.manage)">
-        <RolePatchForm id={role.id} name={role.name} description={role.description} isActive={role.isActive} />
+        <PermissionGate permissions={admin.permissions} required="roles.manage" action="تعديل بيانات الدور">
+          <RolePatchForm id={role.id} name={role.name} description={role.description} isActive={role.isActive} />
+        </PermissionGate>
       </AdminSection>
       <AdminSection title="الصلاحيات (roles.manage)">
-        <RoleGrantsManager
-          roleId={role.id}
-          granted={granted}
-          allPermissions={perms.map((p) => ({ id: p.id, key: p.key, description: p.description }))}
-        />
+        <PermissionGate permissions={admin.permissions} required="roles.manage" action="منح وسحب صلاحيات الدور">
+          <RoleGrantsManager
+            roleId={role.id}
+            granted={granted}
+            allPermissions={perms.map((p) => ({ id: p.id, key: p.key, description: p.description }))}
+          />
+        </PermissionGate>
       </AdminSection>
       <AdminSection title="الأعضاء">
         {members.length === 0 ? (
@@ -61,7 +66,9 @@ export default async function AdminRoleDetailPage({ params }: { params: Promise<
         )}
       </AdminSection>
       <AdminSection title="الحذف (roles.manage)">
-        <RoleDeleteButton id={role.id} memberCount={row._count.userRoles} />
+        <PermissionGate permissions={admin.permissions} required="roles.manage" action="حذف الدور">
+          <RoleDeleteButton id={role.id} memberCount={row._count.userRoles} />
+        </PermissionGate>
       </AdminSection>
     </main>
   );

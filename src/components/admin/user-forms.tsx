@@ -4,11 +4,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 export function UserCreateForm() {
+  const router = useRouter();
   const { notify } = useToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -35,6 +37,7 @@ export function UserCreateForm() {
         },
       });
       notify("success", "تم إنشاء المستخدم.");
+      router.refresh();
       setName("");
       setEmail("");
       setPhone("");

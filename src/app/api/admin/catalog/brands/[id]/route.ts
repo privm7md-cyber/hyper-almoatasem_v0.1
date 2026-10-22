@@ -8,6 +8,7 @@ import { brandPatchSchema } from "@/lib/catalog/validation";
 import { getBrand } from "@/lib/catalog/queries";
 import { patchBrand } from "@/lib/catalog/writes";
 import { toBrand } from "@/lib/catalog/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("products.view");
@@ -46,6 +47,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid brand."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const row = await patchBrand(id, parsed.data, gate.admin.user.id);
     if (!row) {

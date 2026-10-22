@@ -13,18 +13,50 @@ import { revokeSession, readSessionCookie, clearSessionCookie } from "@/lib/auth
 import { writeAuthAudit } from "@/lib/auth/audit";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
+import {
+  buildRequestContext,
+  extractForwardedIp,
+  isHttpsRequest,
+  isLocalOrigin,
+  isTrustedProxyContext,
+} from "@/lib/api/request-context";
+import { sessionCookieName, sessionCookieSecure } from "@/lib/auth/session-cookie";
 
 const BodySchema = z.object({
   email: z.string().min(1).max(160),
   password: z.string().min(1).max(128),
 });
 
-function requestContext(request: Request): { ip: string | null; userAgent: string | null } {
-  const forwarded = request.headers.get("x-forwarded-for");
-  return {
-    ip: forwarded ? forwarded.split(",")[0].trim() : null,
-    userAgent: request.headers.get("user-agent"),
-  };
+/**
+ * The request context for the audit trail + the session row.
+ * `ip` is the TRUSTED client IP (null unless a trusted proxy is declared);
+ * `bucketIp` keeps the rate-limit buckets keyed exactly as before.
+ */
+function requestContext(request: Request): {
+  ip: string | null;
+  userAgent: string | null;
+  bucketIp: string | null;
+} {
+  const trusted = isTrustedProxyContext();
+  const ctx = buildRequestContext(request.headers, trusted);
+  return { ip: ctx.ip, userAgent: ctx.userAgent, bucketIp: extractForwardedIp(request.headers) };
+}
+
+/**
+ * Refuse a login that the BROWSER could not keep: a `Secure` cookie is
+ * dropped over plain HTTP, so the session would silently vanish. This makes
+ * the failure explicit instead of a silent bounce (Phase-10 remediation, G07).
+ *
+ * A browser "potentially trustworthy" origin (localhost / 127.0.0.1 / ::1)
+ * DOES accept `Secure` cookies over plain HTTP, so it is not a dropped-cookie
+ * case and must not be refused.
+ */
+function cookieWouldBeDropped(request: Request): boolean {
+  const name = sessionCookieName();
+  if (!sessionCookieSecure(name)) return false;
+  const url = new URL(request.url);
+  if (isLocalOrigin(url.hostname)) return false;
+  return !isHttpsRequest(request.headers, url.protocol);
 }
 
 export async function POST(request: Request) {
@@ -56,6 +88,16 @@ export async function POST(request: Request) {
     return NextResponse.json(r.body, { status: r.status });
   }
   const ctx = requestContext(request);
+  if (cookieWouldBeDropped(request)) {
+    const r = fail(
+      new ApiError(
+        "VALIDATION",
+        "تسجيل الدخول يتطلب HTTPS في هذه البيئة (كوكي الجلسة آمن فقط عبر HTTPS).",
+        null,
+      ),
+    );
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const result = await authenticateAdmin(parsed.data.email, parsed.data.password, ctx);
   if (result.ok === false) {
     const r = fail(new ApiError("UNAUTHENTICATED", result.error, null));
@@ -80,7 +122,7 @@ export async function GET() {
   return NextResponse.json(r.body, { status: r.status });
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   const rawToken = await readSessionCookie();
   if (rawToken) {
     const { hashToken } = await import("@/lib/auth/tokens");
@@ -91,7 +133,7 @@ export async function DELETE() {
     `) as unknown as { user_id: string }[];
     await revokeSession(rawToken);
     await clearSessionCookie();
-    const h = requestContext(new Request("http://localhost/"));
+    const h = requestContext(request);
     await writeAuthAudit({
       action: "auth.logout",
       userId: row[0]?.user_id ?? null,

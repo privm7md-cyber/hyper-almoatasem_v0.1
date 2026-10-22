@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { getCoupon, listCouponUsages } from "@/lib/promotions/queries";
 import { toCoupon, toUsage } from "@/lib/promotions/serialize";
 import { AdminSection } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { AdminAction } from "@/components/admin/admin-mutate";
 import { CouponPatchForm } from "@/components/admin/coupon-patch-form";
 
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminCouponDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission("coupons.view");
+  const admin = await requirePermission("coupons.view");
   const { id } = await params;
   const row = await getCoupon(id).catch(() => null);
   if (!row) notFound();
@@ -36,14 +37,17 @@ export default async function AdminCouponDetailPage({ params }: { params: Promis
         {coupon.perCustomerLimit !== null ? ` · حد العميل: ${coupon.perCustomerLimit}` : ""} ·{" "}
         {coupon.isActive ? "نشط" : "موقوف"}
       </p>
-      <AdminSection title="تعديل (coupons.update)">
-        <CouponPatchForm
-          id={coupon.id}
-          usageLimit={coupon.usageLimit}
-          perCustomerLimit={coupon.perCustomerLimit}
-          minimumOrderAmount={coupon.minimumOrderAmount}
-          isActive={coupon.isActive}
-        />
+      <AdminSection title="تعديل الحدود (coupons.update)">
+        <PermissionGate permissions={admin.permissions} required="coupons.update" action="تعديل الكوبون">
+          <CouponPatchForm
+            id={coupon.id}
+            usageLimit={coupon.usageLimit}
+            perCustomerLimit={coupon.perCustomerLimit}
+            minimumOrderAmount={coupon.minimumOrderAmount}
+            isActive={coupon.isActive}
+            canDisable={admin.permissions.includes("coupons.disable")}
+          />
+        </PermissionGate>
       </AdminSection>
       <AdminSection title="الاستخدامات">
         {!usages || usages.length === 0 ? (
@@ -62,14 +66,16 @@ export default async function AdminCouponDetailPage({ params }: { params: Promis
           </ul>
         )}
       </AdminSection>
-      <AdminSection title="حذف الكوبون">
-        <AdminAction
-          label="حذف الكوبون"
-          path={`/api/admin/coupons/${coupon.id}`}
-          method="DELETE"
-          variant="danger"
-          confirmText="حذف الكوبون نهائي. تأكيد؟"
-        />
+      <AdminSection title="حذف الكوبون (coupons.disable)">
+        <PermissionGate permissions={admin.permissions} required="coupons.disable" action="حذف الكوبون">
+          <AdminAction
+            label="حذف الكوبون"
+            path={`/api/admin/coupons/${coupon.id}`}
+            method="DELETE"
+            variant="danger"
+            confirmText="حذف الكوبون نهائي. تأكيد؟"
+          />
+        </PermissionGate>
       </AdminSection>
     </main>
   );

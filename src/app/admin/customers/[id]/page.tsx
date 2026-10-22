@@ -1,6 +1,7 @@
 // FE-10F customer detail (server): identity + addresses + admin registration.
-// Reads: customers.view. Writes: customers.view-scoped register (password set) — closest
-// capability mapping per route contract. No profile edits invented (no endpoint).
+// Reads: customers.view. Writes: customers.manage (Phase-10 remediation,
+// G03 — the customer domain is split into a read capability and a write
+// capability; the read key no longer authorizes a customer mutation).
 
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -8,7 +9,9 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { getCustomer, listAddressesByCustomer } from "@/lib/customers/queries";
 import { toAddress } from "@/lib/customers/serialize";
 import { AdminSection } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { CustomerRegisterForm } from "@/components/admin/customer-forms";
+import { CustomerEditForm } from "@/components/admin/customer-edit-form";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminCustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission("customers.view");
+  const admin = await requirePermission("customers.view");
   const { id } = await params;
   const row = await getCustomer(id).catch(() => null);
   if (!row) notFound();
@@ -52,9 +55,23 @@ export default async function AdminCustomerDetailPage({ params }: { params: Prom
           </ul>
         )}
       </AdminSection>
+      <AdminSection title="بيانات العميل (customers.manage)">
+        <PermissionGate permissions={admin.permissions} required="customers.manage" action="تعديل بيانات العميل">
+          <CustomerEditForm
+            customerId={row.id}
+            firstName={row.firstName}
+            lastName={row.lastName}
+            email={row.email}
+            autoAcceptReplacements={row.autoAcceptReplacements}
+            isActive={row.isActive}
+          />
+        </PermissionGate>
+      </AdminSection>
       {!row.isRegistered ? (
-        <AdminSection title="تسجيل العميل (تعيين كلمة مرور)">
-          <CustomerRegisterForm customerId={row.id} />
+        <AdminSection title="تسجيل العميل (تعيين كلمة مرور — customers.manage)">
+          <PermissionGate permissions={admin.permissions} required="customers.manage" action="تسجيل العميل">
+            <CustomerRegisterForm customerId={row.id} />
+          </PermissionGate>
         </AdminSection>
       ) : null}
     </main>

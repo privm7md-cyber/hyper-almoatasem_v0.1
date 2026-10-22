@@ -10,9 +10,21 @@ import "server-only";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { hashToken, newOpaqueToken } from "@/lib/auth/tokens";
+import {
+  PROD_SESSION_COOKIE_NAME,
+  sessionCookieName,
+  sessionCookieOptions,
+} from "@/lib/auth/session-cookie";
 
-export const SESSION_COOKIE_NAME = "__Host-admin-session";
-// Admin session lifetime: 8 hours, fixed (no sliding extension by design).
+/**
+ * The PRODUCTION cookie name (frozen). The cookie this process actually uses
+ * is decided by `sessionCookieName()` (see src/lib/auth/session-cookie.ts):
+ * production always uses this name with `Secure`; a real local development
+ * process uses the separate non-prefixed dev cookie so browsers accept it
+ * over plain HTTP (Phase-10 remediation, G07).
+ */
+export const SESSION_COOKIE_NAME = PROD_SESSION_COOKIE_NAME;
+/** Admin session lifetime: 8 hours, fixed (no sliding extension by design). */
 export const SESSION_TTL_HOURS = 8;
 
 export interface SessionRecord {
@@ -126,16 +138,22 @@ export async function revokeAllSessions(
   );
 }
 
-const isProd = process.env.NODE_ENV === "production";
-
-/** Set the session cookie. __Host- requires Secure + Path=/ + no Domain. */
+/**
+ * Set the session cookie.
+ *
+ * Production  -> `__Host-admin-session` with `Secure` (browser-enforced
+ *                prefix rules: Secure + Path=/ + no Domain).
+ * Local dev   -> `hyper-admin-session-dev` without the `__Host-` prefix, so
+ *                browsers accept it over plain HTTP on the developer's machine.
+ *
+ * The name AND the attributes come from one policy module, so the cookie that
+ * is written is exactly the cookie that is read and cleared.
+ */
 export async function setSessionCookie(rawToken: string): Promise<void> {
   const store = await cookies();
-  store.set(SESSION_COOKIE_NAME, rawToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
+  const name = sessionCookieName();
+  store.set(name, rawToken, {
+    ...sessionCookieOptions(name),
     maxAge: SESSION_TTL_HOURS * 60 * 60,
   });
 }
@@ -143,11 +161,11 @@ export async function setSessionCookie(rawToken: string): Promise<void> {
 /** Clear the session cookie (always paired with server-side revocation). */
 export async function clearSessionCookie(): Promise<void> {
   const store = await cookies();
-  store.delete(SESSION_COOKIE_NAME);
+  store.delete(sessionCookieName());
 }
 
 /** Read the raw session token from the request cookies (presence only). */
 export async function readSessionCookie(): Promise<string | null> {
   const store = await cookies();
-  return store.get(SESSION_COOKIE_NAME)?.value ?? null;
+  return store.get(sessionCookieName())?.value ?? null;
 }

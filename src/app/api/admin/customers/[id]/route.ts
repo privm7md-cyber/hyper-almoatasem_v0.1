@@ -1,7 +1,7 @@
 // Admin customer detail (with address book) + limited edit.
-// GET: customers.view. PATCH: customers.view (documented closest-capability
-// mapping — the frozen 31-key matrix holds no customer write key; a future
-// customers.manage split is deferred, never invented here).
+// GET: customers.view (READ only). PATCH: customers.manage (Phase-10
+// remediation, G03 — the customer domain is split into a read capability and
+// a write capability; the read key no longer authorizes a customer mutation).
 // Phone is immutable (identity stability); registration changes only via
 // /register; customers are never hard-deleted (RESTRICT pins + history).
 import { NextResponse } from "next/server";
@@ -13,6 +13,7 @@ import { customerPatchSchema } from "@/lib/customers/validation";
 import { getCustomer } from "@/lib/customers/queries";
 import { patchCustomer } from "@/lib/customers/writes";
 import { toAddress, toCustomer } from "@/lib/customers/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("customers.view");
@@ -32,7 +33,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  const gate = await adminOrDeny("customers.view");
+  const gate = await adminOrDeny("customers.manage");
   if ("denied" in gate) return gate.denied;
   const { id } = await context.params;
   if (!uuidSchema.safeParse(id).success) {
@@ -51,6 +52,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid customer."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const updated = await patchCustomer(id, {
       firstName: parsed.data.firstName ?? undefined,

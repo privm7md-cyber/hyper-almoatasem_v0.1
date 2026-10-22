@@ -11,6 +11,7 @@ import { userPatchSchema } from "@/lib/admin/validation";
 import { getUser } from "@/lib/admin/queries";
 import { patchUser } from "@/lib/admin/writes";
 import { toAdminUser } from "@/lib/admin/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("users.view");
@@ -57,6 +58,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid user."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const updated = await patchUser(
       id,

@@ -1,6 +1,6 @@
 // Auth flow suite: 19 login/session/cookie tests over HTTP (scratch-only).
 // ctx: { baseUrl, dbName, owner: {email,password}, store: {email,password} }
-import { makeClient, sql, resetAuthState, liveSessions, GENERIC_MSG, COOKIE_NAME } from "./_client.mjs";
+import { makeClient, sql, resetAuthState, liveSessions, GENERIC_MSG, sessionCookieName, sessionCookie } from "./_client.mjs";
 
 export async function run(ctx) {
   const results = [];
@@ -16,14 +16,14 @@ export async function run(ctx) {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
     const body = JSON.parse(r.text);
-    t("valid_login", r.res.status === 201 && body.data?.admin?.email === owner.email && !!c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("valid_login", r.res.status === 201 && body.data?.admin?.email === owner.email && !!sessionCookie(c.jar), `status=${r.res.status}`);
   }
   // 2. wrong password: 401 + generic message, no cookie.
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: "Wrong-Password-000!" });
     const body = JSON.parse(r.text);
-    t("wrong_password", r.res.status === 401 && body.error?.message === GENERIC_MSG && body.error?.code === "UNAUTHENTICATED" && !c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("wrong_password", r.res.status === 401 && body.error?.message === GENERIC_MSG && body.error?.code === "UNAUTHENTICATED" && !sessionCookie(c.jar), `status=${r.res.status}`);
   }
   // 3. unknown email: byte-identical behavior to wrong password.
   {
@@ -61,7 +61,7 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("expired_lock_success", r.res.status === 201 && !!c.jar[COOKIE_NAME], `status=${r.res.status}`);
+    t("expired_lock_success", r.res.status === 201 && !!sessionCookie(c.jar), `status=${r.res.status}`);
   }
   // 8. successful login clears failed attempts + lock.
   {
@@ -77,7 +77,7 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     await c.post("/api/admin/session", { email: store.email, password: store.password });
-    const raw = c.jar[COOKIE_NAME];
+    const raw = sessionCookie(c.jar);
     const r = await sql(dbName, `SELECT count(*)::int AS n FROM admin_sessions WHERE token_hash = $1`, [raw]);
     const r2 = await sql(dbName, `SELECT count(*)::int AS n FROM admin_sessions s JOIN users u ON u.id=s.user_id WHERE u.email=$1 AND position($2 IN token_hash) > 0`, [store.email, raw.slice(0, 16)]);
     t("token_not_plaintext", raw.length === 64 && Number(r.rows[0].n) === 0 && Number(r2.rows[0].n) === 0, `len=${raw.length}`);
@@ -87,7 +87,7 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     await c.post("/api/admin/session", { email: store.email, password: store.password });
-    const raw = c.jar[COOKIE_NAME];
+    const raw = sessionCookie(c.jar);
     await sql(dbName, `UPDATE admin_sessions SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 minute' WHERE token_hash = encode(digest(convert_to($1, 'UTF8'), 'sha256'), 'hex')`, [raw]);
     const g = await c.get("/api/admin/session");
     t("session_expiration", g.res.status === 401, `status=${g.res.status}`);
@@ -97,10 +97,10 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     await c.post("/api/admin/session", { email: store.email, password: store.password });
-    const raw = c.jar[COOKIE_NAME];
+    const raw = sessionCookie(c.jar);
     await c.get("/api/admin/session", {});
     // use DELETE logout endpoint
-    const res = await fetch(baseUrl + "/api/admin/session", { method: "DELETE", redirect: "manual", headers: { Cookie: `${COOKIE_NAME}=${raw}` } });
+    const res = await fetch(baseUrl + "/api/admin/session", { method: "DELETE", redirect: "manual", headers: { Cookie: `${sessionCookieName(c.jar)}=${raw}` } });
     const r2 = await sql(dbName, `SELECT revoked_at IS NOT NULL AS r FROM admin_sessions WHERE token_hash = encode(digest(convert_to($1, 'UTF8'), 'sha256'), 'hex')`, [raw]);
     const revoked = r2.rows[0]?.r === true;
     t("logout_revokes", res.status === 200 && revoked === true, `status=${res.status}`);
@@ -130,7 +130,7 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     await c.post("/api/admin/session", { email: store.email, password: store.password });
-    const oldRaw = c.jar[COOKIE_NAME];
+    const oldRaw = sessionCookie(c.jar);
     await sql(dbName, `UPDATE admin_sessions SET revoked_at = now() WHERE user_id = (SELECT id FROM users WHERE email=$1)`, [store.email]);
     const g = await c.get("/api/admin/session");
     t("rotation_kills_old", g.res.status === 401 && oldRaw.length === 64, `status=${g.res.status}`);
@@ -139,17 +139,25 @@ export async function run(ctx) {
   {
     const planted = "f".repeat(64);
     const c = makeClient(baseUrl);
-    c.jar[COOKIE_NAME] = planted;
+    c.jar[sessionCookieName(c.jar)] = planted;
     await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    t("fixation_resistance", !!c.jar[COOKIE_NAME] && c.jar[COOKIE_NAME] !== planted, `rotated=${c.jar[COOKIE_NAME] !== planted}`);
+    t("fixation_resistance", !!sessionCookie(c.jar) && sessionCookie(c.jar) !== planted, `rotated=${sessionCookie(c.jar) !== planted}`);
   }
-  // 17. cookie attributes.
+  // 17. cookie attributes (environment-aware: the NAME and the Secure flag
+  //     follow the environment policy — see src/lib/auth/session-cookie.ts).
   {
     const c = makeClient(baseUrl);
     const r = await c.post("/api/admin/session", { email: owner.email, password: owner.password });
-    const sc = r.setCookies.find((s) => s.startsWith(COOKIE_NAME + "=")) || "";
+    const sc = r.setCookies.find((s) => s.startsWith(sessionCookieName(c.jar) + "=")) || "";
     const low = sc.toLowerCase();
-    t("cookie_attrs", low.includes("httponly") && low.includes("path=/") && low.includes("samesite=lax") && sc.startsWith("__Host-"), sc.split(";").slice(1, 4).join(";"));
+    const common = low.includes("httponly") && low.includes("path=/") && low.includes("samesite=lax");
+    if (process.env.NODE_ENV === "production") {
+      t("cookie_attrs_production", common && sc.startsWith("__Host-") && low.includes("secure"), sc.split(";").slice(1, 4).join(";"));
+    } else {
+      t("cookie_attrs_local_dev", common && sc.startsWith("hyper-admin-session-dev") && !low.includes("secure"), sc.split(";").slice(1, 4).join(";"));
+    }
+    // INVARIANT (browser-enforced): a `__Host-` cookie is ALWAYS Secure.
+    t("host_prefix_implies_secure", !sc.startsWith("__Host-") || low.includes("secure"), sc.split(";").slice(1, 4).join(";"));
   }
   // 18. last_login_at updated on success.
   {

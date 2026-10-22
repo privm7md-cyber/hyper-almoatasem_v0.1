@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { getUser, listRoles } from "@/lib/admin/queries";
 import { toAdminUser } from "@/lib/admin/serialize";
 import { AdminSection } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { UserPatchForm, UserPasswordForm, UserRolesManager } from "@/components/admin/user-detail-forms";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminUserDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission("users.view");
+  const admin = await requirePermission("users.view");
   const { id } = await params;
   const row = await getUser(id).catch(() => null);
   if (!row) notFound();
@@ -30,14 +31,20 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
       <p className="text-sm text-secondary">
         <bdi>{user.email}</bdi> · {user.isActive ? "نشط" : "موقوف"} · آخر دخول: {user.lastLoginAt ?? "—"}
       </p>
-      <AdminSection title="البيانات">
-        <UserPatchForm id={user.id} name={user.name} email={user.email} phone={user.phone} isActive={user.isActive} />
+      <AdminSection title="البيانات (users.manage)">
+        <PermissionGate permissions={admin.permissions} required="users.manage" action="تعديل بيانات المستخدم">
+          <UserPatchForm id={user.id} name={user.name} email={user.email} phone={user.phone} isActive={user.isActive} />
+        </PermissionGate>
       </AdminSection>
-      <AdminSection title="الأدوار (users.manage)">
-        <UserRolesManager userId={user.id} assigned={user.roles} allRoles={allRoles.map((r) => ({ id: r.id, name: r.name }))} />
+      <AdminSection title="الأدوار (roles.manage)">
+        <PermissionGate permissions={admin.permissions} required="roles.manage" action="إدارة أدوار المستخدم">
+          <UserRolesManager userId={user.id} assigned={user.roles} allRoles={allRoles.map((r) => ({ id: r.id, name: r.name }))} />
+        </PermissionGate>
       </AdminSection>
       <AdminSection title="كلمة المرور (users.manage)">
-        <UserPasswordForm id={user.id} />
+        <PermissionGate permissions={admin.permissions} required="users.manage" action="تعيين كلمة مرور المستخدم">
+          <UserPasswordForm id={user.id} />
+        </PermissionGate>
       </AdminSection>
     </main>
   );

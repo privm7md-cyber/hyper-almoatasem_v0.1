@@ -4,6 +4,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -11,6 +12,7 @@ import { useToast } from "@/components/ui/toast";
 const ADJUST_TYPES = ["STOCK_IN", "ADJUSTMENT", "WASTE", "RETURN"] as const;
 
 export function InventoryAdjustForm() {
+  const router = useRouter();
   const { notify } = useToast();
   const [variantId, setVariantId] = useState("");
   const [delta, setDelta] = useState("");
@@ -39,6 +41,7 @@ export function InventoryAdjustForm() {
         },
       });
       notify("success", "تم تسجيل التعديل.");
+      router.refresh();
       setVariantId("");
       setDelta("");
       setReason("");
@@ -80,6 +83,7 @@ export function InventoryAdjustForm() {
 }
 
 export function InventoryThresholdForm() {
+  const router = useRouter();
   const { notify } = useToast();
   const [variantId, setVariantId] = useState("");
   const [threshold, setThreshold] = useState("");
@@ -106,6 +110,7 @@ export function InventoryThresholdForm() {
         body: { lowStockThreshold: t === "" ? null : t },
       });
       notify("success", "تم حفظ الحد.");
+      router.refresh();
       setVariantId("");
       setThreshold("");
     } catch (error) {

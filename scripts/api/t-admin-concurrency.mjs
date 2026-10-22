@@ -7,6 +7,7 @@
 //   R4 competing setting updates -> both 200, winner's valid value stands.
 // Prints JSON, never secrets.
 import "dotenv/config";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
 
 const args = process.argv.slice(2);
@@ -79,8 +80,8 @@ async function main() {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: OWNER_EMAIL, password: OWNER_PW }),
   });
-  const match = (loginRes.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
-  const cookie = match ? `__Host-admin-session=${match[1]}` : null;
+  const ck = extractSessionCookie(loginRes.headers.get("set-cookie"));
+  const cookie = ck ? ck.header : null;
   if (loginRes.status !== 201 || !cookie) {
     console.error("REFUSED_LOGIN: owner login failed");
     process.exit(1);

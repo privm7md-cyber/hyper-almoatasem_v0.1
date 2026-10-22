@@ -5,6 +5,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -31,6 +32,7 @@ export function UserPatchForm({
   phone: string | null;
   isActive: boolean;
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [nextName, setNextName] = useState(name);
   const [nextActive, setNextActive] = useState(isActive);
@@ -52,6 +54,7 @@ export function UserPatchForm({
         body: { name: nextName.trim(), isActive: nextActive },
       });
       notify("success", "تم حفظ المستخدم.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
     } finally {
@@ -86,6 +89,7 @@ export function UserPatchForm({
 }
 
 export function UserPasswordForm({ id }: { id: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [password, setPassword] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -103,6 +107,7 @@ export function UserPasswordForm({ id }: { id: string }) {
     try {
       await apiRequest(`/api/admin/users/${id}/password`, { method: "POST", body: { password } });
       notify("success", "تم تعيين كلمة المرور.");
+      router.refresh();
       setPassword("");
     } catch (error) {
       setNote(displayFailure(error, "تعذّر التعيين."));
@@ -134,6 +139,7 @@ export function UserRolesManager({
   assigned: string[];
   allRoles: { id: string; name: string }[];
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [roleId, setRoleId] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -147,6 +153,7 @@ export function UserRolesManager({
     try {
       await apiRequest(`/api/admin/users/${userId}/roles`, { method: "POST", body: { roleId } });
       notify("success", "تم إرفاق الدور.");
+      router.refresh();
       setRoleId("");
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الإرفاق."));
@@ -156,12 +163,17 @@ export function UserRolesManager({
   }
 
   async function detach(rid: string) {
+    if (pending) return;
     setNote(null);
+    setPending(true);
     try {
       await apiRequest(`/api/admin/users/${userId}/roles/${rid}`, { method: "DELETE" });
       notify("success", "تم فصل الدور.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الفصل."));
+    } finally {
+      setPending(false);
     }
   }
 
@@ -175,7 +187,13 @@ export function UserRolesManager({
             <li key={name} className="inline-flex items-center gap-2 rounded-badge border border-line bg-white px-3 py-1 text-sm">
               {name}
               {row ? (
-                <button type="button" onClick={() => void detach(row.id)} aria-label={`فصل الدور ${name}`} className="min-h-[44px] min-w-[44px] font-bold text-error">
+                <button
+                  type="button"
+                  onClick={() => void detach(row.id)}
+                  disabled={pending}
+                  aria-label={`فصل الدور ${name}`}
+                  className="min-h-[44px] min-w-[44px] font-bold text-error disabled:cursor-not-allowed disabled:opacity-55"
+                >
                   ×
                 </button>
               ) : null}

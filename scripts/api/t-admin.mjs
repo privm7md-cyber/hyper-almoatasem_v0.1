@@ -9,6 +9,7 @@
 // stays by design — actors pinned, entities referenced by id only).
 // Prints JSON, never passwords, hashes, or tokens.
 import "dotenv/config";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
 
 const args = process.argv.slice(2);
@@ -96,8 +97,8 @@ async function main() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const m = (r.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
-    return { status: r.status, cookie: m ? `__Host-admin-session=${m[1]}` : null };
+    const ck = extractSessionCookie(r.headers.get("set-cookie"));
+    return { status: r.status, cookie: ck ? ck.header : null };
   };
 
   const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || "");
@@ -178,7 +179,7 @@ async function main() {
     const rStore = await get(`/api/admin/roles?limit=5`, store.cookie);
     t("roles-store-403", rStore.status === 403);
     const rSuper = await get(`/api/admin/roles/${SUPER_ADMIN_ID}`, owner.cookie);
-    t("roles-super-31", rSuper.status === 200 && rSuper.body.data.permissions.length === 31);
+    t("roles-super-32", rSuper.status === 200 && rSuper.body.data.permissions.length === 32);
     const rMiss = await get(`/api/admin/roles/${UNKNOWN}`, owner.cookie);
     t("roles-unknown-404", rMiss.status === 404);
     const r1 = await post(`/api/admin/roles`, { name: `BA9_OPS_${stamp}`.toUpperCase(), description: "test ops" }, owner.cookie);
@@ -233,8 +234,9 @@ async function main() {
 
     // ---------- permissions registry ----------
     const plist = await get(`/api/admin/permissions?limit=100`, owner.cookie);
-    t("permissions-31", plist.status === 200 && plist.body.data.length === 31
-      && plist.body.data.some((p) => p.key === "orders.cancel"));
+    t("permissions-32", plist.status === 200 && plist.body.data.length === 32
+      && plist.body.data.some((p) => p.key === "orders.cancel")
+      && plist.body.data.some((p) => p.key === "customers.manage"));
     const pOne = await get(`/api/admin/permissions/${idPerm}`, owner.cookie);
     t("permission-get-200", pOne.status === 200 && pOne.body.data.key === "reports.view");
     const pMiss = await get(`/api/admin/permissions/${UNKNOWN}`, owner.cookie);

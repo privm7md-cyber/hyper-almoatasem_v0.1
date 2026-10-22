@@ -401,25 +401,65 @@ export async function patchVariant(
   );
 }
 
-/** Price change + history row + audit row in ONE tx (frozen convention —
- * never one without the other; audit joins the same tx). */
+/**
+ * Price change + history row + audit row in ONE tx (frozen convention —
+ * never one without the other; audit joins the same tx).
+ *
+ * Phase-10 remediation (G02): the "did the price actually change?" test is
+ * a NUMERIC comparison on the exact decimal value, never a text comparison.
+ * The old text compare (`current.price.toString() === price`) saw "15" and
+ * "15.00" as different, so an unchanged price went through the write path and
+ * tried to insert a product_price_history row with old_price = new_price —
+ * which the frozen CHECK `chk_price_history_changed` rejects, producing a
+ * generic HTTP 500 instead of a successful no-op.
+ *
+ * Behaviour now:
+ *   * the value is compared with Prisma.Decimal (exact decimal, no float);
+ *   * an unchanged price is a genuine NO-OP: no row update, no history row,
+ *     no audit row (nothing changed, so nothing is recorded);
+ *   * a changed price updates the price and writes EXACTLY ONE history row +
+ *     one audit row, atomically;
+ *   * concurrent identical updates cannot produce two history rows: the row is
+ *     locked FOR UPDATE inside the transaction and the price is re-read under
+ *     the lock, so the second writer sees the already-applied price and
+ *     becomes a no-op.
+ */
 export async function updateVariantPrice(id: string, price: string, reason: string | null, changedBy: string | null, actorId: string) {
   const current = await prisma.productVariant.findUnique({
     where: { id },
     select: { price: true, compareAtPrice: true },
   });
   if (!current) return null;
-  if (current.compareAtPrice !== null && Number(price) > Number(current.compareAtPrice)) {
+  const nextPrice = new Prisma.Decimal(price);
+  if (current.compareAtPrice !== null && nextPrice.gt(new Prisma.Decimal(current.compareAtPrice))) {
     throw businessRule("New price exceeds the compare-at price.", null);
   }
-  if (current.price.toString() === price) return current as unknown as Awaited<ReturnType<typeof prisma.productVariant.update>>;
+  // Exact decimal equality — "15", "15.00" and "15.000" are the same price.
+  if (nextPrice.eq(new Prisma.Decimal(current.price))) {
+    return current as unknown as Awaited<ReturnType<typeof prisma.productVariant.update>>;
+  }
   return prisma.$transaction(async (tx) => {
+    // Lock the row and re-read the price under the lock: a concurrent writer
+    // that already applied this exact price turns this call into a no-op
+    // instead of a second history row.
+    const locked = (await tx.$queryRaw<{ price: string }[]>`
+      SELECT price::text AS price
+        FROM product_variants
+       WHERE id = ${id}::uuid
+       FOR UPDATE
+    `) as unknown as { price: string }[];
+    const lockedPrice = locked[0]?.price ?? null;
+    if (lockedPrice === null) return null;
+    if (new Prisma.Decimal(lockedPrice).eq(nextPrice)) {
+      // Already applied by a concurrent writer — nothing to record.
+      return tx.productVariant.findUnique({ where: { id } });
+    }
     const updated = await tx.productVariant.update({ where: { id }, data: { price } });
     await tx.productPriceHistory.create({
       data: {
         id: newUuidV7(),
         productVariantId: id,
-        oldPrice: current.price.toString(),
+        oldPrice: lockedPrice,
         newPrice: price,
         changedBy,
         reason,
@@ -430,7 +470,7 @@ export async function updateVariantPrice(id: string, price: string, reason: stri
       userId: actorId,
       entityType: "product_variants",
       entityId: id,
-      oldValues: { price: current.price.toString() },
+      oldValues: { price: lockedPrice },
       newValues: { price },
     });
     return updated;

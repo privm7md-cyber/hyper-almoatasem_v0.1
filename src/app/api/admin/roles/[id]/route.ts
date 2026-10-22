@@ -12,6 +12,7 @@ import { rolePatchSchema } from "@/lib/admin/validation";
 import { getRole } from "@/lib/admin/queries";
 import { deleteRole, patchRole } from "@/lib/admin/writes";
 import { toRole } from "@/lib/admin/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("roles.view");
@@ -58,6 +59,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid role."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const updated = await patchRole(
       id,

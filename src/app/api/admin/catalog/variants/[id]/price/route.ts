@@ -1,6 +1,14 @@
 // Admin catalog: variant price change. Writes the new price AND the
 // price-history row in ONE transaction (frozen convention — never one
-// without the other). Permission: products.update (price governance).
+// without the other).
+//
+// Permission: prices.update — the dedicated price-governance key of the
+// permission registry ("Change selling prices (writes price history)").
+// Phase-10 remediation (G01): this route used to be gated by
+// `products.update`, which made the price keys inert; a role that may edit a
+// product could change its price without holding any price capability.
+// Reading a price is a separate capability (prices.view) enforced on the
+// variant read route.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
@@ -12,7 +20,7 @@ import { updateVariantPrice } from "@/lib/catalog/writes";
 import { toAdminVariant } from "@/lib/catalog/serialize";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = await checkPermission("products.update");
+  const auth = await checkPermission("prices.update");
   if (auth.ok === false) {
     const r = fail(
       new ApiError(

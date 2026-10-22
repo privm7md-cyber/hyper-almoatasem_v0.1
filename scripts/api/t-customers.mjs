@@ -7,6 +7,7 @@
 // matrix. All rows use the 0109000xxxx test range; fixtures untouched.
 // Prints JSON, never passwords, hashes, or tokens.
 import crypto from "node:crypto";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import argon2 from "argon2";
 import "dotenv/config";
 import { Client } from "pg";
@@ -106,8 +107,8 @@ async function main() {
       body: JSON.stringify({ email, password }),
     });
     const setCookie = r.headers.get("set-cookie") || "";
-    const match = setCookie.match(/__Host-admin-session=([^;]+)/);
-    return { status: r.status, cookie: match ? `__Host-admin-session=${match[1]}` : null };
+    const ck = extractSessionCookie(setCookie);
+    return { status: r.status, cookie: ck ? ck.header : null };
   };
 
   const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || "");

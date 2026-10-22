@@ -7,6 +7,7 @@
 // expired-token rejection), and bidirectional openapi.yaml ⇄ routes
 // coverage. Prints JSON, never secrets.
 import "dotenv/config";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -122,8 +123,8 @@ async function main() {
       body: JSON.stringify({ email, password }),
     });
     const body = await r.json().catch(() => ({}));
-    const m = (r.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
-    return { status: r.status, body, cookie: m ? `__Host-admin-session=${m[1]}` : null };
+    const ck = extractSessionCookie(r.headers.get("set-cookie"));
+    return { status: r.status, body, cookie: ck ? ck.header : null };
   };
 
   const stamp = Date.now().toString(36);

@@ -5,6 +5,7 @@ import Link from "next/link";import { requirePermission } from "@/lib/auth/rbac"
 import { listUsers } from "@/lib/admin/queries";
 import { toAdminUser } from "@/lib/admin/serialize";
 import { EmptyState, ErrorState } from "@/components/ui/states";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { UserCreateForm } from "@/components/admin/user-forms";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function AdminUsersPage({
 }: {
   searchParams: Promise<{ search?: string; cursor?: string }>;
 }) {
-  await requirePermission("users.view");
+  const admin = await requirePermission("users.view");
   const sp = await searchParams;
   const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 160) : null;
   const cursor = typeof sp.cursor === "string" && sp.cursor !== "" ? sp.cursor : null;
@@ -73,7 +74,9 @@ export default async function AdminUsersPage({
       <section aria-label="إنشاء مستخدم" className="rounded-card border border-line bg-white p-4">
         <h2 className="font-bold">مستخدم جديد (users.manage)</h2>
         <div className="mt-2">
-          <UserCreateForm />
+          <PermissionGate permissions={admin.permissions} required="users.manage" action="إنشاء المستخدمين">
+            <UserCreateForm />
+          </PermissionGate>
         </div>
       </section>
     </main>

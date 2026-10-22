@@ -1,8 +1,8 @@
 -- ============================================================================
 -- PHASE 5 — EXAMPLE SEED DATA (authoritative RBAC baseline, minimal)
 -- Run AFTER db/phase5-schema.sql. Fixed UUIDv7 ids for reproducibility.
--- Seeds: 2 roles, 31 action permissions, explicit grant matrix
--- (SUPER_ADMIN = all 31; STORE_ADMIN = 24, security capabilities excluded),
+-- Seeds: 2 roles, 32 action permissions, explicit grant matrix
+-- (SUPER_ADMIN = all 32; STORE_ADMIN = 25, security capabilities excluded),
 -- operational settings, one bootstrap owner (identity only — NO credentials;
 -- authentication arrives with the auth decision).
 -- ============================================================================
@@ -46,15 +46,20 @@ INSERT INTO permissions (id, key, description) VALUES
   ('02800000-0000-7000-8000-000000000128', 'settings.view', 'View store settings'),
   ('02800000-0000-7000-8000-000000000129', 'settings.manage', 'Change store settings'),
   ('02800000-0000-7000-8000-000000000130', 'audit_logs.view', 'Read audit trail'),
-  ('02800000-0000-7000-8000-000000000131', 'notifications.view', 'Read own notifications')
+  ('02800000-0000-7000-8000-000000000131', 'notifications.view', 'Read own notifications'),
+  -- Phase-10 remediation (G03): read/write split of the customer domain.
+  -- `customers.view` authorizes READING customers and their addresses only;
+  -- every customer MUTATION (profile, password registration, address
+  -- create/update/delete) requires this separate write capability.
+  ('02800000-0000-7000-8000-000000000132', 'customers.manage', 'Edit customers and their addresses (write capability)')
 ON CONFLICT (id) DO NOTHING;
 
--- ---------------- Grants: SUPER_ADMIN = all 31 (explicit rows, enumerable) ----------------
+-- ---------------- Grants: SUPER_ADMIN = all 32 (explicit rows, enumerable) ----------------
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT '02800000-0000-7000-8000-000000000001', p.id FROM permissions p
 ON CONFLICT DO NOTHING;
 
--- ---------------- Grants: STORE_ADMIN = 24 (platform-security excluded) ----------------
+-- ---------------- Grants: STORE_ADMIN = 25 (platform-security excluded) ----------------
 -- Excluded: users.view, users.manage, roles.view, roles.manage,
 --           settings.view, settings.manage, audit_logs.view
 INSERT INTO role_permissions (role_id, permission_id)

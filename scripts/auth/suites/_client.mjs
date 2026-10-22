@@ -4,8 +4,28 @@
 import "dotenv/config";
 import { Client } from "pg";
 
-export const COOKIE_NAME = "__Host-admin-session";
+// The admin session cookie NAME is environment-dependent (Phase-10
+// remediation, G07): production uses `__Host-admin-session` (Secure, Path=/,
+// no Domain); a real local development process uses
+// `hyper-admin-session-dev` (browsers reject a `__Host-` cookie that is not
+// Secure, so the dev server cannot use the production name over plain HTTP).
+// The jar below stores whatever name the server issued, and the helpers read
+// it back by pattern — the suites never hardcode the name.
+export const PROD_COOKIE_NAME = "__Host-admin-session";
+export const DEV_COOKIE_NAME = "hyper-admin-session-dev";
 export const GENERIC_MSG = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+
+/** The session cookie value in a jar, whatever name the server used. */
+export function sessionCookie(jar) {
+  return jar[PROD_COOKIE_NAME] ?? jar[DEV_COOKIE_NAME] ?? null;
+}
+
+/** The name the session cookie was stored under in a jar. */
+export function sessionCookieName(jar) {
+  if (jar && jar[PROD_COOKIE_NAME] !== undefined) return PROD_COOKIE_NAME;
+  if (jar && jar[DEV_COOKIE_NAME] !== undefined) return DEV_COOKIE_NAME;
+  return PROD_COOKIE_NAME;
+}
 
 export function scratchUrl(dbName) {
   const u = new URL(process.env.MIGRATION_DATABASE_URL);

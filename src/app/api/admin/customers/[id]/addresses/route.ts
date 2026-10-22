@@ -1,8 +1,9 @@
 // Admin customer address book: list + create, scoped to the path customer.
-// Reads: customers.view. Creates: customers.view (documented
-// closest-capability mapping). Default switch is one transaction; the
-// partial-UQ backstop turns a lost default race into 409. No governorate,
-// no postal/geo fields — the shape mirrors the frozen table exactly.
+// Reads: customers.view. Creates: customers.manage (Phase-10 remediation,
+// G03 — the read key no longer authorizes an address mutation). Default switch
+// is one transaction; the partial-UQ backstop turns a lost default race into
+// 409. No governorate, no postal/geo fields — the shape mirrors the frozen
+// table exactly.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
@@ -27,7 +28,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const gate = await adminOrDeny("customers.view");
+  const gate = await adminOrDeny("customers.manage");
   if ("denied" in gate) return gate.denied;
   const { id } = await context.params;
   if (!uuidSchema.safeParse(id).success) {

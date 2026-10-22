@@ -35,8 +35,19 @@ const LoginInput = z.object({
 });
 
 export interface LoginContext {
+  /**
+   * The TRUSTED client IP (or null when no trusted source is available).
+   * Recorded in the audit trail and in `admin_sessions.created_ip`.
+   */
   ip?: string | null;
   userAgent?: string | null;
+  /**
+   * The address the login RATE-LIMIT buckets are keyed by. Deliberately the
+   * forwarded header value (as before), NOT the trusted IP: the buckets must
+   * keep their established meaning and the account bucket (10 / 15 min) stays
+   * the hard limit. Falls back to the trusted IP when not supplied.
+   */
+  bucketIp?: string | null;
 }
 
 export interface LoginSuccess {
@@ -121,7 +132,8 @@ export async function authenticateAdmin(
   const { email, password } = parsed.data;
 
   // Rate limits first (cheap reject before any expensive work).
-  const ipRate = await checkAndRecordRateLimit(ipBucket(ctx.ip), IP_BUCKET_LIMIT);
+  const bucketIp = ctx.bucketIp ?? ctx.ip ?? null;
+  const ipRate = await checkAndRecordRateLimit(ipBucket(bucketIp), IP_BUCKET_LIMIT);
   const acctRate = await checkAndRecordRateLimit(accountBucket(email), ACCOUNT_BUCKET_LIMIT);
   if (!ipRate.allowed || !acctRate.allowed) {
     await writeAuthAudit({

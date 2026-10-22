@@ -9,6 +9,7 @@ import { uuidSchema } from "@/lib/api/validation";
 import { imagePatchSchema } from "@/lib/catalog/validation";
 import { deleteImage, patchImage } from "@/lib/catalog/media";
 import { toMediaImage } from "@/lib/catalog/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const gate = await adminOrDeny("products.update");
@@ -30,6 +31,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid image."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const row = await patchImage(
       id,

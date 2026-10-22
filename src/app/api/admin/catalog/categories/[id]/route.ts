@@ -9,6 +9,7 @@ import { categoryPatchSchema } from "@/lib/catalog/validation";
 import { getCategory } from "@/lib/catalog/queries";
 import { patchCategory } from "@/lib/catalog/writes";
 import { toCategory } from "@/lib/catalog/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const denied = await denyUnless("products.view");
@@ -47,6 +48,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid category."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const row = await patchCategory(id, parsed.data, gate.admin.user.id);
     if (!row) {

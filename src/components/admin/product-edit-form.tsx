@@ -4,6 +4,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Field, TextInput } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ export function ProductEditForm({
   description: string | null;
   isActive: boolean;
 }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [nextName, setNextName] = useState(name);
   const [nextDescription, setNextDescription] = useState(description ?? "");
@@ -46,6 +48,7 @@ export function ProductEditForm({
         },
       });
       notify("success", "تم حفظ المنتج.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
     } finally {

@@ -11,6 +11,14 @@ import {
   setSessionCookie,
 } from "@/lib/auth/session";
 import { writeAuthAudit } from "@/lib/auth/audit";
+import {
+  buildRequestContext,
+  extractForwardedIp,
+  isHttpsRequest,
+  isLocalOrigin,
+  isTrustedProxyContext,
+} from "@/lib/api/request-context";
+import { sessionCookieName, sessionCookieSecure } from "@/lib/auth/session-cookie";
 
 const LoginSchema = z.object({
   email: z.string().min(1).max(160),
@@ -34,11 +42,37 @@ async function assertSameOrigin(): Promise<boolean> {
   }
 }
 
-async function requestContext(): Promise<{ ip: string | null; userAgent: string | null }> {
+/**
+ * The request context for the audit trail + the session row.
+ * `ip` is the TRUSTED client IP (null unless a trusted proxy is declared);
+ * `bucketIp` keeps the rate-limit buckets keyed exactly as before.
+ */
+async function requestContext(): Promise<{
+  ip: string | null;
+  userAgent: string | null;
+  bucketIp: string | null;
+}> {
   const h = await headers();
-  const forwarded = h.get("x-forwarded-for");
-  const ip = forwarded ? forwarded.split(",")[0].trim() : null;
-  return { ip, userAgent: h.get("user-agent") };
+  const ctx = buildRequestContext(h, isTrustedProxyContext());
+  return { ip: ctx.ip, userAgent: ctx.userAgent, bucketIp: extractForwardedIp(h) };
+}
+
+/**
+ * Refuse a login the BROWSER could not keep: a `Secure` cookie is dropped
+ * over plain HTTP, so the session would silently vanish (Phase-10
+ * remediation, G07). Production keeps the `__Host-` cookie with `Secure`; a
+ * local development process uses the separate dev cookie, so this branch is
+ * only reached in a misconfigured environment — and it says so.
+ *
+ * A browser "potentially trustworthy" origin (localhost / 127.0.0.1 / ::1)
+ * DOES accept `Secure` cookies over plain HTTP, so it is not refused.
+ */
+async function cookieWouldBeDropped(): Promise<boolean> {
+  const name = sessionCookieName();
+  if (!sessionCookieSecure(name)) return false;
+  const h = await headers();
+  if (isLocalOrigin(h.get("host"))) return false;
+  return !isHttpsRequest(h);
 }
 
 export async function loginAction(
@@ -53,6 +87,11 @@ export async function loginAction(
     password: formData.get("password"),
   });
   if (!parsed.success) return { error: GENERIC_LOGIN_ERROR };
+  if (await cookieWouldBeDropped()) {
+    return {
+      error: "تسجيل الدخول يتطلب HTTPS في هذه البيئة (كوكي الجلسة آمن فقط عبر HTTPS).",
+    };
+  }
   const ctx = await requestContext();
   const result = await authenticateAdmin(parsed.data.email, parsed.data.password, ctx);
   if (result.ok === false) return { error: result.error };

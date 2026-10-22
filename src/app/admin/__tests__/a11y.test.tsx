@@ -16,6 +16,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
 vi.mock("@/lib/auth/rbac", () => ({
   requireAdmin: vi.fn(),
   requirePermission: vi.fn(),

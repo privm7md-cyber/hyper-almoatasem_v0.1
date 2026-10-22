@@ -4,9 +4,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/rbac";
-import { listProducts } from "@/lib/catalog/queries";
+import { listBrands, listCategories, listProducts } from "@/lib/catalog/queries";
 import { toProductListItem } from "@/lib/catalog/serialize";
 import { AdminSection } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
+import { ProductCreateForm } from "@/components/admin/product-create-form";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +23,7 @@ export default async function AdminProductsPage({
 }: {
   searchParams: Promise<{ search?: string; cursor?: string }>;
 }) {
-  await requirePermission("products.view");
+  const admin = await requirePermission("products.view");
   const sp = await searchParams;
   const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 160) : null;
   const cursor = typeof sp.cursor === "string" && sp.cursor !== "" ? sp.cursor : null;
@@ -45,6 +47,25 @@ export default async function AdminProductsPage({
     page = null;
   }
   const rows = page ? page.rows.map(toProductListItem) : null;
+  // Category + brand pickers for the create form (active rows only — an
+  // inactive category/brand must not be selectable for a new product).
+  const categories = await listCategories({
+    limit: 100,
+    cursor: null,
+    sort: "name",
+    dir: "asc",
+    search: null,
+    parent: null,
+    active: true,
+  }).catch(() => null);
+  const brands = await listBrands({
+    limit: 100,
+    cursor: null,
+    sort: "name",
+    dir: "asc",
+    search: null,
+    active: true,
+  }).catch(() => null);
   return (
     <main className="grid gap-4">
       <h1 className="text-xl font-bold">المنتجات</h1>
@@ -93,6 +114,24 @@ export default async function AdminProductsPage({
             </Link>
           </p>
         ) : null}
+      </AdminSection>
+      <AdminSection title="إنشاء منتج (products.create)">
+        <PermissionGate permissions={admin.permissions} required="products.create" action="إنشاء المنتجات">
+          {categories === null || brands === null ? (
+            <p className="text-sm text-secondary">
+              تعذّر تحميل التصنيفات والعلامات — أنشئ التصنيفات أولًا من صفحة{" "}
+              <Link href="/admin/taxonomy" className="font-semibold text-brand">
+                التصنيفات والعلامات
+              </Link>
+              .
+            </p>
+          ) : (
+            <ProductCreateForm
+              categories={categories.rows.map((c) => ({ id: c.id, name: c.name }))}
+              brands={brands.rows.map((b) => ({ id: b.id, name: b.name }))}
+            />
+          )}
+        </PermissionGate>
       </AdminSection>
     </main>
   );

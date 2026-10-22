@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { listRoles } from "@/lib/admin/queries";
 import { toRole } from "@/lib/admin/serialize";
 import { EmptyState, ErrorState } from "@/components/ui/states";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { RoleCreateForm } from "@/components/admin/role-forms";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function AdminRolesPage({
 }: {
   searchParams: Promise<{ search?: string; cursor?: string }>;
 }) {
-  await requirePermission("roles.view");
+  const admin = await requirePermission("roles.view");
   const sp = await searchParams;
   const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 60) : null;
   const cursor = typeof sp.cursor === "string" && sp.cursor !== "" ? sp.cursor : null;
@@ -73,7 +74,9 @@ export default async function AdminRolesPage({
       <section aria-label="إنشاء دور" className="rounded-card border border-line bg-white p-4">
         <h2 className="font-bold">دور جديد (roles.manage)</h2>
         <div className="mt-2">
-          <RoleCreateForm />
+          <PermissionGate permissions={admin.permissions} required="roles.manage" action="إنشاء الأدوار">
+            <RoleCreateForm />
+          </PermissionGate>
         </div>
       </section>
     </main>

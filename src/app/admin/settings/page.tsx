@@ -7,6 +7,7 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { listSettings } from "@/lib/admin/queries";
 import { toSetting } from "@/lib/admin/serialize";
 import { ErrorState, EmptyState } from "@/components/ui/states";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { SettingEditForm } from "@/components/admin/setting-forms";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminSettingsPage() {
-  await requirePermission("settings.view");
+  const admin = await requirePermission("settings.view");
   let rows: ReturnType<typeof toSetting>[] | null = null;
   try {
     rows = (await listSettings()).map(toSetting);
@@ -42,7 +43,9 @@ export default async function AdminSettingsPage() {
               {s.description ? <p className="text-sm text-secondary">{s.description}</p> : null}
               <p className="text-xs text-secondary">النوع: <span dir="ltr" className="font-mono">{s.valueType}</span> · آخر تحديث: {s.updatedAt}</p>
               <div className="mt-2">
-                <SettingEditForm settingKey={s.key} value={s.value} valueType={s.valueType} />
+                <PermissionGate permissions={admin.permissions} required="settings.manage" action="تعديل إعدادات المتجر">
+                  <SettingEditForm settingKey={s.key} value={s.value} valueType={s.valueType} />
+                </PermissionGate>
               </div>
             </li>
           ))}

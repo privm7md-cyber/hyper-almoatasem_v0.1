@@ -4,11 +4,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
 export function PickForm({ orderId, itemId }: { orderId: string; itemId: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [qty, setQty] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export function PickForm({ orderId, itemId }: { orderId: string; itemId: string 
         body: { actualQuantity: qty.trim() },
       });
       notify("success", "تم تسجيل التجهيز.");
+      router.refresh();
       setQty("");
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
@@ -56,6 +59,7 @@ export function PickForm({ orderId, itemId }: { orderId: string; itemId: string 
 }
 
 export function ProposeForm({ orderId, itemId }: { orderId: string; itemId: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [variantId, setVariantId] = useState("");
   const [qty, setQty] = useState("");
@@ -82,6 +86,7 @@ export function ProposeForm({ orderId, itemId }: { orderId: string; itemId: stri
         },
       });
       notify("success", "تم إنشاء الاقتراح.");
+      router.refresh();
       setVariantId("");
       setQty("");
       setReason("");

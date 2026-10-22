@@ -16,6 +16,9 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
 vi.mock("@/lib/auth/rbac", () => ({
   requireAdmin: vi.fn(),
   requirePermission: vi.fn(),
@@ -56,7 +59,7 @@ afterEach(() => {
 
 describe("admin settings (FE-11)", () => {
   it("gates on settings.view and renders setting keys with editors", async () => {
-    vi.mocked(requirePermission).mockResolvedValue(ctx(["settings.view"]));
+    vi.mocked(requirePermission).mockResolvedValue(ctx(["settings.view", "settings.manage"]));
     vi.mocked(listSettings).mockResolvedValue([
       { key: "delivery.fee", valueText: "10", valueType: "MONEY", description: "رسوم التوصيل", updatedAt: dt },
     ] as unknown as Awaited<ReturnType<typeof listSettings>>);
@@ -66,6 +69,20 @@ describe("admin settings (FE-11)", () => {
     expect(requirePermission).toHaveBeenCalledWith("settings.view");
     expect(screen.getByText("delivery.fee")).toBeVisible();
     expect(screen.getByDisplayValue("10")).toBeInTheDocument();
+  });
+
+  it("hides the settings editors without settings.manage and names the missing key", async () => {
+    vi.mocked(requirePermission).mockResolvedValue(ctx(["settings.view"]));
+    vi.mocked(listSettings).mockResolvedValue([
+      { key: "delivery.fee", valueText: "10", valueType: "MONEY", description: "رسوم التوصيل", updatedAt: dt },
+    ] as unknown as Awaited<ReturnType<typeof listSettings>>);
+    render(
+      <ToastProvider>{await AdminSettingsPage()}</ToastProvider>,
+    );
+    // The key stays readable; the write control does not appear.
+    expect(screen.getByText("delivery.fee")).toBeVisible();
+    expect(screen.queryByDisplayValue("10")).toBeNull();
+    expect(screen.getByText(/settings\.manage/)).toBeVisible();
   });
 
   it("denied identity rejects before any read", async () => {

@@ -7,8 +7,10 @@ import { requirePermission } from "@/lib/auth/rbac";
 import { getPromotion } from "@/lib/promotions/queries";
 import { toPromotion } from "@/lib/promotions/serialize";
 import { AdminSection } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { AdminAction } from "@/components/admin/admin-mutate";
 import { BuyGetPutForm, PromotionStatusForm, RulesPutForm, TargetAddForm } from "@/components/admin/promotion-forms";
+import { PromotionDetailsForm } from "@/components/admin/promotion-details-form";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPromotionDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePermission("promotions.view");
+  const admin = await requirePermission("promotions.view");
   const { id } = await params;
   const row = await getPromotion(id).catch(() => null);
   if (!row) notFound();
@@ -33,10 +35,32 @@ export default async function AdminPromotionDetailPage({ params }: { params: Pro
         {promo.usageLimit !== null ? ` من ${promo.usageLimit}` : ""}
       </p>
       {promo.description ? <p className="text-sm">{promo.description}</p> : null}
-      <AdminSection title="الحالة">
-        <PromotionStatusForm id={promo.id} status={promo.status} />
+      <AdminSection title="بيانات العرض (promotions.update)">
+        <PermissionGate permissions={admin.permissions} required="promotions.update" action="تعديل بيانات العرض">
+          <PromotionDetailsForm
+            promo={{
+              id: promo.id,
+              type: promo.type,
+              name: promo.name,
+              description: promo.description,
+              priority: promo.priority,
+              isStackable: promo.isStackable,
+              usageLimit: promo.usageLimit,
+              discountPercent: promo.discountPercent,
+              discountAmount: promo.discountAmount,
+              fixedPrice: promo.fixedPrice,
+              startAt: promo.startAt,
+              endAt: promo.endAt,
+            }}
+          />
+        </PermissionGate>
       </AdminSection>
-      <AdminSection title="الاستهداف">
+      <AdminSection title="الحالة (promotions.disable)">
+        <PermissionGate permissions={admin.permissions} required="promotions.disable" action="تغيير حالة العرض">
+          <PromotionStatusForm id={promo.id} status={promo.status} />
+        </PermissionGate>
+      </AdminSection>
+      <AdminSection title="الاستهداف (promotions.update)">
         {promo.targets.length === 0 ? (
           <p className="text-sm text-secondary">لا توجد أهداف — التفعيل يتطلب استهدافًا مكتملًا.</p>
         ) : (
@@ -46,17 +70,23 @@ export default async function AdminPromotionDetailPage({ params }: { params: Pro
                 <span>
                   {t.targetType} — <span className="font-mono text-xs" dir="ltr">{t.targetId}</span>
                 </span>
-                <AdminAction label="حذف الهدف" path={`/api/admin/promotions/${promo.id}/targets/${t.id}`} method="DELETE" />
+                <PermissionGate permissions={admin.permissions} required="promotions.update" action="حذف الهدف">
+                  <AdminAction label="حذف الهدف" path={`/api/admin/promotions/${promo.id}/targets/${t.id}`} method="DELETE" />
+                </PermissionGate>
               </li>
             ))}
           </ul>
         )}
         <div className="mt-2">
-          <TargetAddForm promotionId={promo.id} />
+          <PermissionGate permissions={admin.permissions} required="promotions.update" action="إضافة الاستهداف">
+            <TargetAddForm promotionId={promo.id} />
+          </PermissionGate>
         </div>
       </AdminSection>
-      <AdminSection title="القواعد (minimums/caps)">
-        <RulesPutForm promotionId={promo.id} />
+      <AdminSection title="القواعد (minimums/caps) — promotions.update">
+        <PermissionGate permissions={admin.permissions} required="promotions.update" action="حفظ القواعد">
+          <RulesPutForm promotionId={promo.id} />
+        </PermissionGate>
         {promo.rules ? (
           <p className="text-sm text-secondary">
             الحالية: كمية {promo.rules.minimumQuantity ?? "—"} · مبلغ {promo.rules.minimumAmount ?? "—"} · سقف{" "}
@@ -67,8 +97,10 @@ export default async function AdminPromotionDetailPage({ params }: { params: Pro
         )}
       </AdminSection>
       {promo.type === "BUY_X_GET_Y" ? (
-        <AdminSection title="قاعدة الاشترِ-واحصل">
-          <BuyGetPutForm promotionId={promo.id} />
+        <AdminSection title="قاعدة الاشترِ-واحصل (promotions.update)">
+          <PermissionGate permissions={admin.permissions} required="promotions.update" action="حفظ قاعدة الاشترِ-واحصل">
+            <BuyGetPutForm promotionId={promo.id} />
+          </PermissionGate>
           {promo.buyGet ? (
             <p className="text-sm text-secondary">
               الحالية: اشترِ {promo.buyGet.buyQuantity} واحصل على {promo.buyGet.getQuantity} بخصم{" "}
@@ -79,14 +111,16 @@ export default async function AdminPromotionDetailPage({ params }: { params: Pro
           )}
         </AdminSection>
       ) : null}
-      <AdminSection title="حذف العرض">
-        <AdminAction
-          label="حذف العرض نهائيًا"
-          path={`/api/admin/promotions/${promo.id}`}
-          method="DELETE"
-          variant="danger"
-          confirmText="الحذف نهائي للعروض غير المُشار إليها. تأكيد؟"
-        />
+      <AdminSection title="حذف العرض (promotions.disable)">
+        <PermissionGate permissions={admin.permissions} required="promotions.disable" action="حذف العرض">
+          <AdminAction
+            label="حذف العرض نهائيًا"
+            path={`/api/admin/promotions/${promo.id}`}
+            method="DELETE"
+            variant="danger"
+            confirmText="الحذف نهائي للعروض غير المُشار إليها. تأكيد؟"
+          />
+        </PermissionGate>
       </AdminSection>
     </main>
   );

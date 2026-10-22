@@ -6,6 +6,7 @@
 // domain services (writes.ts), not here.
 import { z } from "zod";
 import { strictObject, uuidSchema, opaqueCursorSchema, paginationSchema } from "@/lib/api/validation";
+import { isValidPriceText } from "@/lib/catalog/price";
 
 /** Price-window wire shape: positive decimal text (domain binds semantics). */
 const priceFilterSchema = z
@@ -164,12 +165,21 @@ export const productPatchSchema = strictObject({
 
 /** Variant PATCH shape: name/isActive are optional-only (non-nullable
  * columns); size/compare/cost stay nullish (null clears the nullable column). */
+/**
+ * Price-shaped text (same rule as `variantPriceInputSchema`): plain
+ * non-negative decimal, exactly representable at the approved precision.
+ */
+const priceTextSchema = z
+  .string()
+  .regex(/^\d+(\.\d{1,3})?$/, { message: "Invalid price." })
+  .refine((s) => isValidPriceText(s), { message: "Invalid price." });
+
 export const variantPatchSchema = strictObject({
   name: z.string().trim().min(1).max(120).optional(),
   sizeValue: z.string().regex(/^\d+(\.\d{1,3})?$/).nullish(),
   sizeUnit: sizeUnitSchema.nullish(),
-  compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
-  costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
+  compareAtPrice: priceTextSchema.nullish(),
+  costPrice: priceTextSchema.nullish(),
   isActive: z.boolean().optional(),
 });
 
@@ -200,14 +210,27 @@ export const variantInputSchema = strictObject({
   name: z.string().trim().min(1).max(120),
   sizeValue: z.string().regex(/^\d+(\.\d{1,3})?$/).nullish(),
   sizeUnit: sizeUnitSchema.nullish(),
-  price: z.string().regex(/^\d+(\.\d{1,2})?$/),
-  compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
-  costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
+  price: priceTextSchema,
+  compareAtPrice: priceTextSchema.nullish(),
+  costPrice: priceTextSchema.nullish(),
   isActive: z.boolean().nullish(),
 });
 
+/**
+ * Selling price wire shape.
+ *
+ * The column is NUMERIC(10,2): two approved fraction digits. The text may
+ * carry up to three digits, but a value that is NOT exactly representable at
+ * the approved precision ("15.005") is rejected here instead of being
+ * silently rounded. "15", "15.00" and "15.000" are all accepted and denote
+ * the SAME price — the no-change comparison is numeric (see
+ * `src/lib/catalog/price.ts` and `updateVariantPrice`), never a text compare.
+ */
 export const variantPriceInputSchema = strictObject({
-  price: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  price: z
+    .string()
+    .regex(/^\d+(\.\d{1,3})?$/, { message: "Invalid price." })
+    .refine((s) => isValidPriceText(s), { message: "Invalid price." }),
   reason: z.string().trim().max(500).nullish(),
 });
 

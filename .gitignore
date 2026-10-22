@@ -46,6 +46,8 @@ next-env.d.ts
 # local-only artifacts — never part of the repository:
 # /_recovery/ holds production pg_dump backups (local recovery evidence only)
 /_recovery/
+# parallel Next.js build dirs (NEXT_DIST_DIR) are build output, never source
+/.next-*/
 # agent tooling folders created per-developer, not project source
 /.agents/
 /.claude/

@@ -1,7 +1,9 @@
 // Admin single address: get / update / hard-delete, always scoped to the
 // path customer (cross-customer access → 404, never leaks existence).
-// Permission: customers.view throughout (documented mapping). DELETE is a
-// hard delete per the frozen model (no deleted_at; orders keep snapshots).
+// Permission: customers.view for the READ, customers.manage for the UPDATE
+// and the hard DELETE (Phase-10 remediation, G03 — a read key no longer
+// authorizes an address mutation or a hard delete). DELETE is a hard delete
+// per the frozen model (no deleted_at; orders keep snapshots).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
@@ -11,6 +13,7 @@ import { addressPatchSchema } from "@/lib/customers/validation";
 import { getAddressOfCustomer } from "@/lib/customers/queries";
 import { deleteAddress, patchAddress } from "@/lib/customers/writes";
 import { toAddress } from "@/lib/customers/serialize";
+import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 async function ids(context: { params: Promise<{ id: string; addressId: string }> }) {
   const p = await context.params;
@@ -36,7 +39,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string; addressId: string }> }) {
-  const gate = await adminOrDeny("customers.view");
+  const gate = await adminOrDeny("customers.manage");
   if ("denied" in gate) return gate.denied;
   const p = await ids(context);
   if (!p) {
@@ -55,6 +58,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const r = fail(new ApiError("VALIDATION", "Invalid address."));
     return NextResponse.json(r.body, { status: r.status });
   }
+  // An empty patch changes nothing: reject it instead of writing a no-op row
+  // and a misleading audit row (Phase-10 remediation, G05).
+  if (isEmptyPatchBody(body)) return emptyPatchResponse();
   try {
     const row = await patchAddress(p.id, p.addressId, {
       label: parsed.data.label,
@@ -80,7 +86,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string; addressId: string }> }) {
-  const gate = await adminOrDeny("customers.view");
+  const gate = await adminOrDeny("customers.manage");
   if ("denied" in gate) return gate.denied;
   const p = await ids(context);
   if (!p) {

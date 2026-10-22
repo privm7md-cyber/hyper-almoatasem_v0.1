@@ -6,6 +6,7 @@ import Link from "next/link";
 import { listInventory, listMovements } from "@/lib/inventory/queries";
 import { toInventory, toMovement } from "@/lib/inventory/serialize";
 import { AdminSection, AdminTable } from "@/components/admin/admin-table";
+import { PermissionGate } from "@/components/admin/permission-gate";
 import { EmptyState, ErrorState } from "@/components/ui/states";
 import { InventoryAdjustForm, InventoryThresholdForm } from "@/components/admin/inventory-forms";
 
@@ -21,7 +22,7 @@ export default async function AdminInventoryPage({
 }: {
   searchParams: Promise<{ search?: string; inStock?: string; lowStock?: string; cursor?: string }>;
 }) {
-  await requirePermission("inventory.view");
+  const admin = await requirePermission("inventory.view");
   const sp = await searchParams;
   const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 120) : null;
   const cursor = typeof sp.cursor === "string" && sp.cursor !== "" ? sp.cursor : null;
@@ -93,10 +94,14 @@ export default async function AdminInventoryPage({
         ) : null}
       </AdminSection>
       <AdminSection title="تعديل يدوي (inventory.adjust)">
-        <InventoryAdjustForm />
+        <PermissionGate permissions={admin.permissions} required="inventory.adjust" action="تعديل المخزون">
+          <InventoryAdjustForm />
+        </PermissionGate>
       </AdminSection>
       <AdminSection title="حد المخزون المنخفض (inventory.adjust)">
-        <InventoryThresholdForm />
+        <PermissionGate permissions={admin.permissions} required="inventory.adjust" action="تعديل حد المخزون">
+          <InventoryThresholdForm />
+        </PermissionGate>
       </AdminSection>
       <AdminSection title="أحدث الحركات">
         {!movements || movements.length === 0 ? (

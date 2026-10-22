@@ -26,6 +26,10 @@ vi.mock("@/lib/promotions/queries", () => ({
   listPromotions: vi.fn(),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
+
 import AdminPromotionsPage from "../promotions/page";
 import { PromotionCreateForm } from "@/components/admin/promotion-forms";
 import { requirePermission } from "@/lib/auth/rbac";
@@ -39,11 +43,11 @@ function promoRow(id: string, status: string) {
 }
 
 type PromoRows = Awaited<ReturnType<typeof listPromotions>>;
-const authed = () => {
+const authed = (permissions = ["promotions.view"]) => {
   vi.mocked(requirePermission).mockResolvedValue({
     user: { id: "u", name: "n", email: "e" },
     roles: [],
-    permissions: ["promotions.view"],
+    permissions,
   });
 };
 const sp = (q: Record<string, string>) => Promise.resolve(q);
@@ -84,7 +88,7 @@ describe("admin promotions list", () => {
   });
 
   it("shows empty and error states; create section stays rendered", async () => {
-    authed();
+    authed(["promotions.view", "promotions.create"]);
     vi.mocked(listPromotions).mockResolvedValueOnce([] as unknown as PromoRows);
     const { unmount } = render(
       <ToastProvider>{await AdminPromotionsPage({ searchParams: sp({}) })}</ToastProvider>,
@@ -97,6 +101,16 @@ describe("admin promotions list", () => {
       <ToastProvider>{await AdminPromotionsPage({ searchParams: sp({}) })}</ToastProvider>,
     );
     expect(screen.getByText("تعذّر التحميل")).toBeVisible();
+  });
+
+  it("hides the create form without promotions.create and names the missing key", async () => {
+    authed(["promotions.view"]);
+    vi.mocked(listPromotions).mockResolvedValueOnce([] as unknown as PromoRows);
+    render(
+      <ToastProvider>{await AdminPromotionsPage({ searchParams: sp({}) })}</ToastProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "إنشاء العرض" })).toBeNull();
+    expect(screen.getAllByText(/promotions\.create/).length).toBeGreaterThan(0);
   });
 
   it("denied identity rejects before any read", async () => {

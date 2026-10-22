@@ -1,9 +1,12 @@
 // FE-10C promotion forms island ("use client"): create-basic + status flip + target add +
 // rules put + buy-get put. Server validates type-dependent shapes, windows, and references.
+// Every successful mutation refreshes the server-rendered tree so the operator sees the
+// saved state instead of a stale list.
 
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -21,6 +24,7 @@ function Note({ text }: { text: string | null }) {
 }
 
 export function PromotionCreateForm() {
+  const router = useRouter();
   const { notify } = useToast();
   const [name, setName] = useState("");
   const [type, setType] = useState<(typeof TYPES)[number]>("PERCENTAGE");
@@ -47,6 +51,7 @@ export function PromotionCreateForm() {
     try {
       await apiRequest("/api/admin/promotions", { method: "POST", body });
       notify("success", "تم إنشاء العرض كمسودة.");
+      router.refresh();
       setName("");
       setValue("");
     } catch (error) {
@@ -93,6 +98,7 @@ export function PromotionCreateForm() {
 }
 
 export function PromotionStatusForm({ id, status }: { id: string; status: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [next, setNext] = useState(status);
   const [note, setNote] = useState<string | null>(null);
@@ -106,6 +112,7 @@ export function PromotionStatusForm({ id, status }: { id: string; status: string
     try {
       await apiRequest(`/api/admin/promotions/${id}`, { method: "PATCH", body: { status: next } });
       notify("success", "تم تحديث الحالة.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر التحديث. التفعيل يتطلب استهدافًا مكتملًا."));
     } finally {
@@ -134,6 +141,7 @@ export function PromotionStatusForm({ id, status }: { id: string; status: string
 const TARGET_TYPES = ["VARIANT", "PRODUCT", "BRAND", "CATEGORY"] as const;
 
 export function TargetAddForm({ promotionId }: { promotionId: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [targetType, setTargetType] = useState<(typeof TARGET_TYPES)[number]>("PRODUCT");
   const [targetId, setTargetId] = useState("");
@@ -155,6 +163,7 @@ export function TargetAddForm({ promotionId }: { promotionId: string }) {
         body: { targetType, targetId: targetId.trim() },
       });
       notify("success", "تمت إضافة الاستهداف.");
+      router.refresh();
       setTargetId("");
     } catch (error) {
       setNote(displayFailure(error, "تعذّرت الإضافة."));
@@ -186,6 +195,7 @@ export function TargetAddForm({ promotionId }: { promotionId: string }) {
 }
 
 export function RulesPutForm({ promotionId }: { promotionId: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [minimumQuantity, setMinimumQuantity] = useState("");
   const [minimumAmount, setMinimumAmount] = useState("");
@@ -208,6 +218,7 @@ export function RulesPutForm({ promotionId }: { promotionId: string }) {
         },
       });
       notify("success", "تم حفظ القواعد.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
     } finally {
@@ -240,6 +251,7 @@ export function RulesPutForm({ promotionId }: { promotionId: string }) {
 }
 
 export function BuyGetPutForm({ promotionId }: { promotionId: string }) {
+  const router = useRouter();
   const { notify } = useToast();
   const [buyQuantity, setBuyQuantity] = useState("");
   const [getQuantity, setGetQuantity] = useState("");
@@ -268,6 +280,7 @@ export function BuyGetPutForm({ promotionId }: { promotionId: string }) {
         },
       });
       notify("success", "تم حفظ قاعدة الاشترِ-واحصل.");
+      router.refresh();
     } catch (error) {
       setNote(displayFailure(error, "تعذّر الحفظ."));
     } finally {

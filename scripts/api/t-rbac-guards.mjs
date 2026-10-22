@@ -11,6 +11,7 @@
 //   G6 normal role zero-grant reachability is NOT blocked.
 // All rows BA11G-prefixed. Prints JSON, never passwords, hashes, or tokens.
 import "dotenv/config";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
 
 const args = process.argv.slice(2);
@@ -86,8 +87,8 @@ async function main() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const m = (r.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
-    return { status: r.status, cookie: m ? `__Host-admin-session=${m[1]}` : null };
+    const ck = extractSessionCookie(r.headers.get("set-cookie"));
+    return { status: r.status, cookie: ck ? ck.header : null };
   };
 
   const stamp = Date.now().toString(36);

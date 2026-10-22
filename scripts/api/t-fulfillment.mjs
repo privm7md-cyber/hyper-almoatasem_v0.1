@@ -12,6 +12,7 @@
 // Direct SQL is used only for fixture guards, fault verification, and
 // cleanup. Prints JSON, no secrets.
 import "dotenv/config";
+import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
 
 const args = process.argv.slice(2);
@@ -94,8 +95,8 @@ async function main() {
       body: JSON.stringify({ email, password }),
     });
     const body = await r.json().catch(() => ({}));
-    const m = (r.headers.get("set-cookie") || "").match(/__Host-admin-session=([^;]+)/);
-    return { status: r.status, body, cookie: m ? `__Host-admin-session=${m[1]}` : null };
+    const ck = extractSessionCookie(r.headers.get("set-cookie"));
+    return { status: r.status, body, cookie: ck ? ck.header : null };
   };
 
   const stamp = Date.now().toString(36);

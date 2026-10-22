@@ -1,6 +1,6 @@
 // Concurrency races over HTTP (scratch-only).
 // ctx: { baseUrl, dbName, owner: {email,password}, store: {email,password} }
-import { makeClient, sql, resetAuthState, COOKIE_NAME } from "./_client.mjs";
+import { makeClient, sql, resetAuthState, sessionCookieName, sessionCookie } from "./_client.mjs";
 
 export async function run(ctx) {
   const results = [];
@@ -29,7 +29,7 @@ export async function run(ctx) {
     const outs = await Promise.all(
       clients.map((c) => c.post("/api/admin/session", { email: owner.email, password: owner.password })),
     );
-    const tokens = clients.map((c) => c.jar[COOKIE_NAME]).filter(Boolean);
+    const tokens = clients.map((c) => sessionCookie(c.jar)).filter(Boolean);
     const uniq = new Set(tokens);
     t("session_race_distinct", outs.every((r) => r.res.status === 201) && uniq.size === 5, `distinct=${uniq.size}`);
   }
@@ -45,10 +45,10 @@ export async function run(ctx) {
   {
     const c = makeClient(baseUrl);
     await c.post("/api/admin/session", { email: store.email, password: store.password });
-    const raw = c.jar[COOKIE_NAME];
+    const raw = sessionCookie(c.jar);
     const outs = await Promise.all(
       Array.from({ length: 5 }, () =>
-        fetch(baseUrl + "/api/admin/session", { method: "DELETE", redirect: "manual", headers: { Cookie: `${COOKIE_NAME}=${raw}` } }).then((r) => r.status),
+        fetch(baseUrl + "/api/admin/session", { method: "DELETE", redirect: "manual", headers: { Cookie: `${sessionCookieName(c.jar)}=${raw}` } }).then((r) => r.status),
       ),
     );
     t("double_logout_safe", outs.every((s) => s === 200), `statuses=${[...new Set(outs)].join(",")}`);
