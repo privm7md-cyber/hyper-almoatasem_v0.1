@@ -1,8 +1,14 @@
 // Overlap-proof probe: 10 iters, asserts BOTH workers reached the reservation
 // latch AND loser.begin < winner.commit (genuine overlapping transactions).
-const EmbeddedPostgres = require('embedded-postgres').default;
-const { Pool } = require('pg');
-const fs = require('fs');
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import pg from 'pg';
+import embeddedPostgres from 'embedded-postgres';
+
+const EmbeddedPostgres = embeddedPostgres.default;
+const { Pool } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.on('unhandledRejection', (e) => { console.log('UNHANDLED: ' + String((e && e.message) || e).split('\n')[0]); process.exit(1); });
 function latch(n) { let c = 0, rel; const ready = new Promise((r) => { rel = r; }); return { arrive: () => { if (++c === n) rel(); return ready; } }; }
 let seq = 500000;
@@ -21,7 +27,7 @@ const uid = () => '7f000000-0000-7000-8000-' + (seq++).toString(16).padStart(12,
   const admin = await pool.connect();
   try {
     for (const f of ['phase1-schema.sql', 'phase1-seed-example.sql', 'phase2-schema.sql'])
-      await admin.query(fs.readFileSync(require('path').join(__dirname, '..', f), 'utf8'));
+      await admin.query(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'));
     await admin.query(`INSERT INTO products (id, name, slug, category_id, product_type, unit)
       VALUES ('7f000000-0000-7000-8000-000000000001','TEST Probe Unit','test-probe-unit','01800000-0000-7000-8000-000000000001','PIECE','PIECE')`);
     await admin.query(`INSERT INTO product_variants (id, product_id, name, size_value, size_unit, price)
@@ -64,7 +70,7 @@ const uid = () => '7f000000-0000-7000-8000-' + (seq++).toString(16).padStart(12,
           await c.query('COMMIT');
           ev.commit = Date.now();
           return { win: true };
-        } catch (e) { try { await c.query('ROLLBACK'); } catch (_) {} return { win: false, reason: e.message.split('\n')[0] }; }
+        } catch (e) { try { await c.query('ROLLBACK'); } catch {} return { win: false, reason: e.message.split('\n')[0] }; }
         finally { c.release(); }
       };
       const [rA, rB] = await Promise.all([
@@ -84,8 +90,8 @@ const uid = () => '7f000000-0000-7000-8000-' + (seq++).toString(16).padStart(12,
     console.log(`OVERLAP PROBE: ${proven}/10 iters — dual latch arrival AND loser.begin < winner.commit, single winner, 1.000/1.000/0.000 every time`);
     process.exitCode = 0;
   } catch (e) { console.log('PROBE ERROR: ' + String((e && e.message) || e).split('\n').slice(0, 4).join(' | ')); process.exitCode = 1; }
-  try { await pool.end(); } catch (_) {}
-  try { await p0.end(); } catch (_) {}
+  try { await pool.end(); } catch {}
+  try { await p0.end(); } catch {}
   try { await Promise.race([pg.stop(), new Promise((_, rej) => setTimeout(() => rej(new Error('t/o')), 20000))]); } catch (e) { console.log('STOP: ' + e.message); }
   setTimeout(() => process.exit(process.exitCode || 0), 500).unref();
 })();

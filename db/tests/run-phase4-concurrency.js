@@ -3,10 +3,15 @@
 // §41: A global coupon limit · B per-customer (same-cart double submit) ·
 // C promo limit (skip-not-fail) · D same idempotency key · E same cart ·
 // F BXGY + limited inventory. Invariants asserted per iteration.
-const EmbeddedPostgres = require('embedded-postgres').default;
-const { Pool } = require('pg');
-const fs = require('fs');
-const path = require('path');
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import pg from 'pg';
+import embeddedPostgres from 'embedded-postgres';
+
+const EmbeddedPostgres = embeddedPostgres.default;
+const { Pool } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DBDIR = path.join(__dirname, '..'); // repo db/ dir
 process.on('unhandledRejection', (e) => { console.log('UNHANDLED: ' + String((e && e.message) || e).split('\n')[0]); process.exit(1); });
 function latch(n) { let c = 0, rel; const ready = new Promise((r) => { rel = r; }); return { arrive: () => { if (++c === n) rel(); return ready; } }; }
@@ -144,7 +149,7 @@ const R2 = (x) => Math.round(Number(x) * 100) / 100;
         await c.query('COMMIT');
         events.commit = Date.now();
         return { win: true, order: oid };
-      } catch (e) { try { await c.query('ROLLBACK'); } catch (_) {} return { win: false, reason: e.message.split('\n')[0] }; }
+      } catch (e) { try { await c.query('ROLLBACK'); } catch {} return { win: false, reason: e.message.split('\n')[0] }; }
       finally { c.release(); }
     }
 
@@ -217,7 +222,7 @@ const R2 = (x) => Math.round(Number(x) * 100) / 100;
       const cp = await mkCoupon(promo, 'RACED' + i, null, null, null);
       const A = await mk(P330, '1.000', '15.00'), B = await mk(P330, '1.000', '15.00');
       const key = 'same-key-' + i, gate = latch(2), rl = latch(2);
-      const [rA, rB] = await Promise.all([
+      await Promise.all([
         (async () => { await gate.arrive(); return worker({ cartId: A.k, custId: A.c, key, couponRaw: 'RACED' + i, events: {}, atReserve: () => rl.arrive() }); })(),
         (async () => { await gate.arrive(); return worker({ cartId: B.k, custId: B.c, key, couponRaw: 'RACED' + i, events: {}, atReserve: () => rl.arrive() }); })(),
       ]);
@@ -236,7 +241,7 @@ const R2 = (x) => Math.round(Number(x) * 100) / 100;
       const promo = await mkPromoPct('10.00', null);
       const A = await mk(P330, '1.000', '15.00');
       const gate = latch(2);
-      const [rA, rB] = await Promise.all([
+      await Promise.all([
         (async () => { await gate.arrive(); return worker({ cartId: A.k, custId: A.c, key: 're-' + i + 'A', autoPromo: promo, events: {} }); })(),
         (async () => { await gate.arrive(); return worker({ cartId: A.k, custId: A.c, key: 're-' + i + 'B', autoPromo: promo, events: {} }); })(),
       ]);
@@ -267,6 +272,6 @@ const R2 = (x) => Math.round(Number(x) * 100) / 100;
     console.log('\n==== CONCURRENCY GATE: A(20) B(20) C(20) D(20) E(20) F(20) ALL SINGLE-WINNER / NO-OVERSHOOT ====');
     await pool.end();
     await pg.stop();
-  } catch (e) { console.log('GATE ERROR: ' + String((e && e.message) || e).split('\n').slice(0, 4).join(' | ')); process.exitCode = 1; try { await pool.end(); } catch (_) {} try { await pg.stop(); } catch (_) {} }
+  } catch (e) { console.log('GATE ERROR: ' + String((e && e.message) || e).split('\n').slice(0, 4).join(' | ')); process.exitCode = 1; try { await pool.end(); } catch {} try { await pg.stop(); } catch {} }
   setTimeout(() => process.exit(process.exitCode || 0), 500).unref();
 })();

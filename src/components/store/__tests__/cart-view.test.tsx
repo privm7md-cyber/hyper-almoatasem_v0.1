@@ -62,10 +62,13 @@ describe("cart-view", () => {
     expect(await screen.findByText("سلتك فاضية")).toBeInTheDocument();
   });
 
-  it("expired cart offers a fresh mint path (no dead end)", async () => {
+  it("expired cart offers a fresh mint path plus browsing alternatives (NAV-03)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ error: { code: "NOT_FOUND", message: "x", details: null } }, 404)));
     renderCart();
     expect(await screen.findByText("ابدأ سلة جديدة")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "سلة جديدة" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "تصفّح الأقسام" }).getAttribute("href")).toBe("/categories");
+    expect(screen.getByRole("link", { name: "ابحث عن منتج" }).getAttribute("href")).toBe("/search");
   });
 
   it("set-quantity PATCHes the variant line and adopts the echo", async () => {

@@ -78,7 +78,7 @@ export function HomeHero() {
             </Link>
             <Link
               href="/brands"
-              className="inline-flex min-h-[46px] items-center gap-2 rounded-control border border-white/30 px-6 text-base font-semibold text-white transition-colors duration-200 hover:border-white/60 hover:bg-white/10"
+              className="inline-flex min-h-[46px] items-center gap-2 rounded-control border border-white/60 px-6 text-base font-semibold text-white transition-colors duration-200 hover:border-white/80 hover:bg-white/10"
             >
               العلامات التجارية
             </Link>

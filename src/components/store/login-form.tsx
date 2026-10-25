@@ -1,12 +1,14 @@
 // FE-6 login form island ("use client"): phone + password → session endpoint.
 // Session cookie is HttpOnly (backend sets it); nothing sensitive is stored client-side.
 // Generic failure message (never distinguishes unknown phone / wrong password / lockout).
+// NAV-02: after success, return to the user's internal destination (?next=…) when safe.
 
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppError, apiRequest } from "@/lib/frontend/api-client";
+import { safeReturnTo } from "@/lib/frontend/return-to";
 import { Field, TextInput } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
@@ -31,7 +33,8 @@ export function LoginForm() {
         method: "POST",
         body: { phone: phone.trim(), password },
       });
-      router.push("/account");
+      const next = safeReturnTo(new URLSearchParams(window.location.search).get("next"));
+      router.push(next);
       router.refresh();
     } catch (err) {
       setError(err instanceof AppError ? "بيانات الدخول غير صحيحة." : "تعذّر تسجيل الدخول.");

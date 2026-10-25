@@ -1,7 +1,6 @@
 // FE-7 order confirmation (server): rendered ONLY from a readable order (dual policy).
 // No success ever shown from the submit click alone — this page 404s/gates otherwise.
 // The path carries the order id only (display identifier, never a credential).
-// Phase-11: the expired-access message points at a real action instead of a dead end.
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -37,16 +36,17 @@ export default async function ConfirmationPage({ params }: { params: Promise<{ i
             <p className="font-bold">تعذّر عرض التأكيد</p>
             <p className="mt-2 text-sm text-secondary">
               {result.error === "GONE"
-                ? "انتهت صلاحية الوصول إلى هذا الطلب — سجّل الدخول من جديد أو افتحه من صفحة طلباتك."
+                ? "انتهت صلاحية الوصول إلى هذا الطلب — راجع خطوات الوصول في صفحة المساعدة."
                 : "افتح رابط الطلب من المتصفح نفسه أو سجّل الدخول للمتابعة."}
+            </p>
+            <p className="mt-2">
+              <Link href="/order-help" className="font-semibold text-brand">
+                مساعدة الطلب
+              </Link>
             </p>
             <p className="mt-2">
               <Link href="/login" className="font-semibold text-brand">
                 تسجيل الدخول
-              </Link>
-              <span className="mx-2 text-secondary">·</span>
-              <Link href="/orders" className="font-semibold text-brand">
-                طلباتي
               </Link>
             </p>
           </div>

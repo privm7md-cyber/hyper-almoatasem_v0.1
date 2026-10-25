@@ -9,7 +9,7 @@ import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/in
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
-  title: "سياسة التوصيل — هايبر المعتصم",
+  title: "سياسة التوصيل",
   description: "نطاق التوصيل، ورسوم التوصيل كما تُحتسب في المتجر، وما الذي يُنشأ به الطلب.",
 };
 

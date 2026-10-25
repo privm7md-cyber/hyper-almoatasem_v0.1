@@ -26,6 +26,10 @@ const CARD: HomeProductCard = {
   name: "أرز بسمتي",
   slug: "aruz",
   unit: "PIECE",
+  productType: "PIECE",
+  saleStepGrams: null,
+  sizeValue: null,
+  sizeUnit: null,
   price: "320.00",
   compareAt: "360.00",
   stock: "in",
@@ -45,8 +49,10 @@ describe("store shell", () => {
     const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
     expect(hrefs.length).toBeGreaterThan(0);
     for (const href of hrefs) {
-      // Phase-11: the footer exposes the real catalogue / cart / account
-      // destinations as well; every one of them is an existing route.
+      // FE-9: the footer exposes the published informational pages only; pages
+      // whose content is still blocked on owner input are deliberately absent.
+      // Phase-11: the browse column also links the real catalogue / account
+      // destinations (every one of them is an existing route).
       expect([
         "/",
         "/search",
@@ -55,6 +61,12 @@ describe("store shell", () => {
         "/cart",
         "/account",
         "/orders",
+        "/about",
+        "/faq",
+        "/delivery",
+        "/cancellation",
+        "/replacement",
+        "/order-help",
       ]).toContain(href);
     }
     expect(screen.getByText(/احتياجات بيتك/)).toBeInTheDocument();

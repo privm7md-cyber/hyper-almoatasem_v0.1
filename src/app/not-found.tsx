@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-// Phase-11: the 404 page offered only "back to home". It now offers the real
-// destinations a lost visitor needs (the catalogue, search, the account area).
+// FE-9: the not-found page keeps the honest 404 semantics and offers real
+// recovery destinations (the store, the catalogue, search, order help).
 export default function NotFound() {
   return (
     <main className="mx-auto flex w-full max-w-[560px] flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
@@ -17,8 +17,8 @@ export default function NotFound() {
         <Link href="/search" className="text-secondary hover:text-brand">
           البحث في المنتجات
         </Link>
-        <Link href="/account" className="text-secondary hover:text-brand">
-          حسابي
+        <Link href="/order-help" className="text-secondary hover:text-brand">
+          مساعدة الطلب
         </Link>
       </div>
     </main>

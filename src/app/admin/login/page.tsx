@@ -3,7 +3,7 @@ import { getCurrentAdmin } from "@/lib/auth/rbac";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = {
-  title: "تسجيل الدخول — هايبر المعتصم",
+  title: "تسجيل الدخول",
   robots: { index: false, follow: false },
 };
 

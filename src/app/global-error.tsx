@@ -20,14 +20,14 @@ export default function GlobalError({ reset }: { error: Error & { digest?: strin
           alignItems: "center",
           justifyContent: "center",
           margin: 0,
-          background: "#f7f5fb",
-          color: "#1B1530",
+          background: "#f6f5f9",
+          color: "#1b1530",
           fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
         }}
       >
         <main style={{ maxWidth: "32rem", padding: "1.5rem", textAlign: "center" }}>
           <h1 style={{ fontSize: "1.35rem", margin: "0 0 0.5rem" }}>حدث خطأ غير متوقع</h1>
-          <p style={{ margin: "0 0 1rem", color: "#4b4458" }}>
+          <p style={{ margin: "0 0 1rem", color: "#5b556e" }}>
             تعذّر عرض هذه الصفحة. يمكنك إعادة المحاولة أو العودة إلى المتجر.
           </p>
           <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
@@ -38,8 +38,8 @@ export default function GlobalError({ reset }: { error: Error & { digest?: strin
                 minHeight: "44px",
                 padding: "0 1.25rem",
                 borderRadius: "0.5rem",
-                border: "1px solid #511D9C",
-                background: "#511D9C",
+                border: "1px solid #511d9c",
+                background: "#511d9c",
                 color: "#fff",
                 fontWeight: 600,
                 cursor: "pointer",
@@ -55,7 +55,7 @@ export default function GlobalError({ reset }: { error: Error & { digest?: strin
                 alignItems: "center",
                 padding: "0 1.25rem",
                 borderRadius: "0.5rem",
-                border: "1px solid #c9c2d6",
+                border: "1px solid #c9c4d8",
                 color: "#1B1530",
                 fontWeight: 600,
                 textDecoration: "none",

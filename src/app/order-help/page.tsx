@@ -14,7 +14,7 @@ import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/in
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
-  title: "مساعدة الطلب — هايبر المعتصم",
+  title: "مساعدة الطلب",
   description: "كيف تفتح طلبك، ماذا يعني رقم الطلب، وماذا تفعل إذا فقدت الوصول إلى طلب ضيف.",
 };
 

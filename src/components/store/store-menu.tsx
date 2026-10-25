@@ -59,6 +59,35 @@ export function StoreMenu() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
+  // NAV-01: the dialog declares aria-modal=true, so the Tab/Shift+Tab cycle
+  // must be contained inside the open panel — keyboard users cannot reach the
+  // hidden background content behind the overlay.
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      event.preventDefault();
+      const items = Array.from(
+        panel.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
+      );
+      if (items.length === 0) return;
+      const current = document.activeElement as HTMLElement | null;
+      const index = current ? items.indexOf(current) : -1;
+      if (index === -1) {
+        (event.shiftKey ? items[items.length - 1] : items[0]).focus();
+        return;
+      }
+      const nextIndex = event.shiftKey
+        ? (index - 1 + items.length) % items.length
+        : (index + 1) % items.length;
+      items[nextIndex].focus();
+    };
+    panel.addEventListener("keydown", onKeyDown);
+    return () => panel.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   // The background must not scroll behind an open dialog.
   useEffect(() => {
     if (!open) return;

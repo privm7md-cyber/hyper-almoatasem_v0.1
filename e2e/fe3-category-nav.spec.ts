@@ -22,6 +22,9 @@ test("flow: homepage category tiles resolve their listing (no redirect loop)", a
   await first.click();
   // Landing on a rendered document proves the request survived: a 308-loop would end
   // in ERR_TOO_MANY_REDIRECTS and never produce a real page.
+  // The tile click is a client-side navigation: wait for the new URL to land
+  // before asserting the destination heading (the old page still has a <main>).
+  await page.waitForURL(/\/c\//);
   await expect(page.locator("main")).toBeVisible();
   if (label) await expect(page.getByRole("heading", { name: label })).toBeVisible();
 });

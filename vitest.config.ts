@@ -5,7 +5,12 @@ import path from "node:path";
 // JSX is transformed by vitest's built-in esbuild (automatic runtime); no extra plugin needed.
 export default defineConfig({
   resolve: {
-    alias: { "@": path.resolve(__dirname, "src") },
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+      // Test-only swap so jsdom unit tests can import server modules' logic
+      // without tripping the RSC guard. See vitest.server-only-stub.cjs.
+      "server-only": path.resolve(__dirname, "vitest.server-only-stub.cjs"),
+    },
   },  test: {
     globals: true,
     environment: "jsdom",

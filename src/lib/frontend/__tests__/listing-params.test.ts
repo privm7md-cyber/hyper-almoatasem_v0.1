@@ -2,8 +2,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildListingQuery,
+  loadMoreKey,
   parseListingParams,
   parseSearchQuery,
+  searchRetryHref,
 } from "../listing-params";
 
 describe("parseListingParams", () => {
@@ -69,5 +71,33 @@ describe("buildListingQuery", () => {
       type: "PIECE",
       inStock: true,
     });
+  });
+});
+
+describe("searchRetryHref (D07)", () => {
+  it("reproduces the full result-defining state, not just the q term", () => {
+    const q = parseListingParams({ type: "PIECE", inStock: "false", sort: "newest" }, "search");
+    expect(searchRetryHref(q, "عسل")).toBe(
+      "/search?q=%D8%B9%D8%B3%D9%84&sort=newest&type=PIECE&inStock=false",
+    );
+  });
+
+  it("stays minimal at defaults and plain /search when the query is invalid", () => {
+    const q = parseListingParams({}, "search");
+    expect(searchRetryHref(q, "عسل")).toBe("/search?q=%D8%B9%D8%B3%D9%84");
+    expect(searchRetryHref(q, null)).toBe("/search");
+  });
+});
+
+describe("loadMoreKey (D24)", () => {
+  it("is stable for identical result-defining states", () => {
+    const a = parseListingParams({}, "listing");
+    expect(loadMoreKey(a)).toBe(loadMoreKey(parseListingParams({}, "listing")));
+  });
+
+  it("changes when filters/type change so the island remounts", () => {
+    const a = parseListingParams({}, "listing");
+    const b = parseListingParams({ type: "PIECE" }, "listing");
+    expect(loadMoreKey(a)).not.toBe(loadMoreKey(b));
   });
 });

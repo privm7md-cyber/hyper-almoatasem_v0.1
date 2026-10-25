@@ -63,7 +63,7 @@ export function StoreHeader() {
           </Link>
           <Link
             href="/account"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white text-ink transition-colors duration-200 hover:border-line-strong focus-visible:border-brand lg:hidden"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white text-ink transition-colors duration-200 hover:border-line-strong focus-visible:border-brand"
           >
             <span className="sr-only">حسابي</span>
             <UserRound size={20} aria-hidden="true" />

@@ -97,4 +97,29 @@ describe("store mobile menu (Phase-11)", () => {
     rerender(<StoreMenu />);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("contains the Tab cycle inside the open modal dialog (NAV-01)", () => {
+    render(<StoreMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "فتح قائمة المتجر" }));
+    const dialog = screen.getByRole("dialog", { name: "قائمة المتجر" });
+    const items = Array.from(
+      dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"),
+    );
+    expect(items.length).toBeGreaterThan(1);
+    // focus falls outside the cycle list (on the panel itself): Tab enters it
+    (screen.getByRole("dialog") as HTMLElement).focus();
+    fireEvent.keyDown(document.activeElement as Element, { key: "Tab" });
+    expect(document.activeElement).toBe(items[0]);
+    // forward cycle wraps: last item -> first item
+    items[items.length - 1].focus();
+    fireEvent.keyDown(document.activeElement as Element, { key: "Tab" });
+    expect(document.activeElement).toBe(items[0]);
+    // backward cycle wraps: first item -> last item
+    items[0].focus();
+    fireEvent.keyDown(document.activeElement as Element, {
+      key: "Tab",
+      shiftKey: true,
+    });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+  });
 });

@@ -11,7 +11,7 @@ import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/in
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
-  title: "سياسة الاستبدال — هايبر المعتصم",
+  title: "سياسة الاستبدال",
   description: "ماذا يحدث إذا لم يعد منتج متاحًا، وكيف تتعامل مع اقتراح البديل.",
 };
 

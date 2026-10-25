@@ -121,9 +121,11 @@ export type ProductListFilter = ListParams & {
 export async function expandCategorySubtree(rootId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<Array<{ id: string }>>`
     WITH RECURSIVE sub AS (
-      SELECT id FROM categories WHERE id = ${rootId}::uuid
+      SELECT id FROM categories
+        WHERE id = ${rootId}::uuid AND is_active AND deleted_at IS NULL
       UNION ALL
       SELECT c.id FROM categories c JOIN sub s ON c.parent_id = s.id
+        WHERE c.is_active AND c.deleted_at IS NULL
     )
     SELECT id::text AS id FROM sub`;
   return rows.map((r) => r.id);

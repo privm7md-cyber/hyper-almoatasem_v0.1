@@ -5,10 +5,12 @@
 // Shipped file bytes on disk are untouched.
 // Reference implementations below (checkout/commitPick/approveReplacement/merge/normalize)
 // are TEST DOUBLES encoding the frozen rules R1–R10 — not product backend code.
-const { PGlite } = require('@electric-sql/pglite');
-const fs = require('fs');
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
 
-const path = require('path');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DBDIR = path.join(__dirname, '..');
 const P1_SCHEMA = path.join(DBDIR, 'phase1-schema.sql');
 const P1_SEED = path.join(DBDIR, 'phase1-seed-example.sql');
@@ -64,12 +66,13 @@ function normalizePhone(raw) {
     'SELECT quantity::text q, reserved_quantity::text r, available_quantity::text a FROM inventory WHERE product_variant_id=$1', [v])).rows[0];
   const assertInv = async (name, v, Q, R, A) => {
     const r = await inv(v);
-    (r.q === Q && r.r === R && r.a === A) ? ok(name) : bad(name, `got q=${r.q} r=${r.r} a=${r.a}, want ${Q}/${R}/${A}`);
+    if ((r.q === Q && r.r === R && r.a === A)) ok(name);
+    else bad(name, `got q=${r.q} r=${r.r} a=${r.a}, want ${Q}/${R}/${A}`);
   };
   const assertInvariant = async (name) => {
     const r = await q(`SELECT COUNT(*) c FROM inventory WHERE NOT (quantity = available_quantity + reserved_quantity)
       OR quantity < 0 OR reserved_quantity < 0 OR available_quantity < 0`);
-    (r.rows[0].c === 0 || r.rows[0].c === '0') ? ok(name) : bad(name, 'invariant broken');
+    if ((r.rows[0].c === 0 || r.rows[0].c === '0')) ok(name); else bad(name, 'invariant broken');
   };
 
   const mkCustomer = (id, phone, extra = {}) => q(
@@ -174,7 +177,7 @@ function normalizePhone(raw) {
       await q(`UPDATE carts SET status='CHECKED_OUT' WHERE id=$1`, [cartId]);
       await q('COMMIT');
       return { ok: true, orderId: oid };
-    } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+    } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
   }
 
   // ---- reference commitPick (frozen R7) ----
@@ -222,7 +225,7 @@ function normalizePhone(raw) {
       await refreshFinals(it.order_id);
       await q('COMMIT');
       return { ok: true, capped, committed: eff, status: st, final: fin };
-    } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+    } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
   }
   async function refreshFinals(orderId) {
     const s = await q(`SELECT COALESCE(SUM(final_total),0)::text t, COUNT(*) FILTER (WHERE item_status='PENDING')::int p,
@@ -252,7 +255,7 @@ function normalizePhone(raw) {
         [itemId, repVariant, repQty, vp.p, diff, reason, byType, byId]);
       await q('COMMIT');
       return { ok: true, repId: r.rows[0].id, diff };
-    } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+    } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
   }
   async function approve(repId, deciderType, deciderId) {
     await q('BEGIN');
@@ -288,7 +291,7 @@ function normalizePhone(raw) {
       await refreshFinals(orig.order_id);
       await q('COMMIT');
       return { ok: true, newLine: nl.rows[0].id };
-    } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+    } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
   }
 
   // ============================ TESTS ============================
@@ -339,8 +342,8 @@ function normalizePhone(raw) {
     await mkCart(uid(4135), { s: 'sess-unit-x' });
     await mkLine(uid(4136), uid(4135), P330, 1, 'KG', 15); // valid domain, wrong counting unit
     const coUX = await checkout({ cartId: uid(4135), customerId: uid(4104), addressId: uid(4111), key: 'unit-x-key' });
-    (!coUX.ok && String(coUX.reason).startsWith('UNIT_CHANGED'))
-      ? ok('I4 unit mismatch aborts at checkout (no silent KG→pack conversion)') : bad('I4 unit mismatch', JSON.stringify(coUX));
+    if ((!coUX.ok && String(coUX.reason).startsWith('UNIT_CHANGED'))) ok('I4 unit mismatch aborts at checkout (no silent KG→pack conversion)');
+    else bad('I4 unit mismatch', JSON.stringify(coUX));
 
     // ---- Checkout ----
     await mkCustomer(uid(4141), normalizePhone('01077778888'));
@@ -349,16 +352,18 @@ function normalizePhone(raw) {
     await mkLine(uid(4144), uid(4143), P330, 2, 'PIECE', 15);
     await mkLine(uid(4145), uid(4143), P1L, 1, 'PIECE', 30);
     const co1 = await checkout({ cartId: uid(4143), customerId: uid(4141), addressId: uid(4142), key: 'idem-checkout-001' });
-    co1.ok ? ok('O1 checkout success') : bad('O1 checkout success', co1.reason);
+    if (co1.ok) ok('O1 checkout success'); else bad('O1 checkout success', co1.reason);
     await assertInv('O1 reserved 2×330 + 1×1L', P330, '500.000', '2.000', '498.000');
     const mv1 = await q(`SELECT COUNT(*) c FROM inventory_movements WHERE reference_id=$1`, [co1.orderId]);
-    (mv1.rows[0].c == 0) ? ok('O1b no movements on reserve') : bad('O1b no movements on reserve', mv1.rows[0].c);
+    if ((mv1.rows[0].c == 0)) ok('O1b no movements on reserve'); else bad('O1b no movements on reserve', mv1.rows[0].c);
     const h1 = await q(`SELECT old_status o, new_status n FROM order_status_history WHERE order_id=$1`, [co1.orderId]);
     const hset = new Set(h1.rows.map(r => r.o + '>' + r.n));
     // intra-tx now() ties make row order nondeterministic — assert as a set
-    (hset.has('null>NEW') && hset.has('NEW>CONFIRMED') && h1.rows.length === 2) ? ok('O1c history NULL→NEW→CONFIRMED') : bad('O1c history', JSON.stringify(h1.rows));
+    if ((hset.has('null>NEW') && hset.has('NEW>CONFIRMED') && h1.rows.length === 2)) ok('O1c history NULL→NEW→CONFIRMED');
+    else bad('O1c history', JSON.stringify(h1.rows));
     const t1 = await q(`SELECT subtotal_estimated::text s, total_estimated::text t FROM orders WHERE id=$1`, [co1.orderId]);
-    (t1.rows[0].s === '60.00' && t1.rows[0].t === '80.00') ? ok('O1d totals 60/80 (fee 20)') : bad('O1d totals', JSON.stringify(t1.rows[0]));
+    if ((t1.rows[0].s === '60.00' && t1.rows[0].t === '80.00')) ok('O1d totals 60/80 (fee 20)');
+    else bad('O1d totals', JSON.stringify(t1.rows[0]));
 
     // price drift
     await q(`UPDATE product_variants SET price=17.00 WHERE id=$1`, [P330]);
@@ -366,9 +371,10 @@ function normalizePhone(raw) {
     await mkCart(uid(4146), { c: uid(4141) });
     await mkLine(uid(4147), uid(4146), P330, 1, 'PIECE', 15);
     const co2 = await checkout({ cartId: uid(4146), customerId: uid(4141), addressId: uid(4142), key: 'idem-checkout-002' });
-    (!co2.ok && co2.reason === 'PRICE_CHANGED') ? ok('O2 price drift detected, checkout blocked') : bad('O2 price drift', JSON.stringify(co2));
+    if ((!co2.ok && co2.reason === 'PRICE_CHANGED')) ok('O2 price drift detected, checkout blocked');
+    else bad('O2 price drift', JSON.stringify(co2));
     const co2b = await checkout({ cartId: uid(4146), customerId: uid(4141), addressId: uid(4142), key: 'idem-checkout-002b', confirmPrices: true });
-    co2b.ok ? ok('O2b confirmed new terms succeed') : bad('O2b confirmed terms', co2b.reason);
+    if (co2b.ok) ok('O2b confirmed new terms succeed'); else bad('O2b confirmed terms', co2b.reason);
     await q(`UPDATE product_variants SET price=15.00 WHERE id=$1`, [P330]);
     await q(`INSERT INTO product_price_history (product_variant_id, old_price, new_price, reason) VALUES ($1,17,15,'test revert')`, [P330]);
 
@@ -376,10 +382,12 @@ function normalizePhone(raw) {
     await mkCart(uid(4148), { c: uid(4141) });
     await mkLine(uid(4149), uid(4148), P25L, 1000, 'PIECE', 55);
     const co3 = await checkout({ cartId: uid(4148), customerId: uid(4141), addressId: uid(4142), key: 'idem-checkout-003' });
-    (!co3.ok && String(co3.reason).startsWith('INSUFFICIENT')) ? ok('O3 insufficient rolls back') : bad('O3 insufficient', JSON.stringify(co3));
+    if ((!co3.ok && String(co3.reason).startsWith('INSUFFICIENT'))) ok('O3 insufficient rolls back');
+    else bad('O3 insufficient', JSON.stringify(co3));
     const noOrd = await q(`SELECT COUNT(*) c FROM orders WHERE cart_id=$1`, [uid(4148)]);
     const inv25 = await inv(P25L);
-    (noOrd.rows[0].c == 0 && inv25.r === '0.000') ? ok('O3b no order, no reservation leaked') : bad('O3b leak check');
+    if ((noOrd.rows[0].c == 0 && inv25.r === '0.000')) ok('O3b no order, no reservation leaked');
+    else bad('O3b leak check');
     await q(`UPDATE carts SET status='ABANDONED' WHERE id=$1`, [uid(4148)]); // failed-checkout cart stays ACTIVE; retire it
     await mkCart(uid(4150), { c: uid(4141) });
     await mkLine(uid(4151), uid(4150), P25L, 150, 'PIECE', 55);
@@ -387,12 +395,14 @@ function normalizePhone(raw) {
     await mkCart(uid(4152), { c: uid(4141) });
     await mkLine(uid(4153), uid(4152), P25L, 1, 'PIECE', 55);
     const co4b = await checkout({ cartId: uid(4152), customerId: uid(4141), addressId: uid(4142), key: 'idem-checkout-004b' });
-    (co4a.ok && !co4b.ok) ? ok('O4 oversell prevented (150 ok, +1 fails)') : bad('O4 oversell', JSON.stringify([co4a.ok, co4b]));
+    if ((co4a.ok && !co4b.ok)) ok('O4 oversell prevented (150 ok, +1 fails)');
+    else bad('O4 oversell', JSON.stringify([co4a.ok, co4b]));
     await q(`UPDATE carts SET status='ABANDONED' WHERE id=$1`, [uid(4152)]); // retire failed-checkout cart
 
     // idempotency
     const co5 = await checkout({ cartId: uid(4143), customerId: uid(4141), addressId: uid(4142), key: 'idem-checkout-001' });
-    (co5.ok && co5.replay && co5.orderId === co1.orderId) ? ok('O5 replay returns same order') : bad('O5 replay', JSON.stringify(co5));
+    if ((co5.ok && co5.replay && co5.orderId === co1.orderId)) ok('O5 replay returns same order');
+    else bad('O5 replay', JSON.stringify(co5));
     await expectReject('O5b raw dup key rejected', () =>
       q(`INSERT INTO orders (customer_id, order_number, idempotency_key, subtotal_estimated, total_estimated,
         customer_name_snapshot, customer_phone_snapshot, delivery_city, delivery_phone)
@@ -412,24 +422,28 @@ function normalizePhone(raw) {
     }
     let w = await weightOrder(0.5, 'w-key-1', 1);
     let r = await commitPick(w.itemId, '0.475');
-    (r.ok && r.status === 'PARTIALLY_FULFILLED' && r.final === '152.00')
-      ? ok('W1 under 0.500→0.475 PARTIAL 152.00') : bad('W1', JSON.stringify(r));
+    if ((r.ok && r.status === 'PARTIALLY_FULFILLED' && r.final === '152.00')) ok('W1 under 0.500→0.475 PARTIAL 152.00');
+    else bad('W1', JSON.stringify(r));
     await assertInv('W1 inventory 46.875/0/46.875', ROMI_V, '46.875', '0.000', '46.875');
     const m1 = await q(`SELECT quantity::text d, previous_quantity::text p, new_quantity::text n, movement_type t
       FROM inventory_movements WHERE product_variant_id=$1 ORDER BY created_at DESC LIMIT 1`, [ROMI_V]);
-    (m1.rows[0].d === '-0.475' && m1.rows[0].p === '47.350' && m1.rows[0].n === '46.875' && m1.rows[0].t === 'SALE')
-      ? ok('W1b SALE(-0.475 signed delta, 47.350→46.875)') : bad('W1b movement', JSON.stringify(m1.rows[0]));
+    if ((m1.rows[0].d === '-0.475' && m1.rows[0].p === '47.350' && m1.rows[0].n === '46.875' && m1.rows[0].t === 'SALE')) ok('W1b SALE(-0.475 signed delta, 47.350→46.875)');
+    else bad('W1b movement', JSON.stringify(m1.rows[0]));
     w = await weightOrder(0.5, 'w-key-2', 2);
     r = await commitPick(w.itemId, '0.500');
-    (r.ok && r.status === 'FULFILLED' && r.final === '160.00') ? ok('W2 exact 0.5→0.5 FULFILLED 160.00') : bad('W2', JSON.stringify(r));
+    if ((r.ok && r.status === 'FULFILLED' && r.final === '160.00')) ok('W2 exact 0.5→0.5 FULFILLED 160.00');
+    else bad('W2', JSON.stringify(r));
     w = await weightOrder(0.5, 'w-key-3', 3);
     r = await commitPick(w.itemId, '0.525');
-    (r.ok && r.status === 'FULFILLED' && r.final === '168.00') ? ok('W3 tolerance-over 0.525 FULFILLED 168.00') : bad('W3', JSON.stringify(r));
+    if ((r.ok && r.status === 'FULFILLED' && r.final === '168.00')) ok('W3 tolerance-over 0.525 FULFILLED 168.00');
+    else bad('W3', JSON.stringify(r));
     w = await weightOrder(0.5, 'w-key-4', 4);
     r = await commitPick(w.itemId, '0.650');
-    (!r.ok && r.reason === 'OVER_ENVELOPE') ? ok('W4 out-of-tolerance 0.650 rejected, no writes') : bad('W4', JSON.stringify(r));
+    if ((!r.ok && r.reason === 'OVER_ENVELOPE')) ok('W4 out-of-tolerance 0.650 rejected, no writes');
+    else bad('W4', JSON.stringify(r));
     const st4 = await q(`SELECT item_status s, actual_quantity a FROM order_items WHERE id=$1`, [w.itemId]);
-    (st4.rows[0].s === 'PENDING' && st4.rows[0].a === null) ? ok('W4b item still PENDING/NULL') : bad('W4b state', JSON.stringify(st4.rows[0]));
+    if ((st4.rows[0].s === 'PENDING' && st4.rows[0].a === null)) ok('W4b item still PENDING/NULL');
+    else bad('W4b state', JSON.stringify(st4.rows[0]));
     // drain others to q=0.500 (W4's hold is still reserved: commit it exact first)
     const w4c = await commitPick(w.itemId, '0.500');
     if (!w4c.ok || w4c.status !== 'FULFILLED') throw new Error('W4 cleanup commit failed: ' + JSON.stringify(w4c));
@@ -438,8 +452,8 @@ function normalizePhone(raw) {
       new_quantity, reference_type, reference_id, reason) VALUES ($1,'ADJUSTMENT',-44.850,45.350,0.500,'MANUAL','test-drain','W5 setup')`, [ROMI_V]);
     w = await weightOrder(0.5, 'w-key-5', 5);
     r = await commitPick(w.itemId, '0.600');
-    (r.ok && r.capped && r.committed === '0.500' && r.status === 'FULFILLED')
-      ? ok('W5 stock-shortage cap 0.600→0.500 FULFILLED') : bad('W5', JSON.stringify(r));
+    if ((r.ok && r.capped && r.committed === '0.500' && r.status === 'FULFILLED')) ok('W5 stock-shortage cap 0.600→0.500 FULFILLED');
+    else bad('W5', JSON.stringify(r));
     await assertInv('W5 inventory 0/0/0', ROMI_V, '0.000', '0.000', '0.000');
     const w6 = await (async () => {
       await mkCart(uid(4400), { c: uid(4161) });
@@ -449,7 +463,8 @@ function normalizePhone(raw) {
       return (await q(`SELECT id FROM order_items WHERE order_id=$1`, [co.orderId])).rows[0].id;
     })();
     const r6 = await commitPick(w6, '11');
-    (!r6.ok && r6.reason === 'OVER_ENVELOPE') ? ok('W6 PIECE 10→11 rejected (tolerance 0)') : bad('W6', JSON.stringify(r6));
+    if ((!r6.ok && r6.reason === 'OVER_ENVELOPE')) ok('W6 PIECE 10→11 rejected (tolerance 0)');
+    else bad('W6', JSON.stringify(r6));
     // rounding edge (step-valid): 0.125 KG × 333.33 = 41.66625 → 41.67, CHECK-verified
     await q(`UPDATE product_variants SET price=333.33 WHERE id=$1`, [ROMI_V]);
     await q(`INSERT INTO product_price_history (product_variant_id, old_price, new_price, reason) VALUES ($1,320,333.33,'W7 setup')`, [ROMI_V]);
@@ -462,38 +477,40 @@ function normalizePhone(raw) {
     await mkLine(uid(4413), uid(4412), ROMI_V, 0.125, 'KG', 333.33);
     const co7 = await checkout({ cartId: uid(4412), customerId: uid(4161), addressId: uid(4162), key: 'w-key-7', fee: 0 });
     const e7 = co7.ok ? (await q(`SELECT estimated_total::text e FROM order_items WHERE order_id=$1`, [co7.orderId])).rows[0].e : null;
-    (co7.ok && e7 === '41.67') ? ok('W7 rounding 0.125×333.33=41.67 CHECK-verified') : bad('W7', JSON.stringify({ co7, e7 }));
+    if ((co7.ok && e7 === '41.67')) ok('W7 rounding 0.125×333.33=41.67 CHECK-verified');
+    else bad('W7', JSON.stringify({ co7, e7 }));
     await q(`UPDATE product_variants SET price=320.00 WHERE id=$1`, [ROMI_V]);
     await q(`INSERT INTO product_price_history (product_variant_id, old_price, new_price, reason) VALUES ($1,333.33,320,'W7 revert')`, [ROMI_V]);
 
     // ---- Replacements (R10) ----
-    const oi = (await q(`SELECT id FROM order_items WHERE order_id=$1`, [co1.orderId])).rows.find(() => true);
-    const line330 = (await q(`SELECT oi.id FROM order_items oi JOIN product_variants v ON v.id=oi.product_variant_id
+        const line330 = (await q(`SELECT oi.id FROM order_items oi JOIN product_variants v ON v.id=oi.product_variant_id
       WHERE oi.order_id=$1 AND v.name='330 ML'`, [co1.orderId])).rows[0].id;
     await advance(co1.orderId, 'CONFIRMED', 'PREPARING');
     const pr = await propose(line330, P1L, 1, '330ML OOS');
-    pr.ok ? ok('R1 propose ok (diff ' + pr.diff + ')') : bad('R1 propose', pr.reason);
+    if (pr.ok) ok('R1 propose ok (diff ' + pr.diff + ')'); else bad('R1 propose', pr.reason);
     const dup2 = await propose(line330, P1L, 1, 'dup');
-    (!dup2.ok) ? ok('R2 second PROPOSED rejected (partial UQ)') : bad('R2 second PROPOSED', 'succeeded');
+    if ((!dup2.ok)) ok('R2 second PROPOSED rejected (partial UQ)'); else bad('R2 second PROPOSED', 'succeeded');
     const ap = await approve(pr.repId, 'CUSTOMER', uid(4141));
-    ap.ok ? ok('R3 approve materialized') : bad('R3 approve', ap.reason);
+    if (ap.ok) ok('R3 approve materialized'); else bad('R3 approve', ap.reason);
     const fin = await q(`SELECT subtotal_final::text s, total_final::text t FROM orders WHERE id=$1`, [co1.orderId]);
     // finals: original 330-line REPLACED (excluded); 1L line still PENDING → finals stay NULL
-    (fin.rows[0].s === null && fin.rows[0].t === null)
-      ? ok('R3b finals NULL while a line still PENDING') : bad('R3b finals', JSON.stringify(fin.rows[0]));
+    if ((fin.rows[0].s === null && fin.rows[0].t === null)) ok('R3b finals NULL while a line still PENDING');
+    else bad('R3b finals', JSON.stringify(fin.rows[0]));
     const excl = await q(`SELECT item_status s FROM order_items WHERE id=$1`, [line330]);
     const incl = await q(`SELECT requested_quantity::text q, estimated_total::text e FROM order_items WHERE id=$1`, [ap.newLine]);
-    (excl.rows[0].s === 'REPLACED' && incl.rows[0].q === '1.000' && incl.rows[0].e === '30.00')
-      ? ok('R3c original REPLACED, new line 1×30.00') : bad('R3c lines', JSON.stringify([excl.rows[0], incl.rows[0]]));
+    if ((excl.rows[0].s === 'REPLACED' && incl.rows[0].q === '1.000' && incl.rows[0].e === '30.00')) ok('R3c original REPLACED, new line 1×30.00');
+    else bad('R3c lines', JSON.stringify([excl.rows[0], incl.rows[0]]));
     // approve-fail: substitute Romi has 10.000? use qty beyond stock: P25L fully reserved (150/150)
     const line1L = (await q(`SELECT oi.id FROM order_items oi WHERE oi.order_id=$1 AND oi.product_variant_id=$2`, [co1.orderId, P1L])).rows[0].id;
     const pr2 = await propose(line1L, P25L, 5, 'need 5×2.5L');
     const ap2 = await approve(pr2.repId, 'CUSTOMER', uid(4141));
-    (!ap2.ok && ap2.reason === 'SUBSTITUTE_SHORT') ? ok('R4 approve-fail rolls back') : bad('R4', JSON.stringify(ap2));
+    if ((!ap2.ok && ap2.reason === 'SUBSTITUTE_SHORT')) ok('R4 approve-fail rolls back');
+    else bad('R4', JSON.stringify(ap2));
     const st2 = await q(`SELECT status s, replacement_order_item_id l FROM order_item_replacements WHERE id=$1`, [pr2.repId]);
-    (st2.rows[0].s === 'PROPOSED' && st2.rows[0].l === null) ? ok('R4b remains PROPOSED, no line') : bad('R4b state', JSON.stringify(st2.rows[0]));
+    if ((st2.rows[0].s === 'PROPOSED' && st2.rows[0].l === null)) ok('R4b remains PROPOSED, no line');
+    else bad('R4b state', JSON.stringify(st2.rows[0]));
     const inv25b = await inv(P25L);
-    (inv25b.r === '150.000') ? ok('R4c no hold leaked on substitute') : bad('R4c leak', JSON.stringify(inv25b));
+    if ((inv25b.r === '150.000')) ok('R4c no hold leaked on substitute'); else bad('R4c leak', JSON.stringify(inv25b));
     await q(`UPDATE order_item_replacements SET status='CUSTOMER_REJECTED', decided_by_type='CUSTOMER', decided_by_id=$2 WHERE id=$1`, [pr2.repId, uid(4141)]);
     ok('R5 reject path ok');
     // transition trigger isolation: APPROVED (R3) -> PROPOSED must die in the TRIGGER (CHECKs would pass the pair test aside)
@@ -551,50 +568,54 @@ function normalizePhone(raw) {
         }
         await q('COMMIT');
         return { ok: true, dropped };
-      } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+      } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
     }
     await mkCart(uid(4501), { s: 'sess-merge-1' });
     await mkLine(uid(4502), uid(4501), P330, 1, 'PIECE', 15);
     const m1r = await mergeGuest(uid(4501), uid(4161));
     const m1c = await q(`SELECT customer_id::text c, session_id s, status t FROM carts WHERE id=$1`, [uid(4501)]);
     // uid(4161) holds no ACTIVE cart (all checked out) → reassign path
-    (m1r.ok && m1c.rows[0].c === uid(4161) && m1c.rows[0].s === null && m1c.rows[0].t === 'ACTIVE')
-      ? ok('M1 reassign path (owner flipped, session nulled, stays ACTIVE)') : bad('M1', JSON.stringify([m1r, m1c.rows[0]]));
+    if ((m1r.ok && m1c.rows[0].c === uid(4161) && m1c.rows[0].s === null && m1c.rows[0].t === 'ACTIVE')) ok('M1 reassign path (owner flipped, session nulled, stays ACTIVE)');
+    else bad('M1', JSON.stringify([m1r, m1c.rows[0]]));
     // dead-variant drop: deactivate P1L, merge into 4141 which gets a fresh ACTIVE cart (sum path)
     await mkCart(uid(4503), { s: 'sess-merge-2' });
     await mkLine(uid(4504), uid(4503), P1L, 1, 'PIECE', 30);
     await q(`UPDATE product_variants SET is_active=FALSE WHERE id=$1`, [P1L]);
     await mkCart(uid(4505), { c: uid(4141) });
     const m2r = await mergeGuest(uid(4503), uid(4141));
-    (m2r.ok && m2r.dropped && m2r.dropped.length === 1) ? ok('M2 dead variant dropped + reported') : bad('M2', JSON.stringify(m2r));
+    if ((m2r.ok && m2r.dropped && m2r.dropped.length === 1)) ok('M2 dead variant dropped + reported');
+    else bad('M2', JSON.stringify(m2r));
     await q(`UPDATE product_variants SET is_active=TRUE WHERE id=$1`, [P1L]);
 
     // ---- §29 invariant battery ----
     await assertInvariant('V1 inventory invariant all rows');
     const neg = await q(`SELECT COUNT(*) c FROM orders WHERE total_estimated < 0 OR total_final < 0
       OR subtotal_estimated < 0 OR subtotal_final < 0 OR discount_total < 0 OR delivery_fee < 0`);
-    (neg.rows[0].c == 0) ? ok('V2 money non-negative') : bad('V2 money');
+    if ((neg.rows[0].c == 0)) ok('V2 money non-negative'); else bad('V2 money');
     const dbl = await q(`SELECT o.id, o.subtotal_final::text s,
       (SELECT COALESCE(SUM(final_total),0)::text FROM order_items
         WHERE order_id=o.id AND item_status IN ('FULFILLED','PARTIALLY_FULFILLED')) m
       FROM orders o WHERE o.subtotal_final IS NOT NULL`);
     const badTot = dbl.rows.filter(r => r.s !== r.m);
-    (badTot.length === 0) ? ok('V3 no double-count (SUM over effective lines == stored)') : bad('V3 double-count', JSON.stringify(badTot));
+    if ((badTot.length === 0)) ok('V3 no double-count (SUM over effective lines == stored)');
+    else bad('V3 double-count', JSON.stringify(badTot));
     const multi = await q(`SELECT customer_id FROM carts WHERE status='ACTIVE' AND customer_id IS NOT NULL
       GROUP BY customer_id HAVING COUNT(*) > 1`);
     const multiS = await q(`SELECT session_id FROM carts WHERE status='ACTIVE' AND session_id IS NOT NULL
       GROUP BY session_id HAVING COUNT(*) > 1`);
-    (multi.rows.length === 0 && multiS.rows.length === 0) ? ok('V4 single ACTIVE per owner') : bad('V4 multi-active');
+    if ((multi.rows.length === 0 && multiS.rows.length === 0)) ok('V4 single ACTIVE per owner');
+    else bad('V4 multi-active');
     const idem = await q(`SELECT idempotency_key FROM orders WHERE idempotency_key IS NOT NULL GROUP BY idempotency_key HAVING COUNT(*) > 1`);
-    (idem.rows.length === 0) ? ok('V5 idempotency keys unique') : bad('V5 dup keys');
+    if ((idem.rows.length === 0)) ok('V5 idempotency keys unique'); else bad('V5 dup keys');
     const nochk = await q(`SELECT COUNT(*) c FROM carts WHERE customer_id IS NULL AND session_id IS NULL`);
     const bothk = await q(`SELECT COUNT(*) c FROM carts WHERE customer_id IS NOT NULL AND session_id IS NOT NULL`);
-    (nochk.rows[0].c == 0 && bothk.rows[0].c == 0) ? ok('V6 XOR ownership holds') : bad('V6 ownership');
+    if ((nochk.rows[0].c == 0 && bothk.rows[0].c == 0)) ok('V6 XOR ownership holds'); else bad('V6 ownership');
     // invoice render uses snapshots only (no live-catalog join needed)
     const inv2 = await q(`SELECT oi.product_name_snapshot, oi.variant_name_snapshot, oi.unit_price::text,
       oi.requested_quantity::text, oi.estimated_total::text, o.order_number, o.total_estimated::text
       FROM orders o JOIN order_items oi ON oi.order_id=o.id WHERE o.id=$1`, [co1.orderId]);
-    (inv2.rows.length >= 2 && inv2.rows[0].product_name_snapshot) ? ok('V7 history renders from snapshots only') : bad('V7 render');
+    if ((inv2.rows.length >= 2 && inv2.rows[0].product_name_snapshot)) ok('V7 history renders from snapshots only');
+    else bad('V7 render');
 
     console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`);
     process.exitCode = fail ? 1 : 0;

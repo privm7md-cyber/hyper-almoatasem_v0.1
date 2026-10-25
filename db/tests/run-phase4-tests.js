@@ -2,19 +2,20 @@
 // TEST-ENV SHIMS ONLY (never shipped): pgcrypto line neutralised in-memory + stub
 // gen_random_uuid(); all tests send explicit UUIDs. Shipped bytes untouched.
 // Reference promotion engine below is a TEST DOUBLE of frozen rules — not product code.
-const { PGlite } = require('@electric-sql/pglite');
-const fs = require('fs');
-const path = require('path');
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DBDIR = path.join(__dirname, '..');
 
 const ROMI_V = '01800000-0000-7000-8000-000000000101'; // KG 320 step125, product ...100
 const P330 = '01800000-0000-7000-8000-000000000201';   // 15.00, product ...200, brand ...010
 const P1L = '01800000-0000-7000-8000-000000000202';    // 30.00
-const P25L = '01800000-0000-7000-8000-000000000203';   // 55.00
 const CAT_DAIRY = '01800000-0000-7000-8000-000000000001';
 const BRAND_PEPSI = '01800000-0000-7000-8000-000000000010';
 const PROD_PEPSI = '01800000-0000-7000-8000-000000000200';
-const PROD_ROMI = '01800000-0000-7000-8000-000000000100';
 let seq = 800000;
 const uid = () => '01800000-0000-7000-8000-' + String(seq++).padStart(12, '0');
 let pass = 0, fail = 0;
@@ -239,122 +240,138 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     const now = new Date();
     const promos = await loadPromos();
     const effIds = promos.filter(p => effective(p, now)).map(p => p.id);
-    (effIds.includes('01800000-0000-7000-8000-000000000601') && !effIds.includes('01800000-0000-7000-8000-000000000611'))
-      ? ok('T1 effective = ACTIVE + in-window (P11 scheduled excluded)') : bad('T1 effective', effIds.join(','));
+    if ((effIds.includes('01800000-0000-7000-8000-000000000601') && !effIds.includes('01800000-0000-7000-8000-000000000611'))) ok('T1 effective = ACTIVE + in-window (P11 scheduled excluded)');
+    else bad('T1 effective', effIds.join(','));
     const c330 = await lineCtx(P330), cRom = await lineCtx(ROMI_V), c1L = await lineCtx(P1L);
     const p1 = promos.find(p => p.id === '01800000-0000-7000-8000-000000000601');
     const p5 = promos.find(p => p.id === '01800000-0000-7000-8000-000000000605');
     const p10 = promos.find(p => p.id === '01800000-0000-7000-8000-000000000610');
-    (matchLine(c330, p1) === 2 && matchLine(cRom, p1) === 0) ? ok('T2 brand target matches Pepsi, not Romi') : bad('T2 brand match');
-    (matchLine(cRom, p5) === 4) ? ok('T3 variant target specificity=4') : bad('T3 variant');
-    (matchLine(c330, p10) === 1 && matchLine(cRom, p10) === 1) ? ok('T4 category(dairy) matches both (subtree OR)') : bad('T4 category');
+    if ((matchLine(c330, p1) === 2 && matchLine(cRom, p1) === 0)) ok('T2 brand target matches Pepsi, not Romi');
+    else bad('T2 brand match');
+    if ((matchLine(cRom, p5) === 4)) ok('T3 variant target specificity=4'); else bad('T3 variant');
+    if ((matchLine(c330, p10) === 1 && matchLine(cRom, p10) === 1)) ok('T4 category(dairy) matches both (subtree OR)');
+    else bad('T4 category');
     // nested category subtree: captured id used directly (no alias roundtrip)
     const subId = uid();
     await q(`INSERT INTO categories (id, name, slug, parent_id) VALUES ($1,'Test Sub','test-sub',$2)`, [subId, CAT_DAIRY]);
     CAT[subId] = CAT_DAIRY; // refresh matching map (loaded at startup, before this insert)
-    (inSubtree(subId, CAT_DAIRY) && !inSubtree(CAT_DAIRY, subId)) ? ok('T5 subtree helper (child in dairy, not reverse)') : bad('T5 subtree');
+    if ((inSubtree(subId, CAT_DAIRY) && !inSubtree(CAT_DAIRY, subId))) ok('T5 subtree helper (child in dairy, not reverse)');
+    else bad('T5 subtree');
     const multi = { id: 'm', targets: [{ tt: 'BRAND', tid: BRAND_PEPSI }, { tt: 'CATEGORY', tid: CAT_DAIRY }] };
-    (matchLine(c330, multi) === 2 && matchLine(cRom, multi) === 1) ? ok('T6 multi-target OR (best specificity wins)') : bad('T6 OR');
+    if ((matchLine(c330, multi) === 2 && matchLine(cRom, multi) === 1)) ok('T6 multi-target OR (best specificity wins)');
+    else bad('T6 OR');
 
     // ================= PERCENTAGE =================
     const pct20 = { id: 't', type: 'PERCENTAGE', scope: 'LINE', status: 'ACTIVE', start_at: null, end_at: null, discount_percent: '20.00', priority: 10, is_stackable: false, created_at: new Date(0).toISOString(), targets: [{ tt: 'BRAND', tid: BRAND_PEPSI }] };
     let L = [await mkLine(c330, 2)]; // gross 30
     let r = evaluate(L, [pct20], now);
-    (r.rows.length === 1 && eq(r.rows[0].amount, 6) && eq(L[0].net, 24)) ? ok('P20 20% of 30 = 6.00 net 24') : bad('P20', JSON.stringify([r.rows, L[0].net]));
+    if ((r.rows.length === 1 && eq(r.rows[0].amount, 6) && eq(L[0].net, 24))) ok('P20 20% of 30 = 6.00 net 24');
+    else bad('P20', JSON.stringify([r.rows, L[0].net]));
     const pct125 = { ...pct20, id: 't2', discount_percent: '12.50' };
     L = [await mkLine(c330, 1)]; // 15 -> 1.875 -> 1.88
     r = evaluate(L, [pct125], now);
-    (eq(r.rows[0].amount, 1.88)) ? ok('P12.5 decimal pct 15×12.5%=1.88') : bad('P12.5', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 1.88))) ok('P12.5 decimal pct 15×12.5%=1.88'); else bad('P12.5', JSON.stringify(r.rows));
     // cap: 20% max 100 on eligible 1000 -> build lines gross 1000
     const capP = { ...pct20, id: 't3', maximum_discount: '100.00', targets: [{ tt: 'PRODUCT', tid: PROD_PEPSI }] };
     L = [await mkLine(c330, 40), await mkLine(c1L, 40 / 2)]; // 600 + 600 = 1200? 40×15=600, 20×30=600
     L[0].key = 'a'; L[1].key = 'b';
     r = evaluate(L, [capP], now);
     const tot = R2(r.rows.reduce((s, x) => s + x.amount, 0));
-    (eq(tot, 100) && eq(r.rows[0].amount, 100) && r.rows[1] === undefined)
-      ? ok('CAP 20% of 1200 capped at 100 (ordered accumulation: first line takes cap)') : bad('CAP', JSON.stringify(r.rows));
+    if ((eq(tot, 100) && eq(r.rows[0].amount, 100) && r.rows[1] === undefined)) ok('CAP 20% of 1200 capped at 100 (ordered accumulation: first line takes cap)');
+    else bad('CAP', JSON.stringify(r.rows));
 
     // ================= FIXED AMOUNT =================
     const fix50 = { ...pct20, id: 't4', type: 'FIXED_AMOUNT', discount_percent: null, discount_amount: '50.00' };
     L = [await mkLine(c330, 2)]; // gross 30 -> capped 30
     r = evaluate(L, [fix50], now);
-    (eq(r.rows[0].amount, 30)) ? ok('FIXED 50 on 30-line capped at 30 (no negative)') : bad('FIXED cap', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 30))) ok('FIXED 50 on 30-line capped at 30 (no negative)');
+    else bad('FIXED cap', JSON.stringify(r.rows));
     L = [await mkLine(c1L, 10)]; // 300 -> 50
     r = evaluate(L, [fix50], now);
-    (eq(r.rows[0].amount, 50)) ? ok('FIXED 50 on 300-line = 50') : bad('FIXED', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 50))) ok('FIXED 50 on 300-line = 50'); else bad('FIXED', JSON.stringify(r.rows));
 
     // ================= FIXED PRICE =================
     const fp12 = { ...pct20, id: 't5', type: 'FIXED_PRICE', discount_percent: null, fixed_price: '12.00' };
     L = [await mkLine(c330, 2)]; // (15-12)*2 = 6
     r = evaluate(L, [fp12], now);
-    (eq(r.rows[0].amount, 6)) ? ok('FIXED_PRICE 12 vs base 15 ×2 = 6') : bad('FIXED_PRICE', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 6))) ok('FIXED_PRICE 12 vs base 15 ×2 = 6');
+    else bad('FIXED_PRICE', JSON.stringify(r.rows));
     const fpEq = { ...fp12, id: 't6', fixed_price: '15.00' };
     L = [await mkLine(c330, 2)];
     r = evaluate(L, [fpEq], now);
-    (r.rows.length === 0) ? ok('FIXED_PRICE == base skipped (no benefit)') : bad('FIXED_PRICE eq', JSON.stringify(r.rows));
+    if ((r.rows.length === 0)) ok('FIXED_PRICE == base skipped (no benefit)');
+    else bad('FIXED_PRICE eq', JSON.stringify(r.rows));
     const fpHi = { ...fp12, id: 't7', fixed_price: '18.00' };
     L = [await mkLine(c330, 2)];
     r = evaluate(L, [fpHi], now);
-    (r.rows.length === 0) ? ok('FIXED_PRICE > base skipped (never uplift)') : bad('FIXED_PRICE hi', JSON.stringify(r.rows));
+    if ((r.rows.length === 0)) ok('FIXED_PRICE > base skipped (never uplift)');
+    else bad('FIXED_PRICE hi', JSON.stringify(r.rows));
     const fpKg = { ...pct20, id: 't8', type: 'FIXED_PRICE', discount_percent: null, fixed_price: '300.00', targets: [{ tt: 'VARIANT', tid: ROMI_V }] };
     L = [await mkLine(cRom, 0.5)]; // (320-300)*0.5 = 10
     r = evaluate(L, [fpKg], now);
-    (eq(r.rows[0].amount, 10)) ? ok('FIXED_PRICE weighted per-KG (320-300)×0.5=10') : bad('FIXED_PRICE kg', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 10))) ok('FIXED_PRICE weighted per-KG (320-300)×0.5=10');
+    else bad('FIXED_PRICE kg', JSON.stringify(r.rows));
 
     // ================= BXGY =================
     const bxg21 = { id: 'b1', type: 'BUY_X_GET_Y', scope: 'LINE', status: 'ACTIVE', start_at: null, end_at: null, priority: 20, is_stackable: false, created_at: new Date(0).toISOString(), buy_quantity: '2.000', get_quantity: '1.000', discount_percent: '100.00', targets: [{ tt: 'PRODUCT', tid: PROD_PEPSI }] };
     L = [await mkLine(c330, 3)]; // 45 gross; sets=1 free 1 → 15
     r = evaluate(L, [bxg21], now);
-    (r.rows.length === 1 && eq(r.rows[0].amount, 15) && eq(r.rows[0].freeQty, 1)) ? ok('BXGY 2+1 same-variant free 15.00') : bad('BXGY 2+1', JSON.stringify(r.rows));
+    if ((r.rows.length === 1 && eq(r.rows[0].amount, 15) && eq(r.rows[0].freeQty, 1))) ok('BXGY 2+1 same-variant free 15.00');
+    else bad('BXGY 2+1', JSON.stringify(r.rows));
     const bxg350 = { ...bxg21, id: 'b2', buy_quantity: '3.000', discount_percent: '50.00' };
     L = [await mkLine(c330, 4)]; // sets=1 free 1 @50% → 7.5
     r = evaluate(L, [bxg350], now);
-    (eq(r.rows[0].amount, 7.5)) ? ok('BXGY 3+1@50% = 7.50') : bad('BXGY 3+1@50', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 7.5))) ok('BXGY 3+1@50% = 7.50'); else bad('BXGY 3+1@50', JSON.stringify(r.rows));
     L = [await mkLine(c330, 2)];
     r = evaluate(L, [bxg350], now);
-    (r.rows.length === 0) ? ok('BXGY partial (2 < buy 3) earns nothing') : bad('BXGY partial', JSON.stringify(r.rows));
+    if ((r.rows.length === 0)) ok('BXGY partial (2 < buy 3) earns nothing');
+    else bad('BXGY partial', JSON.stringify(r.rows));
     L = [await mkLine(c330, 7)]; // floor(7/2)=3 → free 3 → 45
     r = evaluate(L, [bxg21], now);
-    (eq(r.rows[0].amount, 45) && eq(r.rows[0].freeQty, 3)) ? ok('BXGY floor multiples 7→free 3 = 45') : bad('BXGY floor', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 45) && eq(r.rows[0].freeQty, 3))) ok('BXGY floor multiples 7→free 3 = 45');
+    else bad('BXGY floor', JSON.stringify(r.rows));
     const bxgW = { ...bxg21, id: 'b3', buy_quantity: '0.500', get_quantity: '0.100', targets: [{ tt: 'VARIANT', tid: ROMI_V }] };
     L = [await mkLine(cRom, 1.2)]; // floor(1.2/0.5)=2 → free 0.2 ×320 = 64
     r = evaluate(L, [bxgW], now);
-    (eq(r.rows[0].amount, 64) && eq(r.rows[0].freeQty, 0.2)) ? ok('BXGY weighted 1.2KG→free 0.2 = 64.00') : bad('BXGY weighted', JSON.stringify(r.rows));
+    if ((eq(r.rows[0].amount, 64) && eq(r.rows[0].freeQty, 0.2))) ok('BXGY weighted 1.2KG→free 0.2 = 64.00');
+    else bad('BXGY weighted', JSON.stringify(r.rows));
     L = [await mkLine(cRom, 0.4)]; // below buy qty
     r = evaluate(L, [bxgW], now);
-    (r.rows.length === 0) ? ok('BXGY weighted partial earns nothing') : bad('BXGY w partial', JSON.stringify(r.rows));
+    if ((r.rows.length === 0)) ok('BXGY weighted partial earns nothing');
+    else bad('BXGY w partial', JSON.stringify(r.rows));
 
     // ================= STACKING / PRIORITY / SPECIFICITY =================
     const A20ns = { ...pct20, id: 'sA', priority: 10, is_stackable: false };
     const B5s = { ...pct20, id: 'sB', discount_percent: '5.00', priority: 1, is_stackable: true };
     L = [await mkLine(c330, 1)]; // 15: A first (pri10) → 3.00; B blocked (A non-stack)
     r = evaluate(L, [A20ns, B5s], now);
-    (r.rows.length === 1 && eq(r.rows[0].amount, 3) && eq(L[0].net, 12)) ? ok('STACK non-stackable exclusive (3.00 only)') : bad('STACK excl', JSON.stringify([r.rows, L[0].net]));
+    if ((r.rows.length === 1 && eq(r.rows[0].amount, 3) && eq(L[0].net, 12))) ok('STACK non-stackable exclusive (3.00 only)');
+    else bad('STACK excl', JSON.stringify([r.rows, L[0].net]));
     const A20s = { ...A20ns, id: 'sA2', is_stackable: true };
     L = [await mkLine(c330, 2)]; // 30 → 24 → 22.80 : 6 + 1.20 sequential
     r = evaluate(L, [A20s, B5s], now);
     const st = R2(r.rows.reduce((s, x) => s + x.amount, 0));
-    (r.rows.length === 2 && eq(st, 7.2) && eq(L[0].net, 22.8)) ? ok('STACK sequential 30→24→22.80 (not 30−25%)') : bad('STACK seq', JSON.stringify([r.rows, L[0].net]));
+    if ((r.rows.length === 2 && eq(st, 7.2) && eq(L[0].net, 22.8))) ok('STACK sequential 30→24→22.80 (not 30−25%)');
+    else bad('STACK seq', JSON.stringify([r.rows, L[0].net]));
     const lo5 = { ...B5s, id: 'sC', priority: 50 };
     L = [await mkLine(c330, 1)];
     r = evaluate(L, [A20ns, lo5], now); // both non-stack: pri50 wins
-    (r.rows.length === 1 && eq(r.rows[0].amount, 0.75)) ? ok('PRIORITY higher wins (5% @pri50 beats 20% @pri10)') : bad('PRIORITY', JSON.stringify(r.rows));
+    if ((r.rows.length === 1 && eq(r.rows[0].amount, 0.75))) ok('PRIORITY higher wins (5% @pri50 beats 20% @pri10)');
+    else bad('PRIORITY', JSON.stringify(r.rows));
     const seedP = await loadPromos(['01800000-0000-7000-8000-000000000601', '01800000-0000-7000-8000-000000000612']);
     L = [await mkLine(c330, 1)]; // P12 variant30 pri10 vs P1 brand20 pri10 → variant first, non-stack → only P12
     r = evaluate(L, seedP, now);
-    (r.rows.length === 1 && eq(r.rows[0].amount, 4.5) && r.rows[0].promo.id.endsWith('612'))
-      ? ok('SPECIFICITY variant30 beats brand20 at equal priority (4.50)') : bad('SPECIFICITY', JSON.stringify(r.rows.map(x => [x.promo.id.slice(-3), x.amount])));
+    if ((r.rows.length === 1 && eq(r.rows[0].amount, 4.5) && r.rows[0].promo.id.endsWith('612'))) ok('SPECIFICITY variant30 beats brand20 at equal priority (4.50)');
+    else bad('SPECIFICITY', JSON.stringify(r.rows.map(x => [x.promo.id.slice(-3), x.amount])));
 
     // ================= CHECKOUT + COUPON + ORDER INTEGRATION =================
-    const mkCust2 = async (phone) => (await q(`INSERT INTO customers (id, first_name, phone) VALUES ($1,'T',$2) RETURNING id`, [uid(), phone])).rows[0].id;
-    const mkAddr2 = async (c) => (await q(`INSERT INTO customer_addresses (id, customer_id, city, phone) VALUES ($1,$2,'Cairo','201000000001') RETURNING id`, [uid(), c])).rows[0].id;
-    const ono = async () => 'HM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + String((await q(`SELECT nextval('order_number_seq') n`)).rows[0].n).padStart(6, '0');
+        const ono = async () => 'HM-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + String((await q(`SELECT nextval('order_number_seq') n`)).rows[0].n).padStart(6, '0');
     const vinfo = async (vid) => (await q(`SELECT v.name vn, v.price::text pr, v.size_unit su, p.name pn, p.product_type pt,
       p.sale_step_grams ss, b.name bn, p.id::text pid, p.brand_id::text bid, p.category_id::text cid
       FROM product_variants v JOIN products p ON p.id=v.product_id LEFT JOIN brands b ON b.id=p.brand_id WHERE v.id=$1`, [vid])).rows[0];
     const codeOf = async (vid) => (await q(`SELECT code, type FROM product_codes WHERE product_variant_id=$1 AND is_primary`, [vid])).rows[0];
 
-    async function checkoutPromo({ custId, addrId, items, couponRaw, fee = 20, keySeed = 'p4', promoIds = null }) {
+    async function checkoutPromo({ custId, items, couponRaw, fee = 20, keySeed = 'p4', promoIds = null }) {
       // items: [{variant, qty}] ; returns {ok, orderId, ...} — frozen §29 + promo steps
       const all = await loadPromos(promoIds);
       await q('BEGIN');
@@ -520,7 +537,7 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
         await q(`UPDATE carts SET status='CHECKED_OUT' WHERE id=$1`, [cart]);
         await q('COMMIT');
         return { ok: true, orderId: oid, key };
-      } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+      } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
     }
 
     async function finalizePromo(orderId, actuals) {
@@ -565,8 +582,7 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
         // order-level rows: recompute on actual nets (deterministic pro-rata again)
         const items = (await q(`SELECT id::text i, final_total::text f FROM order_items WHERE order_id=$1`, [orderId])).rows;
         const pend = (await q(`SELECT COUNT(*) c FROM order_items WHERE order_id=$1 AND item_status='PENDING'`, [orderId])).rows[0].c;
-        const subs = items.filter(x => x.f != null).reduce((s, x) => R2(s + Number(x.f)), 0);
-        for (const r2 of (await q(`SELECT * FROM order_discounts WHERE order_id=$1 AND kind IN ('PROMOTION_ORDER','COUPON')`, [orderId])).rows) {
+                for (const r2 of (await q(`SELECT * FROM order_discounts WHERE order_id=$1 AND kind IN ('PROMOTION_ORDER','COUPON')`, [orderId])).rows) {
           // eligible set = frozen evidence: items holding ALLOCATION children under this parent.
           // Fallback (no children, e.g. zero-amount edge): all finalized lines — same rule as checkout.
           const kids = (await q(`SELECT order_item_id::text i FROM order_discounts WHERE parent_discount_id=$1`, [r2.id])).rows.map(x => x.i);
@@ -610,7 +626,7 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
         }
         await q('COMMIT');
         return { ok: true };
-      } catch (e) { try { await q('ROLLBACK'); } catch (_) {} return { ok: false, reason: e.message }; }
+      } catch (e) { try { await q('ROLLBACK'); } catch {} return { ok: false, reason: e.message }; }
     }
 
     const Tcust = async (ph) => (await q(`INSERT INTO customers (id, first_name, phone) VALUES ($1,'T',$2) RETURNING id`, [uid(), ph])).rows[0].id;
@@ -621,30 +637,37 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     let co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P1L, qty: 10 }], couponRaw: 'welcome50', fee: 0, keySeed: 'cp1', promoIds: [] });
     // gross 300 >= min 200 → 50 fixed
     let od = co.ok ? (await q(`SELECT kind k, discount_estimated::text a, coupon_id::text c FROM order_discounts WHERE order_id=$1 ORDER BY kind`, [co.orderId])).rows : [];
-    (co.ok && od.some(r => r.k === 'COUPON' && r.a === '50.00' && r.c)) ? ok('COUPON valid WELCOME50 (case-insensitive input) = 50.00') : bad('COUPON valid', JSON.stringify({ co, od }));
+    if ((co.ok && od.some(r => r.k === 'COUPON' && r.a === '50.00' && r.c))) ok('COUPON valid WELCOME50 (case-insensitive input) = 50.00');
+    else bad('COUPON valid', JSON.stringify({ co, od }));
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P330, qty: 1 }], couponRaw: 'WELCOME50', fee: 0, keySeed: 'cp2', promoIds: [] });
-    (!co.ok && /MINIMUM/.test(co.reason)) ? ok('COUPON minimum blocks 15 < 200') : bad('COUPON minimum', JSON.stringify(co));
+    if ((!co.ok && /MINIMUM/.test(co.reason))) ok('COUPON minimum blocks 15 < 200');
+    else bad('COUPON minimum', JSON.stringify(co));
     await q(`UPDATE coupons SET is_active=FALSE WHERE code='WELCOME50'`);
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P1L, qty: 10 }], couponRaw: 'WELCOME50', fee: 0, keySeed: 'cp3', promoIds: [] });
-    (!co.ok && /INACTIVE/.test(co.reason)) ? ok('COUPON disabled rejected') : bad('COUPON disabled', JSON.stringify(co));
+    if ((!co.ok && /INACTIVE/.test(co.reason))) ok('COUPON disabled rejected');
+    else bad('COUPON disabled', JSON.stringify(co));
     await q(`UPDATE coupons SET is_active=TRUE WHERE code='WELCOME50'`);
     await q(`UPDATE coupons SET end_at = now() - INTERVAL '1 day' WHERE code='FLASH5'`);
     if (process.env.P4DEBUG) console.log('AFTER-UPDATE ' + JSON.stringify((await q(`SELECT end_at::text e FROM coupons WHERE code='FLASH5'`)).rows[0]));
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P1L, qty: 10 }], couponRaw: 'FLASH5', fee: 0, keySeed: 'cp4', promoIds: [] });
-    (!co.ok && /INACTIVE/.test(co.reason)) ? ok('COUPON expired rejected') : bad('COUPON expired', JSON.stringify(co));
+    if ((!co.ok && /INACTIVE/.test(co.reason))) ok('COUPON expired rejected');
+    else bad('COUPON expired', JSON.stringify(co));
     await q(`UPDATE coupons SET end_at=NULL WHERE code='FLASH5'`);
     await q(`UPDATE coupons SET start_at = now() + INTERVAL '1 day' WHERE code='FLASH5'`);
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P1L, qty: 10 }], couponRaw: 'FLASH5', fee: 0, keySeed: 'cp5', promoIds: [] });
-    (!co.ok && /INACTIVE/.test(co.reason)) ? ok('COUPON before-start rejected') : bad('COUPON before-start', JSON.stringify(co));
+    if ((!co.ok && /INACTIVE/.test(co.reason))) ok('COUPON before-start rejected');
+    else bad('COUPON before-start', JSON.stringify(co));
     await q(`UPDATE coupons SET start_at=NULL WHERE code='FLASH5'`);
     // per-customer: WELCOME50 limit 1 — tc already used once (cp1)
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P1L, qty: 10 }], couponRaw: 'WELCOME50', fee: 0, keySeed: 'cp6', promoIds: [] });
-    (!co.ok && /PER_CUSTOMER/.test(co.reason)) ? ok('COUPON per-customer limit 1 blocks 2nd use') : bad('COUPON per-customer', JSON.stringify(co));
+    if ((!co.ok && /PER_CUSTOMER/.test(co.reason))) ok('COUPON per-customer limit 1 blocks 2nd use');
+    else bad('COUPON per-customer', JSON.stringify(co));
     // LOYAL10 limit 2: two ok, third fails
     let tc2 = await Tcust('201011100002'); let ta2 = await Taddr(tc2);
     const loy = [];
     for (let k = 0; k < 3; k++) loy.push(await checkoutPromo({ custId: tc2, addrId: ta2, items: [{ variant: P1L, qty: 10 }], couponRaw: 'LOYAL10', fee: 0, keySeed: 'loy' + k, promoIds: [] }));
-    (loy[0].ok && loy[1].ok && !loy[2].ok && /PER_CUSTOMER/.test(loy[2].reason)) ? ok('COUPON per-customer limit 2 (2 ok, 3rd blocked)') : bad('LOYAL10', JSON.stringify(loy.map(x => x.ok)));
+    if ((loy[0].ok && loy[1].ok && !loy[2].ok && /PER_CUSTOMER/.test(loy[2].reason))) ok('COUPON per-customer limit 2 (2 ok, 3rd blocked)');
+    else bad('LOYAL10', JSON.stringify(loy.map(x => x.ok)));
     // duplicate order usage: raw second usages row same order rejected
     const usedOrder = loy[0].orderId;
     const cpId = (await q(`SELECT id::text i FROM coupons WHERE code='LOYAL10'`)).rows[0].i;
@@ -654,14 +677,16 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     // promotion expired but coupon active => INVALID (disable parent promo of LOYAL10)
     await q(`UPDATE promotions SET status='DISABLED' WHERE id='01800000-0000-7000-8000-000000000609'`);
     co = await checkoutPromo({ custId: tc2, addrId: ta2, items: [{ variant: P1L, qty: 10 }], couponRaw: 'LOYAL10', fee: 0, keySeed: 'cp7', promoIds: [] });
-    (!co.ok && /INACTIVE/.test(co.reason)) ? ok('COUPON parent-disabled invalidates coupon') : bad('COUPON parent', JSON.stringify(co));
+    if ((!co.ok && /INACTIVE/.test(co.reason))) ok('COUPON parent-disabled invalidates coupon');
+    else bad('COUPON parent', JSON.stringify(co));
     await q(`UPDATE promotions SET status='ACTIVE' WHERE id='01800000-0000-7000-8000-000000000609'`);
 
     // ================= WEIGHTED =================
     tc = await Tcust('201011100003'); ta = await Taddr(tc);
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: ROMI_V, qty: 0.5 }], fee: 0, keySeed: 'w1', promoIds: ['01800000-0000-7000-8000-000000000605'] });
     od = co.ok ? (await q(`SELECT base_estimated::text b, discount_estimated::text d FROM order_discounts WHERE order_id=$1 AND kind='PROMOTION_LINE'`, [co.orderId])).rows[0] : null;
-    (co.ok && od && od.b === '160.00' && od.d === '16.00') ? ok('WEIGHTED Romi 10%: gross 160 discount 16 net 144') : bad('WEIGHTED est', JSON.stringify({ co, od }));
+    if ((co.ok && od && od.b === '160.00' && od.d === '16.00')) ok('WEIGHTED Romi 10%: gross 160 discount 16 net 144');
+    else bad('WEIGHTED est', JSON.stringify({ co, od }));
     const itw = (await q(`SELECT id::text i FROM order_items WHERE order_id=$1`, [co.orderId])).rows[0].i;
     // frozen write order: history row FIRST, then status UPDATE (audit trigger)
     await q(`INSERT INTO order_status_history (order_id, old_status, new_status, actor_type, actor_id) VALUES ($1,'CONFIRMED','PREPARING','STAFF',$2)`, [co.orderId, tc]);
@@ -670,10 +695,9 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     od = (await q(`SELECT base_final::text b, discount_final::text d FROM order_discounts WHERE order_id=$1 AND kind='PROMOTION_LINE'`, [co.orderId])).rows[0];
     const oi = (await q(`SELECT final_total::text f, discount_amount::text d FROM order_items WHERE id=$1`, [itw])).rows[0];
     const oh = (await q(`SELECT discount_total::text d, total_estimated::text e, subtotal_final::text s, total_final::text t FROM orders WHERE id=$1`, [co.orderId])).rows[0];
-    (fz.ok && od.b === '152.00' && od.d === '15.20' && oi.f === '152.00' && oi.d === '15.20'
-      && oh.d === '16.00' && oh.e === '144.00' && oh.s === '152.00' && oh.t === '136.00')
-      ? ok('WEIGHTED finalize 0.475: detail 152/15.20, discount_total frozen 16.00, total_final 136.00')
-      : bad('WEIGHTED final', JSON.stringify({ fz: fz.reason || 'ok', od, oi, oh }));
+    if ((fz.ok && od.b === '152.00' && od.d === '15.20' && oi.f === '152.00' && oi.d === '15.20'
+      && oh.d === '16.00' && oh.e === '144.00' && oh.s === '152.00' && oh.t === '136.00')) ok('WEIGHTED finalize 0.475: detail 152/15.20, discount_total frozen 16.00, total_final 136.00');
+    else bad('WEIGHTED final', JSON.stringify({ fz: fz.reason || 'ok', od, oi, oh }));
     // §11 reconciliation: est 16.00 vs final 15.20, diff 0.80 from qty 0.500→0.475 (not pricing error)
     {
       const est = await q(`SELECT discount_estimated::text d FROM order_discounts WHERE order_id=$1 AND kind='PROMOTION_LINE'`, [co.orderId]);
@@ -684,9 +708,8 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
         * Number((await q(`SELECT applied_percent::text p FROM order_discounts WHERE order_id=$1 AND kind='PROMOTION_LINE'`, [co.orderId])).rows[0].p) / 100);
       const ms = await q(`SELECT COALESCE(SUM(discount_amount),0)::text t FROM order_items WHERE order_id=$1`, [co.orderId]);
       const ds = await q(`SELECT COALESCE(SUM(discount_final),0)::text t FROM order_discounts WHERE order_id=$1 AND kind IN ('PROMOTION_LINE','ALLOCATION')`, [co.orderId]);
-      (diff === 0.8 && expectDiff === 0.8 && ms.rows[0].t === ds.rows[0].t)
-        ? ok('RECONCILE est 16.00 − final 15.20 = 0.80 from qty delta; Σ mirrors = Σ finals')
-        : bad('RECONCILE', JSON.stringify({ diff, expectDiff, ms: ms.rows[0].t, ds: ds.rows[0].t }));
+      if ((diff === 0.8 && expectDiff === 0.8 && ms.rows[0].t === ds.rows[0].t)) ok('RECONCILE est 16.00 − final 15.20 = 0.80 from qty delta; Σ mirrors = Σ finals');
+      else bad('RECONCILE', JSON.stringify({ diff, expectDiff, ms: ms.rows[0].t, ds: ds.rows[0].t }));
     }
     // 0.125 KG + percent with fractional cents: 33.33% of 40 = 13.33? 40*0.3333=13.332→13.33
     const pct3333 = (await q(`INSERT INTO promotions (id, name, type, scope, status, discount_percent, priority) VALUES ($1,'t33','PERCENTAGE','LINE','ACTIVE',33.33,0) RETURNING id`, [uid()])).rows[0].id;
@@ -694,7 +717,8 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     tc = await Tcust('201011100004'); ta = await Taddr(tc);
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: ROMI_V, qty: 0.125 }], fee: 0, keySeed: 'w2', promoIds: [pct3333] });
     od = co.ok ? (await q(`SELECT discount_estimated::text d FROM order_discounts WHERE order_id=$1`, [co.orderId])).rows[0] : null;
-    (co.ok && od.d === '13.33') ? ok('WEIGHTED rounding 33.33% of 40.00 = 13.33') : bad('WEIGHTED rounding', JSON.stringify({ co, od }));
+    if ((co.ok && od.d === '13.33')) ok('WEIGHTED rounding 33.33% of 40.00 = 13.33');
+    else bad('WEIGHTED rounding', JSON.stringify({ co, od }));
 
     // ================= ORDER / ALLOCATION / MIRROR =================
     tc = await Tcust('201011100005'); ta = await Taddr(tc);
@@ -702,11 +726,12 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     // 330ML×? 15s can't make 100. Use direct order assembly? Simpler: test allocation() unit + one live coupon case.
     const alc = allocate(50, [{ id: 'i1', net: 100 }, { id: 'i2', net: 100 }, { id: 'i3', net: 300 }]);
     const asum = R2(alc.reduce((s, x) => s + x.amount, 0));
-    (asum === 50 && eq(alc.find(x => x.id === 'i1').amount, 10) && eq(alc.find(x => x.id === 'i3').amount, 30))
-      ? ok('ALLOC 50 over 100/100/300 = 10/10/30 exact') : bad('ALLOC', JSON.stringify(alc));
+    if ((asum === 50 && eq(alc.find(x => x.id === 'i1').amount, 10) && eq(alc.find(x => x.id === 'i3').amount, 30))) ok('ALLOC 50 over 100/100/300 = 10/10/30 exact');
+    else bad('ALLOC', JSON.stringify(alc));
     const alc2 = allocate(10, [{ id: 'i1', net: 100 }, { id: 'i2', net: 100 }, { id: 'i3', net: 100 }]);
     const asum2 = R2(alc2.reduce((s, x) => s + x.amount, 0));
-    (asum2 === 10 && eq(alc2[0].amount, 3.34)) ? ok('ALLOC dust 10/3 = 3.34/3.33/3.33 (largest remainder)') : bad('ALLOC dust', JSON.stringify(alc2));
+    if ((asum2 === 10 && eq(alc2[0].amount, 3.34))) ok('ALLOC dust 10/3 = 3.34/3.33/3.33 (largest remainder)');
+    else bad('ALLOC dust', JSON.stringify(alc2));
     // live coupon allocation on real checkout: LOYAL10 (10%) on 300 gross → 30, single line
     tc = await Tcust('201011100006'); ta = await Taddr(tc);
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P1L, qty: 10 }], couponRaw: 'LOYAL10', fee: 0, keySeed: 'al1', promoIds: [] });
@@ -714,12 +739,13 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
       FROM order_discounts WHERE order_id=$1 ORDER BY kind`, [co.orderId])).rows : [];
     const kids = alrows.filter(r => r.k === 'ALLOCATION');
     const krow = alrows.find(r => r.k === 'COUPON');
-    (co.ok && krow && krow.d === '30.00' && kids.length === 1 && kids[0].d === '30.00' && kids[0].p)
-      ? ok('ALLOC live: coupon 30 → 1 child 30.00, parent linked') : bad('ALLOC live', JSON.stringify({ co: co.ok, alrows }));
+    if ((co.ok && krow && krow.d === '30.00' && kids.length === 1 && kids[0].d === '30.00' && kids[0].p)) ok('ALLOC live: coupon 30 → 1 child 30.00, parent linked');
+    else bad('ALLOC live', JSON.stringify({ co: co.ok, alrows }));
     const mir = co.ok ? (await q(`SELECT discount_amount::text d FROM order_items WHERE order_id=$1`, [co.orderId])).rows[0].d : null;
-    (mir === '30.00') ? ok('MIRROR items.discount_amount = 30.00') : bad('MIRROR', mir);
+    if ((mir === '30.00')) ok('MIRROR items.discount_amount = 30.00'); else bad('MIRROR', mir);
     const dt = co.ok ? (await q(`SELECT discount_total::text d, total_estimated::text t FROM orders WHERE id=$1`, [co.orderId])).rows[0] : null;
-    (dt && dt.d === '30.00' && dt.t === '270.00') ? ok('TOTALS discount_total=30 total=270 (CHECK-balanced)') : bad('TOTALS', JSON.stringify(dt));
+    if ((dt && dt.d === '30.00' && dt.t === '270.00')) ok('TOTALS discount_total=30 total=270 (CHECK-balanced)');
+    else bad('TOTALS', JSON.stringify(dt));
 
     // ================= INVENTORY BXGY =================
     tc = await Tcust('201011100007'); ta = await Taddr(tc);
@@ -727,7 +753,8 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     co = await checkoutPromo({ custId: tc, addrId: ta, items: [{ variant: P330, qty: 3 }], fee: 0, keySeed: 'bx1',
       promoIds: ['01800000-0000-7000-8000-000000000603'] });
     const inv330 = co.ok ? (await q(`SELECT reserved_quantity::text r FROM inventory WHERE product_variant_id=$1`, [P330])).rows[0].r : null;
-    (co.ok && inv330 === '3.000') ? ok('BXGY reserves TAKEN qty 3 (incl. free unit)') : bad('BXGY reserve', JSON.stringify({ co, inv330 }));
+    if ((co.ok && inv330 === '3.000')) ok('BXGY reserves TAKEN qty 3 (incl. free unit)');
+    else bad('BXGY reserve', JSON.stringify({ co, inv330 }));
     // cross-variant free: buy 2×330 + free 1×1L line (dedicated priced line + 100% discount row)
     await q(`UPDATE inventory SET quantity=100.000, reserved_quantity=0 WHERE product_variant_id IN ($1,$2)`, [P330, P1L]);
     const bxgX = (await q(`INSERT INTO promotions (id, name, type, scope, status, priority) VALUES ($1,'t-bxgx','BUY_X_GET_Y','LINE','ACTIVE',0) RETURNING id`, [uid()])).rows[0].id;
@@ -755,10 +782,11 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
         await q(`UPDATE orders SET discount_total = discount_total + 30.00,
           total_estimated = subtotal_estimated - (discount_total + 30.00) + delivery_fee WHERE id=$1`, [co.orderId]);
         await q('COMMIT'); freeOk = true;
-      } catch (e) { try { await q('ROLLBACK'); } catch (_) {} freeOk = false; freeErr = e.message.split('\n')[0]; }
+      } catch (e) { try { await q('ROLLBACK'); } catch {} freeOk = false; freeErr = e.message.split('\n')[0]; }
     }
     const inv1L = (await q(`SELECT reserved_quantity::text r FROM inventory WHERE product_variant_id=$1`, [P1L])).rows[0].r;
-    (freeOk && inv1L === '1.000') ? ok('BXGY cross-variant: free 1L line priced 30 + 100% discount, reserved 1.0') : bad('BXGY cross', JSON.stringify({ co: co.reason || 'ok', freeOk, freeErr }));
+    if ((freeOk && inv1L === '1.000')) ok('BXGY cross-variant: free 1L line priced 30 + 100% discount, reserved 1.0');
+    else bad('BXGY cross', JSON.stringify({ co: co.reason || 'ok', freeOk, freeErr }));
 
     // ================= IDEMPOTENCY =================
     // checkoutPromo owns cart creation (one ACTIVE per customer enforced); the raw
@@ -801,8 +829,8 @@ const normCode = (raw) => String(raw).trim().toUpperCase().replace(/\s+/g, ' ');
     const seedPrices = await q(`SELECT price::text p FROM product_variants WHERE id IN ($1,$2) ORDER BY id`, [ROMI_V, P330]);
     // NOTE: seed prices may have been touched by earlier phase-2 suites in other DBs; here PGlite is fresh:
     // ROMI 320, P330 15 expected (nothing in THIS suite mutates base prices)
-    (seedPrices.rows[0].p === '320.00' && seedPrices.rows[1].p === '15.00')
-      ? ok('V-BASE base prices untouched (320 / 15)') : bad('V-BASE', JSON.stringify(seedPrices.rows));
+    if ((seedPrices.rows[0].p === '320.00' && seedPrices.rows[1].p === '15.00')) ok('V-BASE base prices untouched (320 / 15)');
+    else bad('V-BASE', JSON.stringify(seedPrices.rows));
 
     console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====`);
     process.exitCode = fail ? 1 : 0;

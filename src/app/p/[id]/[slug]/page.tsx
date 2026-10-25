@@ -3,6 +3,7 @@
 // (no relation endpoint — documented, not faked).
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { StoreShell } from "@/components/store/store-shell";
 import { ProductGallery } from "@/components/store/product-gallery";
@@ -38,7 +39,14 @@ export default async function ProductPage({
 
   return (
     <StoreShell>
-      <article aria-label={product.name} className="mt-6 grid gap-6 md:grid-cols-2">
+      <nav aria-label="مسار التنقل" className="mt-4 text-sm text-secondary">
+        <Link href="/categories" className="hover:text-brand">
+          الأقسام
+        </Link>
+        <span aria-hidden="true"> / </span>
+        <span aria-current="page">{product.name}</span>
+      </nav>
+      <article aria-label={product.name} className="mt-4 grid gap-6 md:grid-cols-2">
         <ProductGallery images={product.gallery} name={product.name} />
         <div className="grid content-start gap-3">
           <h1 className="text-2xl font-extrabold">{product.name}</h1>

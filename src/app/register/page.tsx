@@ -5,6 +5,7 @@ import Link from "next/link";
 import { StoreShell } from "@/components/store/store-shell";
 import { RegisterForm } from "@/components/store/register-form";
 import { PageTitle } from "@/components/ui/container";
+import { returnToQuery } from "@/lib/frontend/return-to";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+  // NAV-02: keep the safe internal destination across the register↔login cross-link.
+  const loginHref = `/login${returnToQuery(typeof params.next === "string" ? params.next : null)}`;
   return (
     <StoreShell>
       <div className="mt-6">
@@ -24,7 +32,7 @@ export default function RegisterPage() {
         </div>
         <p className="mt-3 text-sm">
           لديك حساب؟{" "}
-          <Link href="/login" className="font-semibold text-brand">
+          <Link href={loginHref} className="font-semibold text-brand">
             سجّل الدخول
           </Link>
         </p>

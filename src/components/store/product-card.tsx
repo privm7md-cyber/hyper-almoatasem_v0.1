@@ -2,24 +2,55 @@
 // Links to the real PDP route (/p/[id]/[slug]); no add-to-cart here (PDP owns purchase).
 // VXP: bordered card w/ gentle hover lift, availability chip w/ distinct states,
 // image frame stays stable with or without artwork.
+// Phase 07 (D01): the price is shown with ITS OWN basis — a WEIGHT product priced
+// per kilogram reads "X ج.م / كجم"; a pack-priced product reads "X ج.م" with its pack
+// detail. A price is never divided by a weight, and a reference price is never
+// dressed up as a discount (D01/AC-10).
+// DS-02: chip text uses the AA-safe success INK over the tinted success fill; the
+// identity green (dot/icon) is unchanged.
 
 import Link from "next/link";
 import { ImageOff } from "lucide-react";
 import type { HomeProductCard } from "@/lib/frontend/storefront-reads";
+import { saleBasisFor } from "@/lib/frontend/cart-qty";
+import { CardBuy } from "@/components/store/card-buy";
 
 const STOCK_CHIP: Record<HomeProductCard["stock"], { className: string; dotClass: string; label: string }> = {
-  in: { className: "bg-[color:var(--success-bg)] text-success", dotClass: "bg-success", label: "متوفر" },
+  in: { className: "bg-[color:var(--success-bg)] text-success-ink", dotClass: "bg-success", label: "متوفر" },
   oos: { className: "bg-[color:var(--error-bg)] text-error", dotClass: "bg-error", label: "غير متوفر" },
   unknown: {
     className: "bg-purple-surface text-secondary",
     dotClass: "bg-[color:var(--border-strong)]",
-    label: "التوفر غير مؤكد",
+    label: "التوفر غير محدد حاليًا",
   },
 };
+
+const SIZE_UNIT_LABEL: Record<string, string> = {
+  GRAM: "جم",
+  KG: "كجم",
+  ML: "مل",
+  LITER: "لتر",
+  PIECE: "قطعة",
+};
+
+/** Pack detail (e.g. "عبوة 125 جم") — a size detail, never a price basis. */
+function packDetail(product: HomeProductCard): string | null {
+  if (!product.sizeValue || !product.sizeUnit) return null;
+  const unit = SIZE_UNIT_LABEL[product.sizeUnit] ?? product.sizeUnit;
+  const value = Number(product.sizeValue);
+  const shown = Number.isFinite(value) ? String(value) : product.sizeValue;
+  return `عبوة ${shown} ${unit}`;
+}
 
 export function ProductCard({ product }: { product: HomeProductCard }) {
   const href = `/p/${product.id}/${encodeURIComponent(product.slug)}`;
   const chip = STOCK_CHIP[product.stock];
+  const basis = saleBasisFor(product.productType, product.sizeUnit);
+  const pack = packDetail(product);
+  const saleLine =
+    basis === "PER_KG"
+      ? "سعر الكيلوجرام"
+      : pack ?? (product.productType === "PIECE" ? "بالقطعة" : "سعر الوحدة");
   return (
     <article
       aria-label={product.name}
@@ -50,10 +81,12 @@ export function ProductCard({ product }: { product: HomeProductCard }) {
       {product.price !== null ? (
         <p>
           <bdi className="text-lg font-extrabold">
-            {product.price} ج.م
+            {product.price} ج.م{basis === "PER_KG" ? " / كجم" : ""}
           </bdi>
           {product.compareAt !== null ? (
-            <bdi className="ms-2 text-sm text-secondary line-through">{product.compareAt} ج.م</bdi>
+            <span className="ms-2 text-xs text-secondary">
+              السعر المرجعي: <bdi>{product.compareAt} ج.م</bdi> (ليس عرضًا)
+            </span>
           ) : null}
         </p>
       ) : (
@@ -65,7 +98,16 @@ export function ProductCard({ product }: { product: HomeProductCard }) {
           {chip.label}
         </span>
       </p>
-      <p className="mt-auto text-xs text-secondary">{product.unit === "PIECE" ? "بالقطعة" : "بالوزن (تقديري)"}</p>
+      <p className="mt-auto text-xs text-secondary">{saleLine}</p>
+      {/*
+        FE-11.2 (AC-P3 owner-approved): PIECE cards carry an add island —
+        productType === "PIECE", price known, and availability is not provably
+        out (OOS keeps the honest chip + lets the PDP own its disabled add;
+        stock "unknown" stays clickable — the server is the authority).
+      */}
+      {product.productType === "PIECE" && product.stock !== "oos" && product.price !== null ? (
+        <CardBuy productId={product.id} />
+      ) : null}
     </article>
   );
 }

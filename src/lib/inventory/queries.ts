@@ -96,6 +96,20 @@ export async function productHasInventoryRows(productId: string): Promise<boolea
   return count > 0;
 }
 
+/**
+ * Whether the catalog carries ANY inventory data at all (Phase 07 D02).
+ *
+ * Programmatic availability signal for the storefront: while no inventory row
+ * exists, every product's availability is UNKNOWN, and the "in stock only"
+ * filter cannot honour its promise (it would return an empty listing for the
+ * whole store). The listing pages pass this down so the filter can be shown
+ * as unavailable — with the reason — instead of silently emptying results.
+ */
+export async function hasAnyInventoryRows(): Promise<boolean> {
+  const row = await prisma.inventory.findFirst({ select: { id: true } });
+  return row !== null;
+}
+
 /** Raw-SQL read of the frozen product_stock_status VIEW (no Prisma model).
  * Single definition of "product in stock" (REVIEW-02). */
 export async function getProductStockStatus(productId: string): Promise<{

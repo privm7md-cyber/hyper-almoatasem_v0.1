@@ -24,6 +24,13 @@ export interface HomeProductCard {
   name: string;
   slug: string;
   unit: string;
+  /** Sale type of the product (PIECE | WEIGHT) — Phase 07 D01 price basis. */
+  productType: "PIECE" | "WEIGHT";
+  /** Sale step in grams for WEIGHT products (null for PIECE). */
+  saleStepGrams: number | null;
+  /** Pack size of the priced variant (e.g. 125 GRAM) — a detail, not a price basis. */
+  sizeValue: string | null;
+  sizeUnit: string | null;
   /** First sellable variant price basis; null when no priced variant is exposed. */
   price: string | null;
   compareAt: string | null;
@@ -109,28 +116,45 @@ function byName(a: { name: string }, b: { name: string }): number {
  * rows, so a product with no inventory rows renders "unknown" ("التوفر غير مؤكد");
  * only rows that exist with zero availability render "oos" ("غير متوفر"). */
 export async function enrichCards(
-  rows: { id: string; name: string; slug: string; unit: string; brand: { name: string } | null }[],
+  rows: {
+    id: string;
+    name: string;
+    slug: string;
+    unit: string;
+    productType: string;
+    saleStepGrams: number | null;
+    brand: { name: string } | null;
+  }[],
 ): Promise<HomeProductCard[]> {
   return Promise.all(
     rows.map(async (row) => {
       const [variants, images, stock, hasInventoryRows] = await Promise.all([
         listVariantsByProduct(row.id, false, 1, null),
-        listImages(row.id),
+        listImages(row.id).catch(() => []),
         getProductStockStatus(row.id).catch(() => null),
         productHasInventoryRows(row.id).catch(() => false),
       ]);
       const first = variants.rows[0] ? toVariant(variants.rows[0]) : null;
       const primary = images.find((im) => im.isPrimary) ?? images[0] ?? null;
+      // P05 (partial-failure honesty): with inventory rows present but the stock
+      // status read failed (null via catch), availability is UNKNOWN — never "oos".
+      // Claiming "غير متوفر" from a failed read would be a stock claim without data.
       const stockState: HomeProductCard["stock"] = !hasInventoryRows
         ? "unknown"
-        : stock && stock.isInStock
-          ? "in"
-          : "oos";
+        : stock === null
+          ? "unknown"
+          : stock.isInStock
+            ? "in"
+            : "oos";
       return {
         id: row.id,
         name: row.name,
         slug: row.slug,
         unit: row.unit,
+        productType: row.productType === "WEIGHT" ? ("WEIGHT" as const) : ("PIECE" as const),
+        saleStepGrams: row.saleStepGrams ?? null,
+        sizeValue: first ? first.sizeValue : null,
+        sizeUnit: first ? first.sizeUnit : null,
         price: first ? first.price : null,
         compareAt: first ? first.compareAtPrice : null,
         stock: stockState,
@@ -199,7 +223,15 @@ export async function searchCatalogPaged(q: string, query: ListingQuery, cursor:
     includeInactive: false,
   });
   const cards = await enrichCards(
-    page.rows.map((r) => ({ id: r.id, name: r.name, slug: r.slug, unit: r.unit, brand: r.brand })),
+    page.rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      unit: r.unit,
+      productType: r.productType,
+      saleStepGrams: r.saleStepGrams,
+      brand: r.brand,
+    })),
   );
   return { cards, nextCursor: page.nextCursor };
 }
@@ -297,7 +329,10 @@ export async function getProductPage(id: string): Promise<ProductPageData | null
   if (!row) return null;
   const [detailVariants, images] = await Promise.all([
     listVariantsByProduct(row.id, false, 50, null),
-    listImages(row.id),
+    // Partial-failure isolation (Phase 07 B6): a gallery read failure must not
+    // take the product page down — the core product data is still valid, so the
+    // page renders with the honest "no image" placeholder instead of an error.
+    listImages(row.id).catch(() => []),
   ]);
   const variants = await Promise.all(
     detailVariants.rows.map(async (v) => {

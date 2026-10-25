@@ -3,6 +3,13 @@
 // (stored x-guest-token XOR session cookie auto-sent); mint-once-then-retry when
 // identity is absent; 200 full cart; single-flight; selection preserved on failure.
 // NEVER touches x-guest-order-token (grep-audited absence).
+//
+// Phase 07 (D01/D04): a WEIGHT product priced per kilogram shows "X ج.م / كجم" and
+// its estimate is `price/kg × chosen grams / 1000` (never grams × per-kg price).
+// The approved purchase weights are 125 g · 250 g · 500 g · 1 kg · 1.25 kg, filtered
+// by the product's own sale step. The quantity sent to the cart stays in the
+// variant's live sale unit (kg for KG variants, grams for GRAM variants) — the
+// backend counts WEIGHT lines in that unit and enforces the step there.
 
 "use client";
 
@@ -17,12 +24,22 @@ import {
   gramsToQtyText,
   isStepValid,
   isWholePacks,
+  saleBasisFor,
+  weightEstimatePiastres,
 } from "@/lib/frontend/cart-qty";
 import type { ProductPageData } from "@/lib/frontend/storefront-reads";
 
 function formatEgp(piastres: number): string {
   return `${(piastres / 100).toFixed(2)} ج.م`;
 }
+
+const SIZE_UNIT_LABEL: Record<string, string> = {
+  GRAM: "جم",
+  KG: "كجم",
+  ML: "مل",
+  LITER: "لتر",
+  PIECE: "قطعة",
+};
 
 async function mintGuestToken(): Promise<string | null> {
   try {
@@ -52,7 +69,15 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
     [product.variants, variantId],
   );
   const isWeight = product.productType === "WEIGHT";
-  const sellable = variant !== null && variant.stock !== "oos";
+  // Phase 07 D01: the price basis follows the SALE MODEL of the selected
+  // variant — per kilogram for weight sold in kilograms, pack price otherwise.
+  const basis = saleBasisFor(product.productType, variant?.sizeUnit ?? null);
+  const perKg = basis === "PER_KG";
+  // A WEIGHT row whose catalog price is a pack price (variant unit is not KG)
+  // cannot be sold by weight without inventing a price basis: its price is
+  // reported for independent data correction instead (D01 rule 9).
+  const weightSaleUnsupported = isWeight && !perKg;
+  const sellable = variant !== null && variant.stock !== "oos" && !weightSaleUnsupported;
 
   const presets = useMemo(
     () =>
@@ -64,18 +89,20 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
 
   const qtyText = useMemo(() => {
     if (!variant) return null;
-    if (!isWeight) {
+    if (!perKg) {
       const n = Number(packs);
       return isWholePacks(n) ? String(n) : null;
     }
     const g = Number(grams);
     if (!isStepValid(g, product.saleStepGrams)) return null;
     return gramsToQtyText(variant.sizeUnit, g);
-  }, [variant, isWeight, packs, grams, product.saleStepGrams]);
+  }, [variant, perKg, packs, grams, product.saleStepGrams]);
 
   const estimate =
     qtyText !== null && variant !== null
-      ? estimatePiastres(qtyText, variant.price)
+      ? perKg
+        ? weightEstimatePiastres(variant.price, Number(grams))
+        : estimatePiastres(qtyText, variant.price)
       : null;
 
   async function add() {
@@ -88,6 +115,10 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
     }
     if (variant.stock === "oos") {
       setFieldError("هذا الاختيار غير متوفر حاليًا.");
+      return;
+    }
+    if (weightSaleUnsupported) {
+      setFieldError("هذا الصنف غير متاح للبيع بالوزن حاليًا.");
       return;
     }
     if (qtyText === null) {
@@ -164,7 +195,9 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
         >
           {product.variants.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name} — {v.price} ج.م{v.stock === "oos" ? " (غير متوفر)" : ""}
+              {v.name} — {v.price} ج.م
+              {saleBasisFor(product.productType, v.sizeUnit) === "PER_KG" ? " / كجم" : ""}
+              {v.stock === "oos" ? " (غير متوفر)" : ""}
             </option>
           ))}
         </select>
@@ -172,21 +205,30 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
       {variant ? (
         <p className="text-sm">
           <bdi>
-            {variant.price} ج.م {variant.sizeUnit ? `/ ${variant.sizeUnit}` : ""}
+            {variant.price} ج.م {perKg ? "/ كجم" : ""}
           </bdi>
+          {!perKg && variant.sizeValue && variant.sizeUnit ? (
+            <span className="ms-2 text-xs text-secondary">
+              عبوة {Number(variant.sizeValue)} {SIZE_UNIT_LABEL[variant.sizeUnit] ?? variant.sizeUnit}
+            </span>
+          ) : null}
           {variant.compareAt !== null ? (
-            <bdi className="ms-2 text-sm text-secondary line-through">
+            <bdi className="ms-2 text-xs text-secondary">
               {variant.compareAt} ج.م (مرجع، ليس عرضًا مثبتًا)
             </bdi>
           ) : null}
           <span
             className={`ms-2 font-semibold ${variant.stock === "in" ? "text-success" : variant.stock === "oos" ? "text-error" : "text-secondary"}`}
           >
-            {variant.stock === "in" ? "متوفر" : variant.stock === "oos" ? "غير متوفر" : "التوفر غير مؤكد"}
+            {variant.stock === "in" ? "متوفر" : variant.stock === "oos" ? "غير متوفر" : "التوفر غير محدد حاليًا"}
           </span>
         </p>
       ) : null}
-      {isWeight ? (
+      {weightSaleUnsupported ? (
+        <p role="status" className="text-sm text-secondary">
+          هذا الصنف غير متاح للبيع بالوزن حاليًا — سعره مسجّل بعبوته في الكتالوج.
+        </p>
+      ) : perKg ? (
         <div className="grid gap-2">
           <p className="text-sm font-semibold">الوزن المطلوب (تقديري — النهائي عند التجهيز)</p>
           <div className="flex flex-wrap gap-2" role="group" aria-label="أوزان جاهزة">
@@ -196,7 +238,11 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
                 type="button"
                 onClick={() => setGrams(String(g))}
                 aria-pressed={grams === String(g)}
-                className="min-h-[44px] rounded-control border border-line-strong bg-white px-3 font-semibold"
+                className={
+                  grams === String(g)
+                    ? "min-h-[44px] rounded-control border border-brand bg-purple-surface px-3 font-semibold text-ink shadow-subtle"
+                    : "min-h-[44px] rounded-control border border-line-strong bg-white px-3 font-semibold text-ink hover:bg-purple-surface"
+                }
               >
                 {g >= 1000 ? `${g / 1000} كجم` : `${g} جم`}
               </button>
@@ -240,7 +286,11 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
       ) : null}
       <div>
         <Button disabled={pending || !sellable} loading={pending} onClick={add}>
-          {!sellable ? "غير متوفر" : "أضف إلى السلة"}
+          {weightSaleUnsupported
+            ? "غير متاح للبيع بالوزن"
+            : !sellable
+              ? "غير متوفر"
+              : "أضف إلى السلة"}
         </Button>
       </div>
     </div>

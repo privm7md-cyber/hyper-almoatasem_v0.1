@@ -10,7 +10,7 @@ import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/in
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
-  title: "سياسة الإلغاء — هايبر المعتصم",
+  title: "سياسة الإلغاء",
   description: "متى يمكن إلغاء الطلب من المتجر، وما الذي يحدث بعد انتهاء تلك المدة.",
 };
 

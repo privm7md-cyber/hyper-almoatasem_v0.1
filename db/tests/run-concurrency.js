@@ -2,10 +2,15 @@
 // sessions per race. READ COMMITTED (verified default; set explicitly per tx).
 // Loads the SHIPPED files byte-identical (pgcrypto exists here — zero shims).
 // Rule under test (frozen §F/R7): conditional atomic reserve + deterministic locks.
-const EmbeddedPostgres = require('embedded-postgres').default;
-const { Pool, Client } = require('pg');
-const fs = require('fs');
-const path = require('path');
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import path from 'node:path';
+import pg from 'pg';
+import embeddedPostgres from 'embedded-postgres';
+
+const EmbeddedPostgres = embeddedPostgres.default;
+const { Pool } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 process.on('unhandledRejection', (e) => { console.log('UNHANDLED: ' + String((e && e.message) || e).split('\n')[0]); process.exit(1); });
 
 const DBDIR = path.join(__dirname, '..'); // repo db/ dir
@@ -82,7 +87,7 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
     };
 
     // ---- frozen checkout worker (variant L=locked §F, N=naked conditional UPDATE) ----
-    async function raceCheckout({ cartId, custId, addrId, key, locked, events, atReserve }) {
+    async function raceCheckout({ cartId, custId, key, locked, events, atReserve }) {
       const c = await pool.connect();
       try {
         events.begin = now();
@@ -127,7 +132,7 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
         await c.query('COMMIT');
         events.commit = now();
         return { win: true, order: oid };
-      } catch (e) { try { await c.query('ROLLBACK'); } catch (_) {} return { win: false, reason: 'ERR:' + e.message.split('\n')[0] }; }
+      } catch (e) { try { await c.query('ROLLBACK'); } catch {} return { win: false, reason: 'ERR:' + e.message.split('\n')[0] }; }
       finally { c.release(); }
     }
 
@@ -167,7 +172,6 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
     console.log(`S1 unit race ×100 (locked): winners/iter=1 ALWAYS, overlap proven ${stats.overlap}/100`);
 
     // ==== Scenario 1b: naked conditional UPDATE race ×25 ====
-    let nakedWins = 0;
     for (let i = 0; i < 25; i++) {
       await resetInv(VU, '1.000');
       const cA = await mkCust('2010001' + String(10000 + (phoneN++)));
@@ -184,7 +188,6 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
       if (wins !== 1) throw new Error(`naked iter ${i}: winners=${wins}`);
       if (eA.begin < eB.commit && eB.begin < eA.commit) stats.overlap++;
       checkInv(await invState(VU), 's1n-' + i);
-      nakedWins += wins;
     }
     console.log(`S1b unit race ×25 (naked UPDATE): winners/iter=1 ALWAYS — UPDATE itself is the atomic guard`);
 
@@ -220,7 +223,7 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
       const kA = await mkCartW(cA, VU, '1.000', 'PIECE', '10.00');
       const kB = await mkCartW(cB, VU, '1.000', 'PIECE', '10.00');
       const key = 'same-key-' + i, gate = latch(2), rl = latch(2);
-      const [rA, rB] = await Promise.all([
+      await Promise.all([
         (async () => { await gate.arrive(); return raceCheckout({ cartId: kA, custId: cA, addrId: aA, key, locked: true, events: {}, atReserve: () => rl.arrive() }); })(),
         (async () => { await gate.arrive(); return raceCheckout({ cartId: kB, custId: cB, addrId: aB, key, locked: true, events: {}, atReserve: () => rl.arrive() }); })(),
       ]);
@@ -236,8 +239,8 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
       const cA = await mkCust('2010004' + String(10000 + (phoneN++)));
       const aA = await mkAddr(cA);
       const k = await mkCartW(cA, VU, '1.000', 'PIECE', '10.00');
-      const gate = latch(2), rl = latch(2);
-      const [rA, rB] = await Promise.all([
+      const gate = latch(2);
+      await Promise.all([
         (async () => { await gate.arrive(); return raceCheckout({ cartId: k, custId: cA, addrId: aA, key: 'ck-' + i + '-A', locked: true, events: {} }); })(),
         (async () => { await gate.arrive(); return raceCheckout({ cartId: k, custId: cA, addrId: aA, key: 'ck-' + i + '-B', locked: true, events: {} }); })(),
       ]);
@@ -288,10 +291,10 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
           await c.query(`UPDATE inventory SET reserved_quantity = reserved_quantity - $2 WHERE product_variant_id=$1`, [VU, '1.000']);
           await c.query('COMMIT');
           return { win: true };
-        } catch (e) { try { await c.query('ROLLBACK'); } catch (_) {} return { win: false, reason: e.message.split('\n')[0] }; }
+        } catch (e) { try { await c.query('ROLLBACK'); } catch {} return { win: false, reason: e.message.split('\n')[0] }; }
         finally { c.release(); }
       };
-      const gate = latch(2), rl = latch(2);
+      const gate = latch(2);
       const [a1, a2] = await Promise.all([
         (async () => { await gate.arrive(); return approve(); })(),
         (async () => { await gate.arrive(); return approve(); })(),
@@ -324,10 +327,10 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
             VALUES ($1,$2,'1.000',5.00,-5.00,'STAFF',$3)`, [line, VS, cA]);
           await c.query('COMMIT');
           return { win: true };
-        } catch (e) { try { await c.query('ROLLBACK'); } catch (_) {} return { win: false }; }
+        } catch { try { await c.query('ROLLBACK'); } catch {} return { win: false }; }
         finally { c.release(); }
       };
-      const gate = latch(2), rl = latch(2);
+      const gate = latch(2);
       const [p1, p2] = await Promise.all([
         (async () => { await gate.arrive(); return propose(); })(),
         (async () => { await gate.arrive(); return propose(); })(),
@@ -343,8 +346,8 @@ const eventsBarrierRelease = (fn) => (typeof fn === 'function' ? fn() : Promise.
     console.log(`\n==== GATE RESULT: S1 ${stats.s1iter}/100 single-winner | overlap proven in ${stats.overlap} contended iterations | ALL INVARIANTS HELD ====`);
     process.exitCode = 0;
   } catch (e) { console.log('GATE ERROR: ' + String((e && e.message) || e).split('\n').slice(0, 4).join(' | ')); process.exitCode = 1; }
-  try { await pool0.end(); } catch (_) {}
-  try { await Promise.race([pool.end(), new Promise((_, rej) => setTimeout(() => rej(new Error('pool-end-timeout')), 10000))]); } catch (_) {}
+  try { await pool0.end(); } catch {}
+  try { await Promise.race([pool.end(), new Promise((...[, rej]) => setTimeout(() => rej(new Error('pool-end-timeout')), 10000))]); } catch {}
   try { await Promise.race([pg.stop(), new Promise((_, rej) => setTimeout(() => rej(new Error('pg-stop-timeout')), 20000))]); } catch (e) { console.log('STOP: ' + e.message); }
   setTimeout(() => process.exit(process.exitCode || 0), 500).unref();
 })();

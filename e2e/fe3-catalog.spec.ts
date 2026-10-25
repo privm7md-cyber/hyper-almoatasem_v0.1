@@ -28,10 +28,18 @@ test("category listing: empty DB gives honest empty (no fake rows)", async ({ pa
   await page.locator("main ul li a").first().click();
   await expect(page).toHaveURL(/\/c\//);
   // Apply a supported filter; URL must carry it and results must stay consistent.
-  await page.getByLabel("نوع المنتج").selectOption("PIECE");
-  await expect(page).toHaveURL(/type=PIECE/);
-  await page.getByLabel("ترتيب النتائج").selectOption("name:asc");
-  await expect(page).toHaveURL(/sort=name/);
+  // The filter panel is a client island: its <select onChange> is only wired once
+  // React hydrates the new route, so the interaction is retried until the
+  // handler responds. The assertion itself is unchanged (the URL MUST carry the
+  // filter) — this only removes the pre-hydration race.
+  await expect(async () => {
+    await page.getByLabel("نوع المنتج").selectOption("PIECE");
+    await expect(page).toHaveURL(/type=PIECE/);
+  }).toPass({ timeout: 15000 });
+  await expect(async () => {
+    await page.getByLabel("ترتيب النتائج").selectOption("name:asc");
+    await expect(page).toHaveURL(/sort=name/);
+  }).toPass({ timeout: 15000 });
   await page.reload();
   await expect(page).toHaveURL(/type=PIECE/);
 });
@@ -39,11 +47,16 @@ test("category listing: empty DB gives honest empty (no fake rows)", async ({ pa
 test("URL state: filter/sort/clear/back stay consistent (empty-safe)", async ({ page }) => {
   await page.goto("/search?q=" + encodeURIComponent("أرز"));
   // Apply filter + sort: URL carries them; results stay consistent (data or honest empty).
-  await page.getByLabel("نوع المنتج").selectOption("WEIGHT");
-  await expect(page).toHaveURL(/type=WEIGHT/);
+  // Retried for the same hydration reason as the category-listing test above.
+  await expect(async () => {
+    await page.getByLabel("نوع المنتج").selectOption("WEIGHT");
+    await expect(page).toHaveURL(/type=WEIGHT/);
+  }).toPass({ timeout: 15000 });
   await expect(page).toHaveURL(/q=/);
-  await page.getByLabel("ترتيب النتائج").selectOption("newest");
-  await expect(page).toHaveURL(/sort=newest/);
+  await expect(async () => {
+    await page.getByLabel("ترتيب النتائج").selectOption("newest");
+    await expect(page).toHaveURL(/sort=newest/);
+  }).toPass({ timeout: 15000 });
   // Clear keeps the query, drops filters.
   const clear = page.getByRole("button", { name: /مسح الفلاتر/ });
   if ((await clear.count()) > 0) {

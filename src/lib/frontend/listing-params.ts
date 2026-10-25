@@ -112,3 +112,21 @@ export const SEARCH_SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "relevance", label: "الصلة" },
   { value: "newest", label: "الأحدث" },
 ];
+
+/**
+ * D07: the search retry/reload link must reproduce the exact current result-defining
+ * URL state (query + sort + dir + every filter) — not just the q term.
+ */
+export function searchRetryHref(query: ListingQuery, validQuery: string | null): string {
+  if (validQuery === null) return "/search";
+  return `/search${buildListingQuery(query, { sort: "relevance" }, validQuery)}`;
+}
+
+/**
+ * D24: a stable React key per result-defining URL state. When the filters/sort/query
+ * change, the server re-renders with a different key and the LoadMore island REMOUNTS,
+ * so its client-side appended page-2..n state can never leak into a different listing.
+ */
+export function loadMoreKey(query: ListingQuery): string {
+  return JSON.stringify(query);
+}

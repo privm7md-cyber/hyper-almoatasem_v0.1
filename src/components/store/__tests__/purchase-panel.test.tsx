@@ -162,4 +162,43 @@ describe("purchase-panel", () => {
     resolveIt(jsonResponse({ data: { cart: {} }, meta: {} }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
   });
+
+  it("shows a WEIGHT price per kilogram and estimates the chosen weight (D01)", async () => {
+    const spy = vi.fn().mockResolvedValue(jsonResponse({ data: { cart: {} }, meta: {} }));
+    vi.stubGlobal("fetch", spy);
+    renderPanel(productWith([{ ...WEIGHT_VARIANT, price: "33.00" }], "WEIGHT"));
+    // The price is per kilogram — never "per gram".
+    expect(screen.getByText("33.00 ج.م / كجم")).toBeInTheDocument();
+    expect(screen.queryByText(/ج\.م \/ GRAM/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("وزن مخصص بالجرام"), { target: { value: "500" } });
+    // 33 EGP/kg × 500 g = 16.50 EGP — the old code showed 16,500.
+    expect(await screen.findByText("16.50 ج.م")).toBeInTheDocument();
+    expect(screen.queryByText(/16500/)).not.toBeInTheDocument();
+  });
+
+  it("sends the weight in the variant's sale unit (kg), once", async () => {
+    window.localStorage.setItem("hyper_cart_guest_token", "e".repeat(64));
+    const spy = vi.fn().mockResolvedValue(jsonResponse({ data: { cart: {} }, meta: {} }));
+    vi.stubGlobal("fetch", spy);
+    renderPanel(productWith([WEIGHT_VARIANT], "WEIGHT"));
+    fireEvent.click(screen.getByRole("button", { name: "500 جم" }));
+    fireEvent.click(screen.getByRole("button", { name: "أضف إلى السلة" }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const [, init] = spy.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      productVariantId: WEIGHT_VARIANT.id,
+      quantity: "0.5",
+    });
+  });
+
+  it("does not sell a WEIGHT row whose catalog price is a pack price (D01 rule 9)", async () => {
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+    renderPanel(
+      productWith([{ ...WEIGHT_VARIANT, sizeUnit: "GRAM", sizeValue: "125.000", price: "33.00" }], "WEIGHT"),
+    );
+    expect(screen.getByRole("button", { name: "غير متاح للبيع بالوزن" })).toBeDisabled();
+    expect(screen.queryByText(/ج\.م \/ كجم/)).not.toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+  });
 });

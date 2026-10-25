@@ -25,7 +25,9 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     },
     "plugins": [
       {
@@ -39,7 +41,13 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts",
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    ".next-p10t/types/**/*.ts",
+    ".next-p10t/dev/types/**/*.ts",
+    ".next-p10/types/**/*.ts",
+    ".next-p10/dev/types/**/*.ts",
+    ".next-p10prod/types/**/*.ts",
+    ".next-p10prod/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

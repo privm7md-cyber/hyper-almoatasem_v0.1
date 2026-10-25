@@ -3,6 +3,7 @@
 // unknown/inactive id → not-found. Indexable with canonical slug.
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { StoreShell } from "@/components/store/store-shell";
 import { ProductCard } from "@/components/store/product-card";
@@ -16,7 +17,8 @@ import {
   getCategoryById,
   listCategoryProducts,
 } from "@/lib/frontend/storefront-reads";
-import { LISTING_SORT_OPTIONS, parseListingParams, sortKeyFor } from "@/lib/frontend/listing-params";
+import { hasAnyInventoryRows } from "@/lib/inventory/queries";
+import { LISTING_SORT_OPTIONS, loadMoreKey, parseListingParams, sortKeyFor } from "@/lib/frontend/listing-params";
 import { slugMatches, wireSlugOf } from "@/lib/frontend/slug";
 
 export const dynamic = "force-dynamic";
@@ -46,9 +48,15 @@ export default async function CategoryPage({
   if (!slugMatches(slug, category.slug)) permanentRedirect(`/c/${category.id}/${wireSlugOf(category.slug)}`);
 
   const query = parseListingParams(sp, "listing");
+  // Phase 07 D02: the availability filter is only honoured when the catalog
+  // carries stock data. Without it the request is NOT narrowed by an
+  // impossible condition (which would empty the whole store's listing) and the
+  // panel states the reason instead.
+  const availabilityKnown = await hasAnyInventoryRows().catch(() => false);
+  const effectiveQuery = availabilityKnown ? query : { ...query, inStock: null };
   let page: Awaited<ReturnType<typeof listCategoryProducts>> | null = null;
   try {
-    page = await listCategoryProducts(category.id, query);
+    page = await listCategoryProducts(category.id, effectiveQuery);
   } catch {
     page = null;
   }
@@ -56,16 +64,24 @@ export default async function CategoryPage({
 
   return (
     <StoreShell>
-      <div className="mt-6">
+      <nav aria-label="مسار التنقل" className="mt-4 text-sm text-secondary">
+        <Link href="/categories" className="hover:text-brand">
+          الأقسام
+        </Link>
+        <span aria-hidden="true"> / </span>
+        <span aria-current="page">{category.name}</span>
+      </nav>
+      <div className="mt-2">
         <PageTitle>{category.name}</PageTitle>
       </div>
       <div className="mt-3">
         <FilterPanel
-          query={query}
+          query={effectiveQuery}
           brands={brands}
           sortOptions={LISTING_SORT_OPTIONS.map((o) => ({ value: `${o.sort}:${o.dir}`, label: o.label }))}
           sortValue={sortKeyFor(query.sort, query.dir)}
           showBrand
+          availabilityKnown={availabilityKnown}
         />
       </div>
       {page === null ? (
@@ -84,7 +100,11 @@ export default async function CategoryPage({
         </div>
       )}
       {page !== null ? (
-        <LoadMore initialCursor={page.nextCursor} loadPage={loadMoreCategory.bind(null, category.id, query)} />
+        <LoadMore
+          key={loadMoreKey(effectiveQuery)}
+          initialCursor={page.nextCursor}
+          loadPage={loadMoreCategory.bind(null, category.id, effectiveQuery)}
+        />
       ) : null}
     </StoreShell>
   );

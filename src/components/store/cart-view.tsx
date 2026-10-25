@@ -221,8 +221,24 @@ export function CartView() {
       <div className="mt-6">
         <EmptyState
           title="ابدأ سلة جديدة"
-          hint="لا توجد سلة نشطة — أنشئ واحدة للمتابعة."
-          action={<Button onClick={() => void mintFresh()}>سلة جديدة</Button>}
+          hint="لا توجد سلة نشطة — أنشئ واحدة للمتابعة، أو تابع التسوق مباشرة."
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button onClick={() => void mintFresh()}>سلة جديدة</Button>
+              <Link
+                href="/categories"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-control border border-line-strong px-5 font-semibold text-ink"
+              >
+                تصفّح الأقسام
+              </Link>
+              <Link
+                href="/search"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-control border border-line-strong px-5 font-semibold text-ink"
+              >
+                ابحث عن منتج
+              </Link>
+            </div>
+          }
         />
       </div>
     );

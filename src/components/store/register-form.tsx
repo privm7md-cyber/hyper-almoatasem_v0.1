@@ -1,6 +1,7 @@
 // FE-6 registration island ("use client"): phone + name + password → register endpoint.
 // 201 sets the session cookie (auto-login per contract); 409 duplicate → login guidance.
 // Password policy (12..128) is enforced server-side; the form only requires non-empty.
+// NAV-02: after success, return to the user's internal destination (?next=…) when safe.
 
 "use client";
 
@@ -8,6 +9,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppError, apiRequest } from "@/lib/frontend/api-client";
+import { returnToQuery, safeReturnTo } from "@/lib/frontend/return-to";
 import { Field, TextInput } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
@@ -33,7 +35,8 @@ export function RegisterForm() {
         method: "POST",
         body: { phone: phone.trim(), firstName: firstName.trim(), password },
       });
-      router.push("/account");
+      const next = safeReturnTo(new URLSearchParams(window.location.search).get("next"));
+      router.push(next);
       router.refresh();
     } catch (err) {
       if (err instanceof AppError && err.code === "CONFLICT") {
@@ -90,7 +93,10 @@ export function RegisterForm() {
           {error.includes("مسجل") ? (
             <>
               {" "}
-              <Link href="/login" className="font-semibold text-brand">
+              <Link
+                href={`/login${returnToQuery(new URLSearchParams(window.location.search).get("next"))}`}
+                className="font-semibold text-brand"
+              >
                 إلى الدخول
               </Link>
             </>

@@ -145,6 +145,52 @@ const PRODUCT_COLS = `p.id::text AS id, p.name, p.slug, p.product_type, p.unit,
   b.id::text AS bid, b.name AS bname, b.slug AS bslug`;
 
 /**
+ * The matching arms — the single source of truth for WHAT a query matches.
+ * Arm shape: (pid, tier, sim). The % operator (backed by SET LOCAL
+ * pg_trgm.similarity_threshold in the wrapping read tx) drives the functional
+ * GIN indexes; LIKE-prefix arms ride them too. LIKE patterns escape
+ * user-supplied %/_ (ESCAPE '\') so queries stay literal.
+ * Tier 4 is the exact-code pin (cashier semantics): it flows through the
+ * SAME outer filterWhere as text arms, so filters never contradict the
+ * pin — and no fuzzy row can outrank it.
+ *
+ * Shared by every sort: the sort chooses the ORDER BY, never the candidates.
+ */
+function matchingArmsSql(filter: SearchFilter): string {
+  const armsActive = filter.includeInactive ? `TRUE` : `p.is_active AND p.deleted_at IS NULL`;
+  const armsVariantActive = filter.includeInactive
+    ? `TRUE`
+    : `v.is_active AND v.deleted_at IS NULL`;
+  const likePat = `replace(replace(hyper_norm_ar($1), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'`;
+  return `
+    SELECT p.id AS pid, 4 AS tier, 1.0::float8 AS sim
+      FROM products p
+      JOIN product_variants v ON v.product_id = p.id
+      JOIN product_codes pc ON pc.product_variant_id = v.id
+     WHERE ${armsActive} AND ${armsVariantActive} AND pc.code = $1
+    UNION ALL
+    SELECT p.id AS pid, 3 AS tier, 1.0::float8 AS sim
+      FROM products p WHERE ${armsActive} AND hyper_norm_ar(p.name) = hyper_norm_ar($1)
+    UNION ALL
+    SELECT p.id, 2, similarity(hyper_norm_ar(p.name), hyper_norm_ar($1))
+      FROM products p WHERE ${armsActive} AND hyper_norm_ar(p.name) LIKE ${likePat}
+        AND hyper_norm_ar(p.name) <> hyper_norm_ar($1)
+    UNION ALL
+    SELECT p.id, 1, similarity(hyper_norm_ar(p.name), hyper_norm_ar($1))
+      FROM products p WHERE ${armsActive} AND hyper_norm_ar(p.name) % hyper_norm_ar($1)
+        AND hyper_norm_ar(p.name) <> hyper_norm_ar($1)
+        AND hyper_norm_ar(p.name) NOT LIKE ${likePat}
+    UNION ALL
+    SELECT p.id, 0, similarity(hyper_norm_ar(b.name), hyper_norm_ar($1))
+      FROM products p JOIN brands b ON b.id = p.brand_id
+     WHERE ${armsActive} AND hyper_norm_ar(b.name) % hyper_norm_ar($1)
+    UNION ALL
+    SELECT p.id, 0, similarity(hyper_norm_ar(c.name), hyper_norm_ar($1))
+      FROM products p JOIN categories c ON c.id = p.category_id
+     WHERE ${armsActive} AND hyper_norm_ar(c.name) % hyper_norm_ar($1)`;
+}
+
+/**
  * Text search over live products. Empty/blank queries are rejected by the
  * caller (400); normalized-to-empty likewise. Throws ApiError (400/404).
  */
@@ -201,32 +247,48 @@ export async function searchProducts(rawQuery: string, filter: SearchFilter): Pr
   const params: unknown[] = [rawQuery.trim()];
   const filterWhere = buildConds(params);
 
+  // ---- shared candidate set (both sorts) ----
+  // The matching arms define WHAT matches; the sort only decides HOW the
+  // matching rows are ordered. The "newest" branch used to rebuild its own
+  // WHERE from the filters alone (no text predicate), so sorting by newest
+  // returned the newest rows of the whole catalog instead of the newest rows
+  // that MATCH the query (P07-F10). Both branches now share one candidate
+  // set, one bind list and one filter set; only ORDER BY differs.
+  const arms = matchingArmsSql(filter);
+  const cursor = decodeSearchCursor(filter.cursor);
+
   if (filter.sort === "newest") {
-    // Own bind array (the raw query is meaningless here and MUST NOT be
-    // bound — every $N must be referenced). Same filter builder, fresh array.
-    const nparams: unknown[] = [];
-    const nfilterWhere = buildConds(nparams);
+    // Keyset on (created_at, id) — same as before — but now applied to the
+    // MATCHING candidates only. The raw query stays bound at $1 (the arms
+    // reference it), so every $N is referenced exactly once.
     let keyset = ``;
-    const cursor = decodeSearchCursor(filter.cursor);
     if (cursor) {
       const at = new Date(cursor.s);
       if (Number.isNaN(at.getTime())) throw new ApiError("VALIDATION", "Invalid search cursor.", null);
-      nparams.push(at.toISOString(), cursor.id);
-      const n = nparams.length;
-      keyset = ` AND (p.created_at < $${n - 1}::timestamptz OR
-        (p.created_at = $${n - 1}::timestamptz AND p.id > $${n}::uuid))`;
+      params.push(at.toISOString(), cursor.id);
+      const n = params.length;
+      keyset = ` AND (p.created_at < $${n - 2}::timestamptz OR
+        (p.created_at = $${n - 2}::timestamptz AND p.id > $${n - 1}::uuid))`;
     }
-    nparams.push(filter.limit + 1);
-    const rows = await prisma.$queryRawUnsafe<Array<ProductRow>>(
-      `SELECT ${PRODUCT_COLS}
-         FROM products p
-         LEFT JOIN categories c ON c.id = p.category_id
-         LEFT JOIN brands b ON b.id = p.brand_id
-        WHERE ${nfilterWhere}${keyset}
-        ORDER BY p.created_at DESC, p.id ASC
-        LIMIT $${nparams.length}`,
-      ...nparams,
-    );
+    params.push(filter.limit + 1);
+    // Same scoped similarity threshold as the relevance path (SET LOCAL in a
+    // read-only tx) so both sorts recall the same rows.
+    const rows = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL pg_trgm.similarity_threshold = ${SEARCH_MIN_SIMILARITY}`);
+      return tx.$queryRawUnsafe<Array<ProductRow>>(
+        `WITH cands(pid, tier, sim) AS (${arms}),
+           ranked AS (SELECT pid AS id, MAX(tier) AS t, MAX(sim) AS s FROM cands GROUP BY pid)
+         SELECT ${PRODUCT_COLS}
+           FROM ranked r
+           JOIN products p ON p.id = r.id
+           LEFT JOIN categories c ON c.id = p.category_id
+           LEFT JOIN brands b ON b.id = p.brand_id
+          WHERE ${filterWhere}${keyset}
+          ORDER BY p.created_at DESC, p.id ASC
+          LIMIT $${params.length}`,
+        ...params,
+      );
+    });
     const hits = rows.map((r) => toHit(r, { kind: "text", tier: 0, score: 0 }));
     if (hits.length <= filter.limit) return { rows: hits, nextCursor: null };
     const page = hits.slice(0, filter.limit);
@@ -237,46 +299,11 @@ export async function searchProducts(rawQuery: string, filter: SearchFilter): Pr
     };
   }
 
-  // ---- relevance: UNION ALL of index-assistable arms, then rank ----
-  // Arm shape: (pid, tier, sim). The % operator (backed by SET LOCAL
-  // pg_trgm.similarity_threshold in the wrapping read tx) drives the
-  // functional GIN indexes; LIKE-prefix arms ride them too. LIKE patterns
-  // escape user-supplied %/_ (ESCAPE '\') so queries stay literal.
-  // Tier 4 is the exact-code pin (cashier semantics): it flows through the
-  // SAME outer filterWhere as text arms, so filters never contradict the
-  // pin — and no fuzzy row can outrank it.
-  const armsActive = filter.includeInactive ? `TRUE` : `p.is_active AND p.deleted_at IS NULL`;
-  const armsVariantActive = filter.includeInactive
-    ? `TRUE`
-    : `v.is_active AND v.deleted_at IS NULL`;
-  const likePat = `replace(replace(hyper_norm_ar($1), '%', '\\%'), '_', '\\_') || '%' ESCAPE '\\'`;
-  const arms = `
-    SELECT p.id AS pid, 4 AS tier, 1.0::float8 AS sim
-      FROM products p
-      JOIN product_variants v ON v.product_id = p.id
-      JOIN product_codes pc ON pc.product_variant_id = v.id
-     WHERE ${armsActive} AND ${armsVariantActive} AND pc.code = $1
-    UNION ALL
-    SELECT p.id AS pid, 3 AS tier, 1.0::float8 AS sim
-      FROM products p WHERE ${armsActive} AND hyper_norm_ar(p.name) = hyper_norm_ar($1)
-    UNION ALL
-    SELECT p.id, 2, similarity(hyper_norm_ar(p.name), hyper_norm_ar($1))
-      FROM products p WHERE ${armsActive} AND hyper_norm_ar(p.name) LIKE ${likePat}
-        AND hyper_norm_ar(p.name) <> hyper_norm_ar($1)
-    UNION ALL
-    SELECT p.id, 1, similarity(hyper_norm_ar(p.name), hyper_norm_ar($1))
-      FROM products p WHERE ${armsActive} AND hyper_norm_ar(p.name) % hyper_norm_ar($1)
-        AND hyper_norm_ar(p.name) <> hyper_norm_ar($1)
-        AND hyper_norm_ar(p.name) NOT LIKE ${likePat}
-    UNION ALL
-    SELECT p.id, 0, similarity(hyper_norm_ar(b.name), hyper_norm_ar($1))
-      FROM products p JOIN brands b ON b.id = p.brand_id
-     WHERE ${armsActive} AND hyper_norm_ar(b.name) % hyper_norm_ar($1)
-    UNION ALL
-    SELECT p.id, 0, similarity(hyper_norm_ar(c.name), hyper_norm_ar($1))
-      FROM products p JOIN categories c ON c.id = p.category_id
-     WHERE ${armsActive} AND hyper_norm_ar(c.name) % hyper_norm_ar($1)`;
-  const cursor = decodeSearchCursor(filter.cursor);
+  // ---- relevance: rank the shared candidate set ----
+  // The arms above already encode the matching tiers; relevance only changes
+  // the ORDER BY (tier DESC, similarity DESC, id ASC) — the candidate set is
+  // identical to the "newest" branch, so switching the sort never changes
+  // WHICH products match (P07-F10).
   let keyset = ``;
   if (cursor) {
     params.push(cursor.t, cursor.s, cursor.id);

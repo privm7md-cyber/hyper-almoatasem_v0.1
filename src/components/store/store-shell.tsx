@@ -6,6 +6,7 @@
 import { StoreHeader } from "./store-header";
 import { StoreNav } from "./store-nav";
 import { StoreFooter } from "./store-footer";
+import { RouteFocus } from "./route-focus";
 import { PageContainer } from "@/components/ui/container";
 
 export function StoreShell({ children }: { children: React.ReactNode }) {
@@ -13,7 +14,9 @@ export function StoreShell({ children }: { children: React.ReactNode }) {
     <>
       <StoreHeader />
       <StoreNav />
-      <main id="main" className="pb-24 md:pb-8">
+      {/* NAV-05: moves keyboard focus to <main> after every SPA route change. */}
+      <RouteFocus />
+      <main id="main" tabIndex={-1} className="pb-24 md:pb-8">
         <PageContainer>{children}</PageContainer>
       </main>
       <div className="pb-24 md:pb-0">

@@ -11,7 +11,7 @@ import { InfoNote, InfoPage, InfoSection } from "@/components/store/info-page";
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
-  title: "الأسئلة الشائعة — هايبر المعتصم",
+  title: "الأسئلة الشائعة",
   description: "إجابات عملية عن البحث والشراء بالقطعة وبالوزن، والتوافر، والطلب كضيف، ومتابعة الطلب، ورسوم التوصيل.",
 };
 

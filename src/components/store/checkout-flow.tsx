@@ -62,7 +62,16 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
   const [me, setMe] = useState<Me | null>(null);
   const [lines, setLines] = useState<CartLine[]>([]);
   const [addressId, setAddressId] = useState<string>("");
-  const [guest, setGuest] = useState({ city: "", phone: "", firstName: "", street: "" });
+  const [guest, setGuest] = useState({
+    city: "",
+    phone: "",
+    firstName: "",
+    street: "",
+    area: "",
+    village: "",
+    buildingNumber: "",
+    landmark: "",
+  });
   const [coupon, setCoupon] = useState(initialCoupon);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewNote, setPreviewNote] = useState<string | null>(null);
@@ -121,10 +130,22 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
       guest.phone,
       guest.firstName,
       guest.street,
+      guest.area,
+      guest.village,
+      guest.buildingNumber,
+      guest.landmark,
       coupon.trim(),
       ...lines.map((l) => `${l.productVariantId}:${l.quantity}`),
     ]);
   }, [me, addressId, guest, coupon, lines]);
+
+  // D02/D10: the estimate must reflect the CURRENT terms before submit is possible.
+  // Staleness is derived against the terms of the last CONFIRMED estimate
+  // response (set only from async request callbacks, never during render): the
+  // hint goes stale the moment any term differs from that response's terms, and
+  // re-freshens when the refreshed response lands.
+  const [freshTerms, setFreshTerms] = useState<string | null>(null);
+  const previewStale = preview === null || freshTerms !== terms;
 
   // Terms changed after (or before) an attempt → fresh key (same key + different terms = 409).
   useEffect(() => {
@@ -138,27 +159,66 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
     lastFingerprint.current = terms;
   }, [terms]);
 
+  /** Estimate fetch shared by the manual button and the debounced auto-refresh. */
+  async function fetchEstimate(ls: CartLine[], couponCode: string) {
+    const token = readGuestCartToken();
+    return apiRequest<Preview>("/api/store/orders/estimate", {
+      method: "POST",
+      body: {
+        lines: ls.map((l) => ({ productVariantId: l.productVariantId, quantity: l.quantity })),
+        ...(couponCode === "" ? {} : { couponCode }),
+      },
+      headers: token ? { "x-guest-token": token } : {},
+    });
+  }
+
+  async function applyEstimate(res: Awaited<ReturnType<typeof fetchEstimate>>, termsAt: string) {
+    setPreview(res.data);
+    setFreshTerms(termsAt);
+    if (res.data.coupon && !res.data.coupon.applicable) {
+      setPreviewNote(res.data.coupon.reason ?? "الكوبون غير صالح.");
+    } else {
+      setPreviewNote(null);
+    }
+  }
+
   async function refreshPreview() {
     if (lines.length === 0) return;
     setPreviewNote(null);
     try {
-      const token = readGuestCartToken();
-      const res = await apiRequest<Preview>("/api/store/orders/estimate", {
-        method: "POST",
-        body: {
-          lines: lines.map((l) => ({ productVariantId: l.productVariantId, quantity: l.quantity })),
-          ...(coupon.trim() === "" ? {} : { couponCode: coupon.trim() }),
-        },
-        headers: token ? { "x-guest-token": token } : {},
-      });
-      setPreview(res.data);
-      if (res.data.coupon && !res.data.coupon.applicable) {
-        setPreviewNote(res.data.coupon.reason ?? "الكوبون غير صالح.");
-      }
+      // Bound the result to the terms visible when the user asked for it.
+      await applyEstimate(await fetchEstimate(lines, coupon.trim()), terms);
     } catch (error) {
       setPreviewNote(error instanceof AppError ? error.message : "تعذّرت المعاينة.");
+      // A failed refresh leaves the old hint non-authoritative (derived staleness).
     }
   }
+
+  // D02/D10: auto-refresh the estimate whenever any order term changes
+  // (debounced); the estimate comes ONLY from the estimate endpoint — no local
+  // math acts as authority. Staleness is derived from `terms` vs. the response.
+  useEffect(() => {
+    if (lines.length === 0) return;
+    // Capture this render's exact terms/snapshot — the new terms are the only
+    // ones the refresh answers for.
+    const linesSnapshot = lines;
+    const couponSnapshot = coupon.trim();
+    const termsAt = terms;
+    const timer = setTimeout(() => {
+      void (async () => {
+        setPreviewNote(null);
+        try {
+          await applyEstimate(await fetchEstimate(linesSnapshot, couponSnapshot), termsAt);
+        } catch (error) {
+          setPreviewNote(error instanceof AppError ? error.message : "تعذّرت المعاينة.");
+        }
+      })();
+    }, 400);
+    return () => clearTimeout(timer);
+    // The effect intentionally fires per-terms-change only; lines/coupon are read
+    // through the snapshot taken at the termscommit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [terms]);
 
   async function submit() {
     if (inFlight.current || submitting) return;
@@ -166,6 +226,11 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
     setAmbiguous(false);
     if (lines.length === 0) {
       setSubmitError("السلة فارغة — لا يمكن إنشاء الطلب.");
+      return;
+    }
+    // D10: an order is never created without a live estimate of ITS terms.
+    if (previewStale || preview === null) {
+      setSubmitError("قدّر الإجمالي أولًا — انتظر اكتمال المعاينة ثم أعد المحاولة.");
       return;
     }
     let payload: Parameters<typeof placeOrder>[0];
@@ -185,10 +250,17 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
         setSubmitError("أكمل المدينة والهاتف والاسم.");
         return;
       }
+      const opt = (v: string) => (v.trim() === "" ? null : v.trim());
       payload = {
         guestAddress: {
           city: guest.city.trim(),
-          street: guest.street.trim() === "" ? null : guest.street.trim(),
+          street: opt(guest.street),
+          // D33: the full optional address fields from FP-00-D015 (label/isDefault
+          // are an address-book concept and stay out of the inline guest payload).
+          area: opt(guest.area),
+          village: opt(guest.village),
+          buildingNumber: opt(guest.buildingNumber),
+          landmark: opt(guest.landmark),
           phone: guest.phone.trim(),
         },
         guestContact: { firstName: guest.firstName.trim() },
@@ -336,6 +408,25 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
                 <input value={guest.street} onChange={(e) => setGuest((g) => ({ ...g, street: e.target.value }))} className="min-h-[44px] rounded-control border border-line bg-white px-2" />
               </label>
             </div>
+            {/* D33: optional address fields per the approved FP-00-D015 field list. */}
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="grid gap-1 text-sm font-semibold">
+                المنطقة / الحي (اختياري)
+                <input value={guest.area} onChange={(e) => setGuest((g) => ({ ...g, area: e.target.value }))} className="min-h-[44px] rounded-control border border-line bg-white px-2" />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold">
+                القرية (اختياري)
+                <input value={guest.village} onChange={(e) => setGuest((g) => ({ ...g, village: e.target.value }))} className="min-h-[44px] rounded-control border border-line bg-white px-2" />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold">
+                رقم العمارة (اختياري)
+                <input value={guest.buildingNumber} onChange={(e) => setGuest((g) => ({ ...g, buildingNumber: e.target.value }))} className="min-h-[44px] rounded-control border border-line bg-white px-2" />
+              </label>
+              <label className="grid gap-1 text-sm font-semibold">
+                علامة مميزة (اختياري)
+                <input value={guest.landmark} onChange={(e) => setGuest((g) => ({ ...g, landmark: e.target.value }))} className="min-h-[44px] rounded-control border border-line bg-white px-2" />
+              </label>
+            </div>
             <p className="text-xs text-secondary">تُستخدم هذه البيانات لهذا الطلب فقط — لا يُنشأ حساب.</p>
           </div>
         )}
@@ -392,11 +483,17 @@ export function CheckoutFlow({ initialCoupon = "" }: { initialCoupon?: string })
           {ambiguous ? " احتفظ بهذه الصفحة وتحقق قبل أي إعادة." : ""}
         </p>
       ) : null}
+      {/* D02/D10: live status for the estimate freshness (never a fake claim). */}
+      <p className="text-xs text-secondary" role="status" aria-live="polite">
+        {previewStale || preview === null
+          ? "بانتظار تقدير الإجمالي — يُتاح التأكيد بعد اكتمال المعاينة أو اضغط «معاينة»."
+          : "الإجمالي التقديري محدث وفق الكوبون والتوصيل — يمكنك التأكيد."}
+      </p>
       <div>
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={submitting}
+          disabled={submitting || previewStale || preview === null}
           className="min-h-[44px] rounded-control bg-brand px-6 font-semibold text-white disabled:opacity-55"
         >
           {submitting ? "جارٍ إنشاء الطلب…" : "تأكيد إنشاء الطلب"}

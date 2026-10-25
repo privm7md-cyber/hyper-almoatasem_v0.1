@@ -15,6 +15,10 @@
   --surface-purple: #eee8f5;
   --surface-orange: #fff1e6;
   --status-success: #15803d;
+  /* Darker green for TEXT over tinted success fills (DS-02: #15803D reaches only
+     4.43:1 on --success-bg; this ink passes AA with margin while icons/dots keep
+     the identity green). */
+  --status-success-ink: #136b33;
   --status-error: #c62828;
 
   /* Semantic roles (FP-10 §5). */
@@ -76,20 +80,18 @@
   --color-secondary: var(--text-secondary);
   --color-error: var(--status-error);
   --color-success: var(--status-success);
-  --color-success: var(--status-success);
+  --color-success-ink: var(--status-success-ink);
   --color-focus: var(--focus-ring);
   --color-line: var(--border-default);
   --color-line-strong: var(--border-strong);
   --color-purple-surface: var(--surface-purple);
   --color-orange-surface: var(--surface-orange);
   --color-warning-fg: var(--warning-fg);
-  --z-toast: 60;
-  --shadow-subtle: 0 1px 2px rgba(27, 21, 48, 0.06);
-  --shadow-elevated: 0 8px 24px rgba(27, 21, 48, 0.16);
-  --radius-control: 8px;
-  --radius-card: 12px;
-  --radius-dialog: 16px;
-  --radius-badge: 9999px;
+  /* DS-07 hygiene: utilities read the same-name token value defined on :root;
+     only one theme key per namespace entry. */
+  --z-toast: var(--z-toast);
+  --shadow-subtle: var(--shadow-subtle);
+  --shadow-elevated: var(--shadow-elevated);
   --radius-control: var(--radius-control);
   --radius-card: var(--radius-card);
   --radius-dialog: var(--radius-dialog);

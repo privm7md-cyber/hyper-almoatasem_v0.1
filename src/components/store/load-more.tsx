@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { ProductCard } from "./product-card";
+import { RESULTS_APPENDED_EVENT } from "./result-count";
 import type { HomeProductCard } from "@/lib/frontend/storefront-reads";
 
 export function LoadMore({
@@ -31,6 +32,13 @@ export function LoadMore({
       const page = await loadPage(cursor);
       setCards((prev) => [...prev, ...page.cards]);
       setCursor(page.nextCursor);
+      // Phase 07 (D06): announce the appended rows so the visible count stays
+      // equal to the number of cards actually on screen.
+      if (typeof window !== "undefined" && page.cards.length > 0) {
+        window.dispatchEvent(
+          new CustomEvent(RESULTS_APPENDED_EVENT, { detail: { added: page.cards.length } }),
+        );
+      }
     } catch {
       setFailed(true);
     } finally {

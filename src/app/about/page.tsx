@@ -8,7 +8,7 @@ import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/in
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
-  title: "من نحن — هايبر المعتصم",
+  title: "من نحن",
   description: "ما يقدّمه هايبر المعتصم: كتالوج منتجات بالقطعة وبالوزن، وأسعار وإتاحة من الكتالوج، وطلب كضيف دون إنشاء حساب.",
 };
 

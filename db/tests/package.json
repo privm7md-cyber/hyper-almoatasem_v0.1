@@ -2,6 +2,7 @@
   "name": "hypermarket-phase2-db-tests",
   "version": "1.1.0",
   "private": true,
+  "type": "module",
   "description": "Database-level tests for Phase 2: functional suite (PGlite) + two-session concurrency gate (embedded PostgreSQL)",
   "scripts": {
     "test": "node run-tests.js",

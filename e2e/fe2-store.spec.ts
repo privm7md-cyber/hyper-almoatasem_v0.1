@@ -30,7 +30,7 @@ test("search: empty query guides, short query guides, valid query resolves", asy
   await page.goto("/search");
   await expect(page.getByText("ابدأ بكتابة كلمة للبحث")).toBeVisible();
   await page.goto("/search?q=x");
-  await expect(page.getByText(/حرفين/)).toBeVisible();
+  await expect(page.getByText("اكتب حرفين على الأقل للبحث")).toBeVisible();
   await page.goto("/search?q=" + encodeURIComponent("أرز"));
   await expect(page.getByRole("heading", { name: "البحث في المنتجات" })).toBeVisible();
   const body = await page.innerText("body");
