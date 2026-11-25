@@ -10,6 +10,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
+import { MOTION_DURATIONS_MS } from "@/lib/motion-tokens";
 
 const SECTIONS = [
   { href: "/", label: "الرئيسية" },
@@ -28,6 +29,7 @@ const INFO = [
   { href: "/cancellation", label: "سياسة الإلغاء" },
   { href: "/replacement", label: "سياسة الاستبدال" },
   { href: "/order-help", label: "مساعدة الطلب" },
+  { href: "/contact", label: "تواصل معنا" },
 ];
 
 export function StoreMenu() {
@@ -112,7 +114,7 @@ export function StoreMenu() {
         aria-expanded={open}
         aria-controls={panelId}
         aria-haspopup="dialog"
-        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white text-ink transition-colors duration-200 hover:border-line-strong focus-visible:border-brand lg:hidden"
+        className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white text-ink transition-[colors,transform,border-color] duration-[var(--motion-short,200ms)] hover:border-line-strong active:scale-[0.97] focus-visible:border-brand lg:hidden"
       >
         <span className="sr-only">فتح قائمة المتجر</span>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -121,29 +123,35 @@ export function StoreMenu() {
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-[70] lg:hidden">
+        <div
+          className="fixed inset-0 z-[70] lg:hidden"
+          dir="rtl"
+          data-motion-duration={MOTION_DURATIONS_MS.normal}
+        >
           <button
             type="button"
             tabIndex={-1}
             aria-hidden="true"
+            data-menu-backdrop="true"
             onClick={() => close()}
-            className="absolute inset-0 h-full w-full cursor-default bg-[color:var(--text-ink)]/45"
+            className="vxp-backdrop-enter absolute inset-0 h-full w-full cursor-default bg-[color:var(--text-ink)]/45 backdrop-blur-[2px]"
           />
           <div
             id={panelId}
             role="dialog"
             aria-modal="true"
             aria-label="قائمة المتجر"
+            data-motion-drawer="rtl"
             ref={panelRef}
             tabIndex={-1}
-            className="absolute inset-x-0 top-0 max-h-[85dvh] overflow-y-auto rounded-b-card border-b border-line bg-white p-4 shadow-xl outline-none"
+            className="vxp-drawer-rtl-enter absolute inset-y-0 right-0 flex h-dvh w-full max-w-[min(88vw,360px)] flex-col overflow-y-auto border-l border-line bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-dialog outline-none"
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-bold">قائمة المتجر</h2>
+            <div className="mb-3 flex items-center justify-between border-b border-line/70 pb-3">
+              <h2 className="text-base font-bold text-ink">قائمة المتجر</h2>
               <button
                 type="button"
                 onClick={() => close()}
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line text-secondary transition-colors duration-200 hover:border-line-strong"
+                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line text-secondary transition-[colors,transform,border-color] duration-[var(--motion-short,200ms)] hover:border-line-strong hover:text-ink active:scale-[0.97]"
               >
                 <span className="sr-only">إغلاق القائمة</span>
                 <X size={20} aria-hidden="true" />
@@ -156,7 +164,8 @@ export function StoreMenu() {
                     <Link
                       href={item.href}
                       onClick={() => setOpenedAt(null)}
-                      className="flex min-h-[44px] items-center rounded-control px-3 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-purple-surface"
+                      prefetch={false}
+                      className="flex min-h-[44px] items-center rounded-control px-3 text-sm font-semibold text-ink transition-colors duration-[var(--motion-short,200ms)] hover:bg-purple-surface"
                     >
                       {item.label}
                     </Link>
@@ -172,7 +181,8 @@ export function StoreMenu() {
                     <Link
                       href={item.href}
                       onClick={() => setOpenedAt(null)}
-                      className="flex min-h-[44px] items-center rounded-control px-3 text-sm text-secondary transition-colors duration-200 hover:bg-purple-surface"
+                      prefetch={false}
+                      className="flex min-h-[44px] items-center rounded-control px-3 text-sm text-secondary transition-colors duration-[var(--motion-short,200ms)] hover:bg-purple-surface"
                     >
                       {item.label}
                     </Link>

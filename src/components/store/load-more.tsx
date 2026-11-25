@@ -1,10 +1,15 @@
 // FE-3 load-more island ("use client"): appends the next keyset page via server action.
 // Filters/sort stay those of the current URL (same params the server used); refresh returns
 // to page 1 by design (documented keyset limitation — never invented page numbers).
+// P08 (P08-T03): the duplicate-send guard is SYNCHRONOUS (a ref stamped at send time, the
+// Phase 07 island pattern) — React batches state updates, so a second click in the SAME
+// task cannot see the `pending` state; without the re-guard two same-task taps fire the
+// same `loadPage(cursor)` twice and append duplicate rows. The disabled control mirrors
+// the real guard; it is not the guard.
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ProductCard } from "./product-card";
 import { RESULTS_APPENDED_EVENT } from "./result-count";
 import type { HomeProductCard } from "@/lib/frontend/storefront-reads";
@@ -21,11 +26,15 @@ export function LoadMore({
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Synchronous duplicate-send guard: stamped before the request, cleared in
+  // `finally` (failure keeps the SAME cursor so retry re-runs this exact page).
+  const sendingRef = useRef(false);
 
   if (cursor === null && cards.length === 0) return null;
 
   async function more() {
-    if (cursor === null || pending) return;
+    if (cursor === null || sendingRef.current) return;
+    sendingRef.current = true;
     setPending(true);
     setFailed(false);
     try {
@@ -42,6 +51,7 @@ export function LoadMore({
     } catch {
       setFailed(true);
     } finally {
+      sendingRef.current = false;
       setPending(false);
     }
   }

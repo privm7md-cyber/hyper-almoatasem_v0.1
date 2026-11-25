@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-11-15T19:46:36.447Z",
+  "database": "hyper_almoatasem",
+  "readOnlyTransaction": true,
+  "expectedBaseline": {
+    "products": 9532,
+    "orders": 1,
+    "customers": 0,
+    "users": 1,
+    "role_permissions": 58,
+    "audit_logs": 28693
+  },
+  "observedCounts": {
+    "products": 9532,
+    "orders": 1,
+    "customers": 0,
+    "users": 1,
+    "role_permissions": 58,
+    "audit_logs": 28693
+  },
+  "dbUnchanged": true
+}

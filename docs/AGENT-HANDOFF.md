@@ -1,7 +1,7 @@
 # AGENT HANDOFF — Hyper Al-Moatasem / هايبر المعتصم (canonical, self-contained)
 
 > Read this file first. The authoritative CURRENT STATE is the block
-> "⚑ SESSION HANDOFF — CURRENT STATE (Phase 5 Final Backend Completion, 2026-10-07)"
+> "⚑ SESSION HANDOFF — CURRENT STATE (2026-10-12)"
 > immediately below.
 > It supersedes any conflicting wording further down (including the
 > DEV-SYNC block, the BA-C closeout block and the older "GO-LIVE
@@ -10,6 +10,284 @@
 > decisions) are preserved and must not be deleted. Conversation history
 > is NOT the source of truth — the repository, the database and passing
 > tests are. If anything here conflicts with those, stop and investigate.
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (2026-10-12)
+
+> Status labels: **DONE** (implemented) · **VERIFIED** (executed, output actually seen) · **PARTIAL** ·
+> **BLOCKED** · **DECISION-REQUIRED** (explicit human decision needed; do not guess) · **NOT STARTED**.
+> This block covers the session of 2026-10-12 only: FP-11.4 → FP-20 frontend specification roadmap
+> completion (FP-11.4/11.5/11.7/11.8 incl. 11.8.2–11.8.7/11.9/11.10/11.11, FP-11.6, FP-12/13/14/16,
+> FP-15/17/18/19, FP-20) + two owner-authorized backend changes (L3 Direction A product-unit
+> boundary; G5 registration rate limiting + HMAC hardening) + env readiness (local + Preview secrets,
+> no deploy). The 2026-10-09 block below it is preserved history and is superseded where conflicting.
+
+## A. Session Summary
+
+Purpose: finish the FP-11→FP-20 frontend planning roadmap and close the authorized FP-11 gap
+resolutions requiring backend work. Addressed, in order: handoff read → FP-11.4 spec + D24–D30
+closure → FP-11.5 spec + D31–D38 closure + safety review → FP-11.7 + FP-11.8 specs + D40/D42/D43/D45
+closure → FP-11.8.2 deep-dive + D46–D48/L1–L5 closure + L3 audit → L3 Direction A implementation +
+verification → G5 rate-limit implementation + verification → G5 HMAC hardening + verification →
+FP-11.8.3–11.8.7 + FP-11.9/10/11 → FP-11.6 + FP-12/13/14/16 → FP-15/17/18/19 + FP-20 + gap closure →
+env readiness (local + Preview secrets) + IP-trust review → verification gate (Preview deferred).
+Outcome: frontend specs complete through FP-20 (docs only, zero implementation); backend extended
+twice under explicit authorization, both green on scratch; everything UNCOMMITTED; production,
+deploy, and go-live untouched. One anomaly recorded honestly in §B (pre-existing closure text found
+accurate and preserved, not deleted).
+
+## B. Completed Work (DONE vs VERIFIED)
+
+* FP-11.4 Shopping Cart spec (20 sections, contract-first) + D24–D30 OWNER-APPROVED under delegation
+  (unambiguous counts, direct-remove/confirmed-clear, compare-at omission, explicit merge messaging,
+  Checkout-only coupons, bounded enrichment, D30 A/B/C stale policy). DONE (docs-only).
+* FP-11.5 Checkout spec + D31–D38 OWNER-APPROVED under delegation; D39 later RESOLVED under the
+  existing staff-assisted design (rotate/revoke + audit + buckets verified, no code change; future-
+  capability proposal withdrawn). DONE (docs-only).
+* FP-11.5 safety review: D30 strict A/B/C without blanket checkout gate; coupon-entry Checkout-only;
+  no invented endpoints. DONE (docs-only).
+* FP-11.7 Customer Account + FP-11.8 Admin specs; D40/D42 + D43/D45 OWNER-APPROVED; D41/D44 later
+  approved as presentation-only. DONE (docs-only).
+* FP-11.8.2 catalog/variant/pricing/inventory deep-dive (§§E1–E16) + D46–D48 approvals + L1/L2/L4/L5
+  accepted limitations + L3 contract audit (boundary-5 vs rule-2-way vs docs-3). DONE (docs-only).
+* L3 Direction A IMPLEMENTED + VERIFIED: `productUnitSchema` (PIECE/KG/GRAM) at the Zod boundary
+  (`src/lib/catalog/validation.ts`); variant `sizeUnit` metadata preserved (5 values); openapi already
+  aligned (no doc change needed); no SQL/Prisma/migration/data changes; LITER/ML product writes now
+  400-class (established enum-input contract, not a global error change).
+* G5 registration rate limiting IMPLEMENTED + VERIFIED: isolated `reg:` buckets (IP 30 + phone 10
+  /15min) on the existing `customer_auth_rate_limits` table (no migration); generic 429; duplicate-409
+  semantics preserved (`src/lib/auth/rate-limit.ts`, `register/route.ts`, openapi 429 line).
+* G5 HMAC hardening IMPLEMENTED + VERIFIED: `src/lib/auth/reg-phone-bucket.ts` (HMAC-SHA-256 under
+  `REG_RATE_LIMIT_PHONE_SECRET`, fail-closed 500, no SHA-256 fallback, no new secret invented —
+  HMAC-pepper alternative left as optional future); `hashToken` unchanged everywhere.
+* Verification actually executed (all on isolated scratch `hyper_almoatasem_scratch`, gate-proven via
+  `SELECT current_database()`, zero production touch): t-catalog-unit 16/16 · t-catalog 56/56 (incl.
+  new liter-400/ml-400/variant-ml-201) · t-customer-register-ratelimit 14/14 (HMAC-bound, no-fallback,
+  fail-closed-500 live, isolation, recovery) · t-customers-unit 49/49 · t-customer-auth 37/37 ·
+  t-guest-orders 66/66 · t-orders 54/54 · t-cart 50/50 · t-promotions 58/58 · route-coverage 98/98 ·
+  tsc clean · ESLint clean · build PASS · prisma valid. One genuine test bug found BY TESTING (G5
+  suite 10-digit phones; fixed to 11-digit R8) + one spec-helper bug (suite `name` field; fixed).
+  Residue discipline: scratch restored to 2 fixtures / 0 business rows (zero-ref verified); Node 0 +
+  PostgreSQL stopped after each live run (verified).
+* Env readiness: local secret generated into gitignored `.env.local` (format-verified, value never
+  printed; live-proven 201); Preview-only independent secret registered (metadata-only check; value
+  never handled; active Preview deployment NOT proven to consume it — no deploy triggered).
+  IP trust documented per environment (local XFF client-controlled; Vercel edge overwrite
+  PLATFORM-DOCUMENTED, deployment path UNVERIFIED). No production/Preview env changes beyond the
+  Preview variable registration.
+* FP-11.8.3–11.8.7, FP-11.9/10/11, FP-11.6 (Outcome A recovered: tracking + cancel), FP-12/13/14/16,
+  FP-15/17/18/19, FP-20 roadmap + gap closure (25-row inventory incl. distinct B6; D41/D44 approved;
+  font Cairo reversible default per FP-10 recommendation — NOT owner approval; test stack
+  vitest+RTL+Playwright per FP-00-D069, install deferred). DONE (docs-only; 33 files under
+  `docs/frontend/`).
+
+## C. Decisions and Approvals
+
+* Approved under explicit delegation/authorization this session (do not reopen without cause):
+  D24–D30, D31–D38, D40/D42/D43/D45, D46–D48, D41/D44 (presentation-only), L1/L2/L4/L5 accepted
+  limitations, L3 Direction A (+422→400 boundary change), G5 thresholds (IP30/phone10) + HMAC +
+  Preview-secret scope, COD-only scope retention, FP-12 C1–C3 technical defaults, font Cairo
+  reversible default, vitest+RTL+Playwright stack (install deferred).
+* D39 resolved with NO backend change (existing rotate/revoke design verified sufficient).
+* Still open / owner-only: font final sign-off; test-tool install action; image-domain approval;
+  payment methods (Q002); production HMAC secret + secret-store decision; any commit/push/deploy;
+  FP-12+ implementation (WP-01…); Preview live proof (needs deploy authorization).
+* Locked constraints (unchanged): backend authority for money/stock/permissions; frozen SQL
+  immutable; no production writes; no OTP/payments/upload invented; guest-credential separation;
+  short-ship L1; 30d/8h/90d session lifetimes.
+
+## D. Remaining Work
+
+* OPEN: frontend implementation work packages (WP-01…) — NOT STARTED, await explicit direction.
+* DECISION REQUIRED: font final; test install; image domains; payments; production secret; commit/push.
+* DEFERRED: upload/bulk/CSV/scale; OTP/recovery; metrics/analytics features; online payments/refunds.
+* NOT VERIFIED: Preview consumption of the registered secret (needs authorized deploy+test); image
+  remote/CDN policy (no pipeline in repo); production-row LITER/ML presence (production never read);
+  field perf data (no traffic); anything asserting runtime behavior beyond the suites listed in §B.
+* AUTHORIZED BUT NOT EXECUTED: none — every authorization this session was consumed (HMAC, L3, G5,
+  secrets scoping, doc closures). No pending approved-but-unrun work.
+* BLOCKED: none blocking documentation; implementation blocked only by missing owner go-ahead.
+
+## E. Exact Stopping Point
+
+* Last completed task: this handoff update itself (docs-only). Last content change before it: FP-20
+  gap-closure edits + FP-11.8.2/FP-11.11 closure rows (docs-only).
+* Nothing in progress. No tests/processes/servers/DB operations running at end (Node 0 processes,
+  PostgreSQL stopped — verified; scratch left CLEAN 2/0/0/0 with zero-ref-verified cleanup).
+* Deliberately NOT executed: commit/push/deploy; any implementation (WP-01…); Preview live proof;
+  production secret configuration; FP-21+; any production read/write.
+* Resume point: read THIS block first → verify `git status --short` matches §F → await user direction.
+  Do not re-run the completed verifications, re-implement L3/G5, or re-specify FP phases.
+
+## F. Git and Working-Tree State (verified this session, read-only)
+
+* Branch `master`; HEAD `83253fe9` == `origin/master` (in sync; verified).
+* 25 modified tracked files (BG-era guest-order work + this session: `catalog/validation.ts`,
+  `auth/rate-limit.ts`, `register/route.ts`, `openapi.yaml` 429 line, `t-catalog.mjs`,
+  `t-customers-unit.mjs`, `ts-resolve-hook.mjs` @/-mapping). Nothing staged.
+* Untracked (all preserved): `docs/frontend/` (33 spec files, incl. all FP-11.4→FP-20 docs new this
+  session); `prisma/migrations/20261008_guest_orders/` + `t-guest-orders.mjs` + credential route +
+  `guest-access.ts` (BG era); `t-catalog-unit.mjs` + `t-customer-register-ratelimit.mjs` +
+  `reg-phone-bucket.ts` (this session); local-only password script.
+* NO commit, NO push, NO staging, NO reset/clean performed in this session (verified). Local
+  `.env.local` secret present (gitignored, value never printed); `.env.example` placeholder only.
+
+## G. Next Session Starting Point
+
+1. Read THIS block first (it supersedes the 2026-10-09 block below for everything after FP-11.3).
+2. Understand: specs complete through FP-20; L3+G5(+HMAC) implemented+green but UNCOMMITTED.
+3. Verify `git status --short` matches §F before proposing anything; if HEAD moved or tree differs:
+   STOP, report, do not reset/rebase.
+4. Do NOT repeat completed specs/verifications; do NOT invent backend behavior.
+5. Wait for explicit user direction (implementation? commit/push? Preview proof? production ops?) —
+   each needs its own authorization. Never `git add -A` blindly (password script, `_recovery/`,
+   `.agents/`, `.claude/`, `.cursor/`, `.devin/`, `.env*` stay untracked).
+
+## H. Authorization and Safety Boundaries
+
+* Standing: no new phase/implementation without direction; no backend/API/schema/dependency/permission
+  changes; no migrations/seeds/production writes; no deploy/DNS/prod ops; no commit/push/reset/discard;
+  frozen files immutable; conversation history never authoritative.
+* New from this session: Preview live proof requires explicit deploy authorization; any production
+  HMAC secret requires a secret-store decision; L3 variant-metadata preserved by constraint (never
+  narrow without proof); HMAC-pepper alternative stays optional-future (no silent secret invention).
+
+# ⚑ SESSION HANDOFF — CURRENT STATE (2026-10-09)
+
+> Status labels: **DONE** (implemented) · **VERIFIED** (executed, output actually seen) · **PARTIAL** ·
+> **BLOCKED** · **DECISION-REQUIRED** (explicit human decision needed; do not guess) · **NOT STARTED**.
+> This block covers the mega-session of 2026-10-08/09 only (FP-00 → BG analysis/closure/implementation/
+> audit → brand → VI-01 → FP-09 analysis/closure → FP-04/FP-05/FP-06 specs+closures → FP-10 spec+closure
+> → FP-11.1/11.2/11.3 specs+closures). The Phase-5 block below it is preserved history.
+
+## A. Current Project State
+
+* **Backend:** COMPLETE + extended. Guest-order capability (BG-Guest-Order) implemented, verified green,
+  UNCOMMITTED in the working tree (see §F). No production touch, ever.
+* **Frontend:** specifications only, zero implementation. Governance + brand + VI-01(PROPOSED) +
+  FP-09 + FP-04 + FP-05 + FP-06 + FP-10 + FP-11.1 + FP-11.2 + FP-11.3 docs exist under `docs/frontend/`
+  (untracked). No storefront code written; `src/app/page.tsx` still boilerplate.
+* **Database:** scratch CLEAN at last verification (2 fixture products, 0 business rows, holds 0,
+  fixtures exact); production NEVER TOUCHED (no connection/reads/writes this session).
+* **Infrastructure:** development/testing only. No deploy, no Neon/Vercel changes, no DNS.
+
+## B. Current Phase
+
+`Post-specification / pre-implementation`. Backend COMPLETE (VERIFIED). Frontend phases FP-00–FP-11.3
+specified (FP-10 verdict: COMPLETE WITH OWNER DECISIONS REQUIRED — font, neutrals, icons open).
+No implementation phase started. Status: **READY FOR REVIEW / DECISION-REQUIRED** (commit + open
+decisions need explicit human authorization).
+
+## C. Completed This Session (with evidence)
+
+* FP-00 frontend governance: `FP-00-FRONTEND-GOVERNANCE.md` created (decision registry D001–D072,
+  backend/API/screen maps, gaps, risks). DONE (docs-only, no verification applicable).
+* BG-GUEST-ORDER analysis + design + closure: Q1 LOCKED (true account-less, register-at-checkout and
+  hidden-customer rejected); Alt-A recommended; 10 BGGO decisions + lifecycle + threat model. DONE.
+* BG-GUEST-ORDER implementation + full verification (ONLY code-changing work this session):
+  - DB: migration `20261008_guest_orders` (nullable customer_id ×2, `guest_order_credentials`,
+    `guest_order_rate_limits`, history-actor + decider CHECK amendments, partial live-UQ), applied +
+    recorded on scratch. VERIFIED (objects/grants/history inspected; full matrix green after).
+  - Domain/auth/routes: guest checkout branch, GUEST/NULL history+deciders, coupon null-customer path,
+    per-order credential (header `x-guest-order-token`, 90d TTL, keep-same replay), revoke/rotate
+    admin endpoints, rate buckets 10/15min create + 60/15min reads, OpenAPI parity 98/96 paths.
+  - Defects found BY TESTS and fixed: free-line double-reserve, reserve aggregation, product-liveness
+    ×4 paths, OpenAPI POST mis-nesting, over-strict expiry CHECK, live-UQ vs rotation conflict,
+    decider CHECK gap (same approved class; owner exception later ACCEPTED and recorded in BG
+    closure doc §J). VERIFIED (t-guest-orders 66/66 + full regression below).
+  - Static gates: tsc PASS · ESLint 0 · build PASS · route-coverage 96→98/96→98 · prisma
+    valid+generate · PGlite 77/65/50 · units 198. VERIFIED.
+  - Live matrix (final tree, scratch, port 3131): fulfillment 63 · addresses 45 · customer-auth 37 ·
+    idor 25 · orders 54 · cart 50 · promotions 58 · replacements 54 · customers 66 · inventory 84 ·
+    catalog 53 · ba-a 46 · foundation 26 · time 10 · xmodule 17 · bad 66 · bac 61 · bag-e2e 51 ·
+    baf-admin 41 · admin 80 · atomicity 18 · idempotency 9 · deadlock 2 · audit-pairing 102 ·
+    rbac-guards 49 · rbac-races 53 · auth 20/8/6/13/25 · cc1 8 · concurrencies 13/15/8/18/13/12/8 ·
+    bab-catalog 46 (20k seed + ANALYZE, cleaned after). VERIFIED (transients re-greened with evidence:
+    rate-bucket 401 cascades across rollovers; customers-conc + bab bench-index flakes).
+* Brand workshop Phase 01: `BRAND-STRATEGY-v1.md` LOCKED (positioning, promise, differentiation,
+  emotions, no-gos, coherence accepted). DONE.
+* VI-01 analysis: report only (Modern/Clean/Practical fit confirmed); direction stays PROPOSED,
+  never locked by agent. DONE, no file created per instructions.
+* FP-09 analysis (report only) + finalization (doc + D01–D12 closure under delegation; L1-adjacent
+  CHECK discipline noted). DONE.
+* FP-04 spec + closure audit (40 sections incl. 30-scenario matrix; one real correction applied:
+  wrong-order token is 401 not 404). DONE.
+* FP-05 spec + closure (21 entries; prototype-dir quarantine escalated, not executed) + D14 review
+  (read-only) + D14 approved-copy application (6 strings verbatim; verdict now COMPLETE WITH
+  DOCUMENTED BACKEND CONSTRAINTS). DONE.
+* FP-06 spec + closure audit (recommendations relabeled advisory, not approved; verdict kept honest).
+  DONE.
+* FP-10 spec + closure (Cairo recommended + Plex alternative; Lucide singular; neutrals; logo image
+  inspected — reference available, no repo asset, production readiness unverified; verdict COMPLETE
+  WITH OWNER DECISIONS REQUIRED). DONE.
+* FP-11.1 spec + closure (D02/D06/D05 locked under delegation). DONE.
+* FP-11.2 spec (D12/D13/D17/D18 left pending) + read-only review + approval recording (all four
+  OWNER-APPROVED, no other change). DONE.
+* FP-11.3 spec + D21/D22/D23 approval recording under delegation. DONE.
+* Residue discipline: every test residue zero-ref verified before reset/delete (orphaned P1L hold
+  from pre-fix era, BA11A/Idem2 pattern, one systematic suite-cleanup leak found and fixed in the
+  suite itself). Scratch left CLEAN; servers stopped (Node 0, PostgreSQL stopped). VERIFIED.
+
+## D. Failed / Incomplete / Unverified
+
+* Nothing failed that remains unresolved. All test failures seen were diagnosed (genuine defects
+  fixed §C; environmental rate/plan transients re-greened; residue artifacts cleaned).
+* NOT STARTED (all require separate explicit authorization): commit/push of the BG working tree;
+  FP-10 owner picks (font, neutrals, icons); logo production asset; FP-11.1 content inputs;
+  prototype-dir quarantine; pghyper ownership one-liner; frontend implementation; production items.
+* Fresh-DB end-to-end migration proof: NOT VERIFIED here (no CREATEDB role; same standing limitation
+  as Phase 5 — migration proven by equivalence + scratch-apply, honestly recorded).
+
+## E. Decisions and Open Questions
+
+* Locked this session: Q1 + Alt-A + BGGO-D001…D016 (TTL 90d, keep-same replay, localStorage,
+  10/60 rate limits, XOR, never-link, per-customer-coupon 422); short-ship L1 reaffirmed;
+  brand LOCKED; VI-01 PROPOSED; FP-09/FP-04/FP-05/FP-06 closures; FP-10 verdict; FP-11.x approvals
+  as recorded (D02/D06/D05, D12/D13/D17/D18, D21/D22/D23); decider-CHECK exception ACCEPTED by owner.
+* Needs explicit human decision: commit/push (any); production ops (any); FP-10 picks; logo asset;
+  content inputs; prototype quarantine; frontend start; any dependency/schema/RBAC change beyond
+  what is already in the tree.
+
+## F. Exact Stopping Point
+
+* Last consequential edit: FP-11.3 D21–D23 approval recording (docs-only). Last verification of
+  record: t-guest-orders 66/66 + full matrix green on the final tree (see §C), scratch CLEAN,
+  servers stopped.
+* In-flight at session end: NOTHING. Nothing half-implemented; no pending test rerun; no open defect.
+* Git: branch `master`, HEAD `83253fe` == `origin/master`; 20 modified tracked + 6 untracked paths
+  (BG implementation + FP docs + local-only password script), nothing staged, NO commit, NO push this
+  session. Phase-5's two commits predate this session (history, not this-session work).
+* DB: scratch clean, production untouched. No test residue remains (final audit 0 business rows).
+
+## G. Next Session Start Point
+
+1. Read this block first, then verify `git rev-parse HEAD` and `git status --short`. If HEAD moved
+   or the tree differs: STOP, report, do not reset/rebase.
+2. Decide ONLY with explicit human authorization whether to commit/push the BG working tree (review
+   §C file list via status; never `git add -A` blindly — password script, `_recovery/`, `.agents/`,
+   `.claude/`, `.cursor/`, `.devin/`, `.env*` stay untracked).
+3. Then, only as authorized: FP-10 owner picks, content inputs, frontend implementation, or production
+   items — each needs its own explicit instruction. Do NOT execute any of these by default.
+4. If verification is ever re-run: PostgreSQL via `C:\pgprov\pg18\bin\pg_ctl.exe`, Next dev with
+   explicit scratch `DATABASE_URL` override on port 3131, `/api/health` 200 + 2 fixtures; respect
+   15-min rate windows; bab-catalog needs 20k seed + ANALYZE, `--clean` after. No CUSTOMER_SESSION_SECRET
+   exists (deleted in 2.5 — never reintroduce).
+
+## H. Do Not Repeat
+
+* BG implementation/migrations and their verification (done, green, documented).
+* The decider/history CHECK amendments (in-tree, approved, re-verified).
+* L1 short-ship, cancel-widening, and all locked product decisions.
+* Any completed spec phase (FP-00–FP-11.3) or its closure audits.
+* Scratch cleanup and server shutdown (done; verify, don't redo blindly).
+* Production read-only posture (never touched).
+
+## I. Human Authorization
+
+Still required explicitly for: any commit or push · any production deployment, migration, seed,
+backup, or data change · Neon/Vercel plan/config · DNS/domain · monitoring · go-live ceremony or
+any step of it · any dependency upgrade · any schema, RBAC, or frozen-file change beyond the tree ·
+starting frontend · FP-10 picks · logo asset · content inputs · prototype quarantine · pghyper
+one-liner. Roadmap presence is never authorization.
 
 # ⚑ SESSION HANDOFF — CURRENT STATE (Phase 5 Final Backend Completion, 2026-10-07)
 

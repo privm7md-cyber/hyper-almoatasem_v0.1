@@ -161,10 +161,10 @@ export async function patchCustomer(id: string, patch: CustomerPatch, actorId: s
   try {
     return await prisma.$transaction(async (tx) => {
       const updated = await tx.customer.update({ where: { id }, data });
-      const newValues: Record<string, unknown> = {};
-      if (data.firstName !== undefined) newValues.firstName = data.firstName;
-      if (data.lastName !== undefined) newValues.lastName = data.lastName ?? null;
-      if (data.email !== undefined) newValues.email = data.email ?? null;
+      // P1208-D01 data minimization: record WHICH fields changed plus non-PII
+      // operational flags, never raw customer firstName/lastName/email values.
+      const changedFields = Object.keys(data);
+      const newValues: Record<string, unknown> = { changedFields };
       if (data.autoAcceptReplacements !== undefined) {
         newValues.autoAcceptReplacements = data.autoAcceptReplacements;
       }

@@ -7,7 +7,7 @@ test("homepage shell: header, hero, sections, footer (no mock data)", async ({ p
   await expect(page.getByRole("link", { name: /هايبر المعتصم/ }).first()).toBeVisible();
   await expect(page.getByRole("search")).toBeVisible();
   await expect(page.getByRole("heading", { name: /احتياجات بيتك/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "الأقسام" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "أقسام الهايبر" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "منتجات من المتجر" })).toBeVisible();
   await expect(page.getByText(/وثقة في كل خطوة/).first()).toBeVisible();
   const body = await page.innerText("body");
@@ -20,7 +20,7 @@ test("homepage sections degrade independently (no full-page crash)", async ({ pa
   // Hero is static: always present even if every source fails.
   await expect(page.getByRole("heading", { name: /احتياجات بيتك/ })).toBeVisible();
   // Each dynamic section shows exactly one of data / honest-empty / error.
-  for (const name of ["الأقسام", "منتجات من المتجر"]) {
+  for (const name of ["أقسام الهايبر", "منتجات من المتجر"]) {
     const section = page.locator("section", { has: page.getByRole("heading", { name }) });
     await expect(section).toBeVisible();
   }

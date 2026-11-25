@@ -1,0 +1,680 @@
+{
+  "baseUrl": "http://localhost:3132",
+  "widths": [
+    {
+      "width": "desktop",
+      "route": "/admin",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/orders",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 21,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/products",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/products/new",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/taxonomy",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 43,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/inventory",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 32,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/promotions",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 25,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/coupons",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 26,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/customers",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 18,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/users",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 23,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/roles",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 20,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/permissions",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 15,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/settings",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 29,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/delivery-zones",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 20,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "desktop",
+      "route": "/admin/audit-logs",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": true,
+      "triggerVisible": false,
+      "controlCount": 21,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/orders",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 21,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/products",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/products/new",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/taxonomy",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 43,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/inventory",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 32,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/promotions",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 25,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/coupons",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 26,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/customers",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 18,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/users",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 23,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/roles",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 20,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/permissions",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 15,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/settings",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 29,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/delivery-zones",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 20,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "tablet",
+      "route": "/admin/audit-logs",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 21,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/orders",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 21,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/products",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/products/new",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 24,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/taxonomy",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 43,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/inventory",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 32,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/promotions",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 25,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/coupons",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 26,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/customers",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 18,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/users",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 23,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/roles",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 20,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/permissions",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 15,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/settings",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 29,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/delivery-zones",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 20,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    },
+    {
+      "width": "mobile",
+      "route": "/admin/audit-logs",
+      "status": 200,
+      "horizontalOverflow": 0,
+      "railVisible": false,
+      "triggerVisible": true,
+      "controlCount": 21,
+      "tooSmallTargets": [],
+      "tooSmallCount": 0
+    }
+  ],
+  "keyboard": [
+    {
+      "route": "/admin",
+      "tabStops": 24,
+      "withoutFocusRing": 0,
+      "reachedMain": true,
+      "firstStops": [
+        {
+          "tag": "A",
+          "label": "تخطَّ إلى المحتوى",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الرئيسية",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الطلبات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المنتجات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "التصنيفات والعلامات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المخزون",
+          "ring": "outline 2px"
+        }
+      ]
+    },
+    {
+      "route": "/admin/products",
+      "tabStops": 24,
+      "withoutFocusRing": 0,
+      "reachedMain": true,
+      "firstStops": [
+        {
+          "tag": "A",
+          "label": "تخطَّ إلى المحتوى",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الرئيسية",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الطلبات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المنتجات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "التصنيفات والعلامات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المخزون",
+          "ring": "outline 2px"
+        }
+      ]
+    },
+    {
+      "route": "/admin/inventory",
+      "tabStops": 24,
+      "withoutFocusRing": 0,
+      "reachedMain": true,
+      "firstStops": [
+        {
+          "tag": "A",
+          "label": "تخطَّ إلى المحتوى",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الرئيسية",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الطلبات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المنتجات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "التصنيفات والعلامات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المخزون",
+          "ring": "outline 2px"
+        }
+      ]
+    },
+    {
+      "route": "/admin/settings",
+      "tabStops": 24,
+      "withoutFocusRing": 0,
+      "reachedMain": true,
+      "firstStops": [
+        {
+          "tag": "A",
+          "label": "تخطَّ إلى المحتوى",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الرئيسية",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "الطلبات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المنتجات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "التصنيفات والعلامات",
+          "ring": "outline 2px"
+        },
+        {
+          "tag": "A",
+          "label": "المخزون",
+          "ring": "outline 2px"
+        }
+      ]
+    }
+  ],
+  "states": [
+    {
+      "state": "forbidden",
+      "route": "/admin",
+      "status": 200,
+      "redirectedTo": "/admin/login"
+    },
+    {
+      "state": "forbidden",
+      "route": "/admin/orders",
+      "status": 200,
+      "redirectedTo": "/admin/login"
+    },
+    {
+      "state": "forbidden",
+      "route": "/admin/settings",
+      "status": 200,
+      "redirectedTo": "/admin/login"
+    },
+    {
+      "state": "forbidden",
+      "route": "/admin/audit-logs",
+      "status": 200,
+      "redirectedTo": "/admin/login"
+    }
+  ]
+}

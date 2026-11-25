@@ -1,4 +1,4 @@
-// BA-B scale seed (scratch-only): deterministic Arabic grocery catalog for
+﻿// BA-B scale seed (scratch-only): deterministic Arabic grocery catalog for
 // search/pagination/filter benchmark + behavior depth (20k products).
 // Usage: node scripts/api/seed-bab-scale.mjs --db <scratch> [--count N] [--clean]
 //   --clean removes every BA-B-SCALE row (products → variants → inventory →
@@ -17,7 +17,11 @@ const COUNT = countFlag === -1 ? 20000 : Number(args[countFlag + 1]);
 const CLEAN = args.includes("--clean");
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_closure_20261030",
+  // Second-Agent Completion run (2026-11-06): dedicated isolated E2E fixture DB.
+  "hyper_almoatasem_e2e_20261106",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -156,6 +160,16 @@ async function main() {
       }
       variantRows.push(...vMeta);
     }
+    // Planner statistics after the bulk load. Without them the planner has no
+    // selectivity estimate for the trigram similarity arm and falls back to
+    // the partial `is_active` index — the search benchmark would then measure
+    // a sequential scan instead of the index the suite asserts. The
+    // autoanalyze daemon only fires on its own schedule, so the plan was
+    // previously a race; ANALYZE makes it deterministic.
+    await db.query("ANALYZE products");
+    await db.query("ANALYZE product_variants");
+    await db.query("ANALYZE brands");
+    await db.query("ANALYZE categories");
     console.log(JSON.stringify({ db: dbName, seeded: true, products: made, variants: variantRows.length }));
   } finally {
     await db.end().catch(() => {});

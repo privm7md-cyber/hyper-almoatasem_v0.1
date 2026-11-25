@@ -22,15 +22,18 @@ export function InfoPage({
   return (
     <div className="mt-6">
       <nav aria-label="مسار التنقل" className="text-sm text-secondary">
-        <Link href={backHref} className="font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
+        <Link
+          href={backHref}
+          className="inline-flex min-h-[44px] items-center font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]"
+        >
           {backLabel}
         </Link>
       </nav>
-      <header className="mt-3">
+      <header className="mt-3 rounded-card border border-line bg-white p-5 shadow-xs">
         <PageTitle>{title}</PageTitle>
-        {lede ? <p className="mt-2 max-w-[70ch] text-secondary">{lede}</p> : null}
+        {lede ? <p className="mt-2 max-w-[70ch] text-sm leading-relaxed text-secondary md:text-base">{lede}</p> : null}
       </header>
-      <div className="mt-6 grid gap-4">{children}</div>
+      <div className="mt-5 grid gap-4">{children}</div>
     </div>
   );
 }
@@ -45,8 +48,8 @@ export function InfoSection({
   note?: string;
 }) {
   return (
-    <section className="rounded-card border border-line bg-white p-4">
-      <h2 className="text-lg font-bold leading-[1.35]">{title}</h2>
+    <section className="rounded-card border border-line bg-white p-5 shadow-xs">
+      <h2 className="text-lg font-bold leading-[1.35] text-brand-deep">{title}</h2>
       <div className="mt-2 grid gap-2 text-sm leading-relaxed text-secondary">{children}</div>
       {note ? <p className="mt-2 text-xs text-secondary">{note}</p> : null}
     </section>

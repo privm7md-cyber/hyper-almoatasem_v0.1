@@ -13,12 +13,12 @@ import {
 import { writeAuthAudit } from "@/lib/auth/audit";
 import {
   buildRequestContext,
-  extractForwardedIp,
   isHttpsRequest,
   isLocalOrigin,
-  isTrustedProxyContext,
+  verifySameOrigin,
 } from "@/lib/api/request-context";
 import { sessionCookieName, sessionCookieSecure } from "@/lib/auth/session-cookie";
+import { assertAdminPreviewWritesAllowed } from "@/lib/auth/admin-read-only-preview";
 
 const LoginSchema = z.object({
   email: z.string().min(1).max(160),
@@ -32,20 +32,14 @@ export interface LoginActionState {
 /** Explicit same-origin check on top of Next's built-in action protections. */
 async function assertSameOrigin(): Promise<boolean> {
   const h = await headers();
-  const host = h.get("host");
-  const origin = h.get("origin");
-  if (!origin) return true; // non-browser callers send no Origin; auth still enforced
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
+  return verifySameOrigin(h);
 }
 
 /**
  * The request context for the audit trail + the session row.
- * `ip` is the TRUSTED client IP (null unless a trusted proxy is declared);
- * `bucketIp` keeps the rate-limit buckets keyed exactly as before.
+ * `ip` and `bucketIp` are the SAME trusted identity (see `./client-ip`): a
+ * rate-limit bucket keyed by a client-chosen address could be rotated to
+ * bypass the limit, so both use the platform-written address only.
  */
 async function requestContext(): Promise<{
   ip: string | null;
@@ -53,8 +47,8 @@ async function requestContext(): Promise<{
   bucketIp: string | null;
 }> {
   const h = await headers();
-  const ctx = buildRequestContext(h, isTrustedProxyContext());
-  return { ip: ctx.ip, userAgent: ctx.userAgent, bucketIp: extractForwardedIp(h) };
+  const ctx = buildRequestContext(h);
+  return { ip: ctx.ip, userAgent: ctx.userAgent, bucketIp: ctx.ip };
 }
 
 /**
@@ -79,6 +73,7 @@ export async function loginAction(
   _prev: LoginActionState,
   formData: FormData,
 ): Promise<LoginActionState> {
+  assertAdminPreviewWritesAllowed();
   if (!(await assertSameOrigin())) {
     return { error: GENERIC_LOGIN_ERROR };
   }
@@ -100,6 +95,10 @@ export async function loginAction(
 }
 
 export async function logoutAction(): Promise<void> {
+  assertAdminPreviewWritesAllowed();
+  if (!(await assertSameOrigin())) {
+    redirect("/admin/login");
+  }
   const ctx = await requestContext();
   const rawToken = await readSessionCookie();
   if (rawToken) {

@@ -1,12 +1,12 @@
-// Final-RBAC race matrix (real PostgreSQL, scratch-only).
+﻿// Final-RBAC race matrix (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-rbac-races.mjs --db <name> --port <port>
 // Decisions verified: A role-row serialization (assign vs deactivation),
 // B per-request snapshot (revoke/deactivate observed next-request),
 // C no implicit auto-join (fresh roles carry zero grants),
 // D self-ungrant (ordinary self-removal legal; SUPER_ADMIN bypass impossible).
-// R1 assign-wins · R2 deactivation-wins (post-lock recheck 409) ·
-// R3 repeated race (no stale success) · R4 grant race · R5 revoke race ·
-// R6 role-deactivation race · R7 SUPER_ADMIN safety re-runs ·
+// R1 assign-wins آ· R2 deactivation-wins (post-lock recheck 409) آ·
+// R3 repeated race (no stale success) آ· R4 grant race آ· R5 revoke race آ·
+// R6 role-deactivation race آ· R7 SUPER_ADMIN safety re-runs آ·
 // R8 mixed contention (no deadlock, consistent final state).
 // Audit invariants: success == 1 mutation + 1 audit; reject == zero/zero;
 // losers leave no phantom rows. Prints JSON, never secrets.
@@ -29,7 +29,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -180,7 +183,7 @@ async function main() {
       WHERE role_id = $1::uuid AND permission_id = $2::uuid`, [idR4R, pidReports]))[0].n === 1);
     t("r4-single-audit", (await auditN("roles.grant", idR4R)) === audR4Before + 1);
 
-    // ---------- R5: revoke race — per-request snapshot ----------
+    // ---------- R5: revoke race â€” per-request snapshot ----------
     const idQQ = await mkRole("QQ", cko);
     for (const k of ["roles.manage", "reports.view"]) {
       await post(`/api/admin/roles/${idQQ}/grants`, { permissionId: k === "roles.manage" ? pidRolesManage : pidReports }, cko);
@@ -270,7 +273,7 @@ async function main() {
     await post(`/api/admin/users/${idS2}/password`, { password: "Ba11r-R7-Pass-0002!" }, cko);
     await post(`/api/admin/users/${idS2}/roles`, { roleId: SUPER_ADMIN_ID }, cko);
     const ckS2 = (await loginAs(`ba11r-r7b-${stamp}@example.com`, "Ba11r-R7-Pass-0002!")).cookie;
-    // Isolate to exactly two holders (owner mapping removed first — both
+    // Isolate to exactly two holders (owner mapping removed first â€” both
     // cross-deactivations may otherwise legitimately succeed).
     const idOwner7 = (await q(`SELECT id::text AS id FROM users WHERE email = $1`, [OWNER_EMAIL]))[0].id;
     await del(`/api/admin/users/${idOwner7}/roles/${SUPER_ADMIN_ID}`, cko);
@@ -355,11 +358,11 @@ async function main() {
     t("d2-solo-login", !!ckSolo);
     // Fixture safety: the isolation below kills the owner cookie until
     // restore. If solo login failed (rate window), SKIP isolation entirely
-    // — never leave the fixture owner roleless.
+    // â€” never leave the fixture owner roleless.
     const idOwnerRow = (await q(`SELECT id::text AS id FROM users WHERE email = $1`, [OWNER_EMAIL]))[0].id;
     if (ckSolo) {
       // Remove other holders first, owner's mapping LAST (cko dies with the
-      // owner's mapping — after that only ckSolo authorizes until restore).
+      // owner's mapping â€” after that only ckSolo authorizes until restore).
       for (const h of holdersD) {
         if (h !== idSolo && h !== idOwnerRow) await del(`/api/admin/users/${h}/roles/${SUPER_ADMIN_ID}`, cko);
       }

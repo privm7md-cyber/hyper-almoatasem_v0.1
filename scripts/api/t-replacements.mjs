@@ -1,15 +1,16 @@
-// BA-7 replacements API suite (scratch-only, needs built server pointed at DB).
+﻿// BA-7 replacements API suite (scratch-only, needs built server pointed at DB).
 // Usage: node scripts/api/t-replacements.mjs --db <name> --port <port>
 // Covers: staff propose (OOS flip + swap mode + guards), storefront
 // approve/reject (materialization, link-not-overwrite, holds), withdraw,
 // R5 auto-accept (consent + caps), ownership scoping, RBAC matrix,
 // snapshot immutability, READY-gate visibility. Frozen fixtures read-only;
 // all orders/customers created here are removed in cleanup (reservations
-// released first — BA-7 never picks, so every hold equals its request).
+// released first â€” BA-7 never picks, so every hold equals its request).
 // Prints JSON, never secrets.
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -26,7 +27,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -71,6 +75,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const get = async (path) => {
     const r = await fetch(`${baseUrl}${path}`);
@@ -93,7 +103,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -141,7 +151,7 @@ async function main() {
   const mkOrder = async (sessTok, addrId, lines, k) => {
     const cart = await mkGuestCart(lines);
     await mergeTo(cart.token, sessTok);
-    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k }, null, H(sessTok));
+    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE }, null, H(sessTok));
     return { order: o.body?.data?.order, status: o.status, cart };
   };
   const orderItemsOf = async (orderId, sessTok) =>

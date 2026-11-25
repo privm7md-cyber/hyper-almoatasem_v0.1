@@ -28,4 +28,18 @@ describe("Field", () => {
     expect(screen.getByText("تلميح تجريبي")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("applies error styling when invalid and preserves base classes with custom className", () => {
+    render(
+      <div dir="rtl" lang="ar">
+        <Field label="العنوان" error="مطلوب">
+          {({ inputId, describedBy }) => (
+            <TextInput inputId={inputId} describedBy={describedBy} invalid className="max-w-md" />
+          )}
+        </Field>
+      </div>,
+    );
+    const input = screen.getByLabelText("العنوان");
+    expect(input).toHaveClass("min-h-[44px]", "rounded-control", "border-error", "max-w-md");
+  });
 });

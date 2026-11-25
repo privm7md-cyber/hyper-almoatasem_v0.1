@@ -6,6 +6,7 @@
 // originals; open-proposal races answer 409 via the partial UQ.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { created, fail } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
@@ -18,6 +19,10 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string; itemId: string }> },
 ) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("orders.update");
   if (auth.ok === false) {
     const r = fail(
@@ -49,8 +54,7 @@ export async function POST(
     const id = await proposeReplacement({
       orderId,
       orderItemId: itemId,
-      replacementVariantId: parsed.data.replacementVariantId,
-      replacementQuantity: parsed.data.replacementQuantity,
+      alternatives: parsed.data.alternatives,
       reason: parsed.data.reason ?? null,
       markUnavailable: parsed.data.markUnavailable ?? true,
       proposerType: "STAFF",

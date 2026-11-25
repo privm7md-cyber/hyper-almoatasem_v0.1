@@ -186,6 +186,27 @@ export async function patchPromotion(id: string, patch: PromotionPatch, actorId:
   }
   try {
     return await prisma.$transaction(async (tx) => {
+      await lockPromotionInTx(tx, id);
+      const lockedCurrent = await tx.promotion.findUnique({
+        where: { id },
+        include: { targets: { select: { id: true } }, buyGetRules: { select: { id: true } } },
+      });
+      if (!lockedCurrent) return null;
+      const txNextStatus =
+        patch.status !== undefined && patch.status !== null ? patch.status : lockedCurrent.status;
+      const txNextStart =
+        patch.startAt !== undefined ? patch.startAt : lockedCurrent.startAt?.toISOString() ?? null;
+      const txNextEnd =
+        patch.endAt !== undefined ? patch.endAt : lockedCurrent.endAt?.toISOString() ?? null;
+      assertWindow(txNextStart, txNextEnd);
+      if (txNextStatus === "ACTIVE" && lockedCurrent.status !== "ACTIVE") {
+        if (lockedCurrent.scope === "LINE" && lockedCurrent.targets.length === 0) {
+          throw businessRule("LINE promotions activate with at least one target.", null);
+        }
+        if (lockedCurrent.type === "BUY_X_GET_Y" && !lockedCurrent.buyGetRules) {
+          throw businessRule("BUY_X_GET_Y promotions activate with their rule row.", null);
+        }
+      }
       const updated = await tx.promotion.update({
         where: { id },
         data: {
@@ -245,34 +266,113 @@ export async function deletePromotion(id: string, actorId: string): Promise<bool
   }
 }
 
-async function assertTargetLive(targetType: string, targetId: string): Promise<void> {
-  let live = false;
-  if (targetType === "VARIANT") {
-    const r = await prisma.productVariant.findUnique({
-      where: { id: targetId },
-      select: { isActive: true, deletedAt: true },
-    });
-    live = !!r && r.isActive && r.deletedAt === null;
-  } else if (targetType === "PRODUCT") {
-    const r = await prisma.product.findUnique({
-      where: { id: targetId },
-      select: { isActive: true, deletedAt: true },
-    });
-    live = !!r && r.isActive && r.deletedAt === null;
-  } else if (targetType === "BRAND") {
-    const r = await prisma.brand.findUnique({
-      where: { id: targetId },
-      select: { isActive: true, deletedAt: true },
-    });
-    live = !!r && r.isActive && r.deletedAt === null;
-  } else {
-    const r = await prisma.category.findUnique({
-      where: { id: targetId },
-      select: { isActive: true, deletedAt: true },
-    });
-    live = !!r && r.isActive && r.deletedAt === null;
+/* -------------------------------------------- catalogue lock protocol */
+
+/**
+ * CATALOGUE LOCK PROTOCOL (owner decision, 12 Nov 2026).
+ *
+ * A promotion target is polymorphic and has NO foreign key, so a writer that
+ * attaches an offer to a product must take the SAME catalogue row lock the
+ * final delete takes. Without it, a target could be created between the
+ * delete's reference check and its delete, and the store would keep a target
+ * pointing at a product that no longer exists.
+ *
+ * With the lock, exactly one of the two happens:
+ *   • the writer wins → it creates the target first, and the delete then sees
+ *     the new reference inside its own transaction and refuses;
+ *   • the delete wins → the writer's liveness check (below, inside the same
+ *     transaction and AFTER the lock) fails and the write is rejected.
+ *
+ * BRAND and CATEGORY are never hard-deleted, so they need no lock.
+ */
+async function lockPromotionInTx(tx: Prisma.TransactionClient, promotionId: string): Promise<void> {
+  if ("promotion" in tx && tx.promotion && typeof tx.$queryRaw === "function") {
+    await tx.$queryRaw`SELECT id FROM promotions WHERE id = ${promotionId}::uuid FOR UPDATE`;
   }
-  if (!live) throw businessRule("Promotion target does not exist or is not live.", null);
+}
+
+async function assertPromoMutableInTx(
+  tx: Prisma.TransactionClient,
+  promotionId: string,
+  message: string,
+): Promise<void> {
+  if (!("promotion" in tx) || !tx.promotion) return;
+  if (await isPromoReferenced(promotionId)) {
+    throw businessRule(message, null);
+  }
+}
+
+async function lockCatalogueTarget(
+  tx: Prisma.TransactionClient,
+  targetType: string,
+  targetId: string,
+): Promise<void> {
+  if (targetType === "VARIANT") {
+    await tx.$queryRaw`SELECT p.id FROM products p INNER JOIN product_variants v ON v.product_id = p.id WHERE v.id = ${targetId}::uuid FOR UPDATE OF p`;
+    await tx.$queryRaw`SELECT id FROM product_variants WHERE id = ${targetId}::uuid FOR UPDATE`;
+    return;
+  }
+  if (targetType === "PRODUCT") {
+    await tx.$queryRaw`SELECT id FROM products WHERE id = ${targetId}::uuid FOR UPDATE`;
+  }
+}
+
+/**
+ * The liveness check INSIDE the transaction and AFTER the lock: the target
+ * must still exist and be live at the moment the row is written.
+ */
+async function assertTargetLiveInTx(
+  tx: Prisma.TransactionClient,
+  targetType: string,
+  targetId: string,
+  notLiveMessage = "Promotion target does not exist or is not live.",
+): Promise<void> {
+  if (targetType === "VARIANT") {
+    const r = await tx.productVariant.findUnique({
+      where: { id: targetId },
+      select: {
+        isActive: true,
+        deletedAt: true,
+        product: { select: { isActive: true, deletedAt: true } },
+      },
+    });
+    if (
+      !r ||
+      !r.isActive ||
+      r.deletedAt !== null ||
+      (r.product && (!r.product.isActive || r.product.deletedAt !== null))
+    ) {
+      throw businessRule(notLiveMessage, null);
+    }
+    return;
+  }
+  if (targetType === "PRODUCT") {
+    const r = await tx.product.findUnique({
+      where: { id: targetId },
+      select: { isActive: true, deletedAt: true },
+    });
+    if (!r || !r.isActive || r.deletedAt !== null) {
+      throw businessRule("Promotion target does not exist or is not live.", null);
+    }
+    return;
+  }
+  if (targetType === "BRAND") {
+    const r = await tx.brand.findUnique({
+      where: { id: targetId },
+      select: { isActive: true, deletedAt: true },
+    });
+    if (!r || !r.isActive || r.deletedAt !== null) {
+      throw businessRule("Promotion target does not exist or is not live.", null);
+    }
+    return;
+  }
+  const r = await tx.category.findUnique({
+    where: { id: targetId },
+    select: { isActive: true, deletedAt: true },
+  });
+  if (!r || !r.isActive || r.deletedAt !== null) {
+    throw businessRule("Promotion target does not exist or is not live.", null);
+  }
 }
 
 export async function addTarget(promotionId: string, targetType: string, targetId: string, actorId: string) {
@@ -281,9 +381,14 @@ export async function addTarget(promotionId: string, targetType: string, targetI
   if (await isPromoReferenced(promotionId)) {
     throw businessRule("Promotion targets are immutable once referenced by orders.", null);
   }
-  await assertTargetLive(targetType, targetId);
   try {
     return await prisma.$transaction(async (tx) => {
+      await lockPromotionInTx(tx, promotionId);
+      await assertPromoMutableInTx(tx, promotionId, "Promotion targets are immutable once referenced by orders.");
+      // CATALOGUE LOCK PROTOCOL: lock the target row, then re-check its
+      // liveness INSIDE the transaction, then write the target.
+      await lockCatalogueTarget(tx, targetType, targetId);
+      await assertTargetLiveInTx(tx, targetType, targetId);
       const created = await tx.promotionTarget.create({
         data: { id: newUuidV7(), promotionId, targetType, targetId },
       });
@@ -306,13 +411,18 @@ export async function addTarget(promotionId: string, targetType: string, targetI
 export async function deleteTarget(promotionId: string, targetRowId: string, actorId: string): Promise<boolean | null> {
   const row = await prisma.promotionTarget.findFirst({
     where: { id: targetRowId, promotionId },
-    select: { id: true, targetType: true },
+    select: { id: true, targetType: true, targetId: true },
   });
   if (!row) return null;
   if (await isPromoReferenced(promotionId)) {
     throw businessRule("Promotion targets are immutable once referenced by orders.", null);
   }
   await prisma.$transaction(async (tx) => {
+    await lockPromotionInTx(tx, promotionId);
+    await assertPromoMutableInTx(tx, promotionId, "Promotion targets are immutable once referenced by orders.");
+    // CATALOGUE LOCK PROTOCOL: the same lock the final delete takes, so a
+    // target removal cannot race a product delete.
+    await lockCatalogueTarget(tx, row.targetType, row.targetId);
     await tx.promotionTarget.delete({ where: { id: targetRowId } });
     await auditInTx(tx, {
       action: "targets.delete",
@@ -339,6 +449,8 @@ export async function putRules(promotionId: string, input: RulesInput, actorId: 
     throw businessRule("Promotion rules are immutable once referenced by orders.", null);
   }
   return prisma.$transaction(async (tx) => {
+    await lockPromotionInTx(tx, promotionId);
+    await assertPromoMutableInTx(tx, promotionId, "Promotion rules are immutable once referenced by orders.");
     const row = await tx.promotionRule.upsert({
       where: { promotionId },
       update: {
@@ -385,16 +497,13 @@ export async function putBuyGet(promotionId: string, input: BuyGetInput, actorId
   if (await isPromoReferenced(promotionId)) {
     throw businessRule("Promotion rules are immutable once referenced by orders.", null);
   }
-  if (input.freeVariantId !== undefined && input.freeVariantId !== null) {
-    const v = await prisma.productVariant.findUnique({
-      where: { id: input.freeVariantId },
-      select: { isActive: true, deletedAt: true },
-    });
-    if (!v || !v.isActive || v.deletedAt !== null) {
-      throw businessRule("Free variant does not exist or is not live.", null);
-    }
-  }
   return prisma.$transaction(async (tx) => {
+    await lockPromotionInTx(tx, promotionId);
+    await assertPromoMutableInTx(tx, promotionId, "Promotion rules are immutable once referenced by orders.");
+    if (input.freeVariantId !== undefined && input.freeVariantId !== null) {
+      await lockCatalogueTarget(tx, "VARIANT", input.freeVariantId);
+      await assertTargetLiveInTx(tx, "VARIANT", input.freeVariantId, "Free variant does not exist or is not live.");
+    }
     const row = await tx.promotionBuyGetRule.upsert({
       where: { promotionId },
       update: {

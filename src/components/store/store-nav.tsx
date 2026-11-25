@@ -15,8 +15,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { House, LayoutGrid, ShoppingCart, Package, UserRound } from "lucide-react";
+import { CartBadge } from "./cart-badge";
 
 interface Item {
   id: string;
@@ -43,6 +44,16 @@ const ITEMS: Item[] = [
 
 export function StoreNav() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  function prefetchRoute(href: string) {
+    try {
+      router.prefetch(href);
+    } catch {
+      // Silently ignore prefetch failures
+    }
+  }
+
   return (
     <nav
       aria-label="التنقل الرئيسي"
@@ -56,7 +67,10 @@ export function StoreNav() {
               : item.match.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
           const inner = (
             <>
-              <item.Icon size={22} aria-hidden="true" />
+              <span className="relative inline-flex items-center">
+                <item.Icon size={22} aria-hidden="true" />
+                {item.id === "cart" ? <CartBadge /> : null}
+              </span>
               <span className="text-xs font-semibold">{item.label}</span>
             </>
           );
@@ -64,6 +78,10 @@ export function StoreNav() {
             <li key={item.id} className="min-w-0">
               <Link
                 href={item.href}
+                prefetch={false}
+                onPointerEnter={() => prefetchRoute(item.href)}
+                onTouchStart={() => prefetchRoute(item.href)}
+                onFocus={() => prefetchRoute(item.href)}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 transition-colors duration-200 ${
                   active ? "text-brand" : "text-ink"

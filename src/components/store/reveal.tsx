@@ -7,6 +7,7 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { MOTION_DURATIONS_MS } from "@/lib/motion-tokens";
 
 export function Reveal({
   children,
@@ -28,20 +29,46 @@ export function Reveal({
       el.removeAttribute("data-reveal");
       return;
     }
+    // Elements within the initial viewport or the immediate lookahead band reveal right away.
+    const rect = el.getBoundingClientRect();
+    if (rect.bottom > 0 && rect.top < window.innerHeight + 160) {
+      el.dataset.reveal = "in";
+      return;
+    }
     el.dataset.reveal = "pending";
+    let settled = false;
+    let fallbackTimer = 0;
+    const settle = (observer?: IntersectionObserver) => {
+      if (settled) return;
+      settled = true;
+      if (fallbackTimer) window.clearTimeout(fallbackTimer);
+      el.dataset.reveal = "in";
+      observer?.unobserve(el);
+      observer?.disconnect();
+    };
     const io = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            (entry.target as HTMLElement).dataset.reveal = "in";
-            io.unobserve(entry.target);
+            settle(io);
+            break;
           }
         }
       },
-      { rootMargin: "0px 0px -10% 0px", threshold: 0.1 },
+      { rootMargin: "0px 0px 160px 0px", threshold: 0.01 },
     );
     io.observe(el);
-    return () => io.disconnect();
+    // Bounded safety fallback: content must never remain trapped at opacity: 0
+    // if IntersectionObserver does not fire (e.g., long sections or full-page captures).
+    fallbackTimer = window.setTimeout(() => {
+      if (el.dataset.reveal === "pending") {
+        settle(io);
+      }
+    }, MOTION_DURATIONS_MS.fast);
+    return () => {
+      if (fallbackTimer) window.clearTimeout(fallbackTimer);
+      io.disconnect();
+    };
   }, []);
 
   return (

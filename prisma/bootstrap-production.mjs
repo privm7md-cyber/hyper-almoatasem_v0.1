@@ -135,6 +135,9 @@ const PERMISSIONS = [
   // two seeded business roles (SUPER_ADMIN + STORE_ADMIN) — never to a
   // read-only role, and never to every operator by default.
   { id: "02800000-0000-7000-8000-000000000132", key: "customers.manage", description: "Edit customers and their addresses (write capability)" },
+  // Owner decision (12 Nov 2026): the irreversible identity removal is its
+  // own capability — SUPER_ADMIN only (excluded from STORE_ADMIN below).
+  { id: "02800000-0000-7000-8000-000000000133", key: "customers.anonymize", description: "Anonymize a customer (irreversible identity removal)" },
 ];
 
 // STORE_ADMIN holds everything EXCEPT the platform-security capabilities.
@@ -146,6 +149,10 @@ const STORE_ADMIN_EXCLUDED_KEYS = [
   "settings.view",
   "settings.manage",
   "audit_logs.view",
+  // The irreversible identity removal is SUPER_ADMIN-only (owner decision,
+  // 12 Nov 2026). The owner can still grant it to a custom role later from
+  // the admin roles screen.
+  "customers.anonymize",
 ];
 
 const SETTINGS = [
@@ -154,8 +161,8 @@ const SETTINGS = [
   { id: "02800000-0000-7000-8000-000000000203", key: "store.email", valueText: "store@hyper-al-moatasem.local", valueType: "TEXT", description: "Public contact email" },
   { id: "02800000-0000-7000-8000-000000000204", key: "currency", valueText: "EGP", valueType: "TEXT", description: "Single operating currency (frozen assumption)" },
   { id: "02800000-0000-7000-8000-000000000205", key: "timezone", valueText: "Africa/Cairo", valueType: "TEXT", description: "Operating timezone" },
-  { id: "02800000-0000-7000-8000-000000000206", key: "delivery.enabled", valueText: "false", valueType: "BOOLEAN", description: "Delivery fulfillment switch (delivery phase owns mechanics)" },
-  { id: "02800000-0000-7000-8000-000000000207", key: "delivery.default_fee", valueText: "20.00", valueType: "NUMERIC", description: "Default delivery fee applied by future delivery phase" },
+  { id: "02800000-0000-7000-8000-000000000206", key: "delivery.enabled", valueText: "false", valueType: "BOOLEAN", description: "Reserved delivery-phase key. NOT a service switch and NOT a fee gate: storefront checkout always offers delivery and the server always charges the resolved fee regardless of this value." },
+  { id: "02800000-0000-7000-8000-000000000207", key: "delivery.default_fee", valueText: "20.00", valueType: "NUMERIC", description: "Base delivery fee in EGP (server-resolved). An active delivery zone matching the address overrides it; orders snapshot the charged fee." },
   { id: "02800000-0000-7000-8000-000000000208", key: "orders.auto_cancel_minutes", valueText: "30", valueType: "INTEGER", description: "Unpaid-order auto-cancel window (payments phase consumes)" },
 ];
 
@@ -451,7 +458,7 @@ async function main() {
       userRoles: Number((await q(`SELECT count(*) AS n FROM user_roles`))[0].n),
       passwordHashes: Number((await q(`SELECT count(*) AS n FROM users WHERE password_hash IS NOT NULL`))[0].n),
     };
-    const expected = { roles: 2, permissions: 32, rolePermissions: 57, storeSettings: 8, users: 1, userRoles: 1, passwordHashes: 0 };
+    const expected = { roles: 2, permissions: 33, rolePermissions: 58, storeSettings: 8, users: 1, userRoles: 1, passwordHashes: 0 };
     const countMismatch = Object.keys(expected).filter((k) => counts[k] !== expected[k]);
     console.log(JSON.stringify({ ...report, counts, expected }, null, 2));
     if (countMismatch.length > 0 || report.extraGrants.length > 0) {

@@ -1,4 +1,4 @@
-// BA-C shopping verification (real PostgreSQL, scratch-only).
+﻿// BA-C shopping verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-bac-shopping.mjs --db <name> --port <port>
 // Covers the BA-C shopping contract: cart lifecycle (create/get/add/update/
 // delete/reprice/ownership/expiry), PIECE/WEIGHT rules, server price
@@ -10,6 +10,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -26,7 +27,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -65,6 +69,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -130,14 +140,14 @@ async function main() {
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers: { "content-type": "application/json", ...(sessTok ? H(sessTok) : {}) },
-      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE, ...extra}),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -294,7 +304,7 @@ async function main() {
     t("cart-expired-404", eGet.status === 404 && eAdd.status === 404 && eRep.status === 404,
       `${eGet.status}/${eAdd.status}/${eRep.status}`);
 
-    // Reprice: price change → snapshot refresh; dead variant → dropped.
+    // Reprice: price change â†’ snapshot refresh; dead variant â†’ dropped.
     const rpCat = await post(`/api/admin/catalog/categories`, { name: `BAC Repr ${stamp}`, slug: `bac-repr-${stamp}` }, ck);
     catIds.add(rpCat.body.data.id);
     const rpProd = await post(`/api/admin/catalog/products`, {
@@ -358,7 +368,7 @@ async function main() {
     const gW = await mkGuest([[ROMI_V, "0.125"]]);
     const cartW = await get(`/api/store/cart`, null, { "x-guest-token": gW.tok });
     const linesW = cartW.body.data?.cart?.lines || [];
-    // 320.00 EGP/kg × 0.125 kg = 40.00 exactly.
+    // 320.00 EGP/kg أ— 0.125 kg = 40.00 exactly.
     t("price-weight-math", linesW.length === 1 && linesW[0].lineTotal === "40.00", JSON.stringify(linesW.map((l) => l.lineTotal)));
 
     // ================= PROMOTIONS (isolated engine proofs) =================
@@ -428,7 +438,7 @@ async function main() {
       return checkout(g.tok, tCuM, idAdM, k, extra);
     };
     // NOTE: order discountTotal serializes via Decimal.toString (trailing
-    // zeros normalized: "3.00" -> "3") — asserts compare numerically.
+    // zeros normalized: "3.00" -> "3") â€” asserts compare numerically.
     await onlyOn(idPct);
     const oPct = await orderDisc([[P330, "2"]], key("pct"));
     t("promo-pct-10", oPct.status === 201 && Number(oPct.body.data?.order?.discountTotal) === 3,
@@ -537,11 +547,28 @@ async function main() {
       `${est.status}/${JSON.stringify(est.body).slice(0, 140)}`);
     t("estimate-math", est.status === 200 && Number(ed.subtotal) === 30 && Number(ed.discountTotal) === 3
       && Number(ed.lines[0]?.net) === 27, `${ed.subtotal}/${ed.discountTotal}/${ed.lines[0]?.net}`);
+    // Strict body validation: an UNKNOWN field must be rejected with 400.
+    // (The owned `addressId` is a DOCUMENTED estimate field on the registered
+    // path â€” the server resolves it server-side â€” so it is accepted here and
+    // asserted separately below; probing it as "unknown" was a stale
+    // expectation from before the registered-path estimate existed.)
     const estBad = await post(`/api/store/orders/estimate`, {
+      lines: [{ productVariantId: P330, quantity: "2" }],
+      notAField: "x",
+    }, null, H(tCuM));
+    t("estimate-strict-400", estBad.status === 400, String(estBad.status));
+    const estOwned = await post(`/api/store/orders/estimate`, {
       addressId: idAdM,
       lines: [{ productVariantId: P330, quantity: "2" }],
     }, null, H(tCuM));
-    t("estimate-strict-400", estBad.status === 400, String(estBad.status));
+    t("estimate-owned-address-200", estOwned.status === 200 && typeof estOwned.body.data?.total === "string",
+      String(estOwned.status));
+    const estBoth = await post(`/api/store/orders/estimate`, {
+      addressId: idAdM,
+      deliveryAddress: { city: "Matai" },
+      lines: [{ productVariantId: P330, quantity: "2" }],
+    }, null, H(tCuM));
+    t("estimate-address-xor-400", estBoth.status === 400, String(estBoth.status));
     const estMiss = await post(`/api/store/orders/estimate`, {
       lines: [{ productVariantId: P330, quantity: "2" }], couponCode: "NEVER-EXISTS-00",
     }, null, H(tCuM));
@@ -602,7 +629,7 @@ async function main() {
     const winCount = [cG1.status, cG2.status].filter((s) => s === 201).length;
     const usageN = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpG]))[0].used_count);
     t("coupon-limit-race", winCount === 1 && usageN === 1, `${cG1.status}/${cG2.status}/used=${usageN}`);
-    // Rollback: coupon + stock-short → 409, counters/usages untouched.
+    // Rollback: coupon + stock-short â†’ 409, counters/usages untouched.
     await db.query(`UPDATE inventory SET quantity = 1.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P330]);
     const usedBefore = Number((await q(`SELECT used_count FROM coupons WHERE id = $1::uuid`, [idCpA]))[0].used_count);
     const gRb = await mkGuest([[P330, "2"]]);

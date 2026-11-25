@@ -1,14 +1,39 @@
-// FE-10F setting edit island ("use client"): per-key value patch.
-// Wiring rule: value always sent as string; server-side coercion + validation
-// by valueType is the only correctness gate.
+// SETTING FORMS ISLAND ("use client"): one typed editor per store setting.
+//
+// The value always travels as text; the server re-checks it against the
+// setting's own type, so the client never decides what is valid. The input
+// only mirrors the type so the operator types what the store expects.
+//
+// The storefront toast is not used: the admin panel has no toast host, so the
+// island reports the outcome in its own note.
 
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
+import { apiRequest } from "@/lib/frontend/api-client";
+import { adminErrorMessage } from "@/lib/admin/errors";
+import { settingLabel } from "@/lib/admin/terminology";
+import {
+  AdminButton,
+  AdminChoices,
+  AdminField,
+  AdminInput,
+  AdminTextarea,
+} from "@/components/admin/ui/controls";
+
+type NoteTone = "ok" | "bad";
+
+function InlineNote({ tone, children }: { tone: NoteTone; children: React.ReactNode }) {
+  return (
+    <div
+      role={tone === "bad" ? "alert" : "status"}
+      className={tone === "bad" ? "adm-note adm-note--danger" : "adm-note adm-note--accent"}
+    >
+      <div>{children}</div>
+    </div>
+  );
+}
 
 export function SettingEditForm({
   settingKey,
@@ -20,54 +45,78 @@ export function SettingEditForm({
   valueType: string;
 }) {
   const router = useRouter();
-  const { notify } = useToast();
   const [next, setNext] = useState(value);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ tone: NoteTone; text: string } | null>(null);
   const [pending, setPending] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     if (pending) return;
     setNote(null);
     if (next === value) {
-      setNote("لا تغيير للحفظ.");
+      setNote({ tone: "bad", text: "القيمة لسه زي ما هي. عدّلها الأول." });
       return;
     }
     setPending(true);
     try {
       await apiRequest(`/api/admin/settings/${settingKey}`, { method: "PATCH", body: { value: next } });
-      notify("success", "تم حفظ الإعداد.");
+      setNote({ tone: "ok", text: `تم حفظ «${settingLabel(settingKey)}».` });
       router.refresh();
     } catch (error) {
-      setNote(displayFailure(error, "تعذّر الحفظ."));
+      setNote({ tone: "bad", text: adminErrorMessage(error, "مش قادرين نحفظ الإعداد دلوقتي. حاول تاني.") });
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="flex flex-wrap items-end gap-2">
-      <label className="grid min-w-[240px] flex-1 gap-1 text-sm font-semibold">
-        القيمة (نص)
-        <input
-          value={next}
-          onChange={(e) => setNext(e.target.value)}
-          dir="ltr"
-          className="min-h-[44px] rounded-control border border-line bg-white px-2 font-mono text-sm"
-          aria-describedby={`setting-hint-${settingKey}`}
-        />
-      </label>
-      <Button type="submit" size="sm" loading={pending} variant="secondary">
-        حفظ
-      </Button>
-      {note ? (
-        <p id={`setting-hint-${settingKey}`} role="alert" className="w-full text-sm text-secondary">
-          {note}
-        </p>
-      ) : (
-        <p id={`setting-hint-${settingKey}`} className="hidden" />
-      )}
-      <span className="sr-only">نوع القيمة {valueType}</span>
+    <form onSubmit={(event) => void submit(event)} className="adm-form">
+      <AdminField label="القيمة الجديدة" hint={`إعداد ${settingLabel(settingKey)}.`}>
+        {({ inputId, describedBy }) =>
+          valueType === "BOOLEAN" ? (
+            <AdminChoices
+              name={`setting-${settingKey}`}
+              value={next}
+              onChange={setNext}
+              options={[
+                { value: "true", title: "مفعّل", hint: "القيمة تشتغل" },
+                { value: "false", title: "موقوف", hint: "القيمة مقفولة" },
+              ]}
+            />
+          ) : valueType === "JSON" ? (
+            <AdminTextarea
+              inputId={inputId}
+              describedBy={describedBy}
+              value={next}
+              onChange={(event) => setNext(event.target.value)}
+              dir="ltr"
+            />
+          ) : valueType === "INTEGER" || valueType === "NUMERIC" ? (
+            <AdminInput
+              inputId={inputId}
+              describedBy={describedBy}
+              value={next}
+              onChange={(event) => setNext(event.target.value)}
+              type="number"
+              inputMode="decimal"
+              dir="ltr"
+            />
+          ) : (
+            <AdminInput
+              inputId={inputId}
+              describedBy={describedBy}
+              value={next}
+              onChange={(event) => setNext(event.target.value)}
+            />
+          )
+        }
+      </AdminField>
+      {note ? <InlineNote tone={note.tone}>{note.text}</InlineNote> : null}
+      <div className="adm-btn-row">
+        <AdminButton type="submit" loading={pending} size="sm">
+          احفظ
+        </AdminButton>
+      </div>
     </form>
   );
 }

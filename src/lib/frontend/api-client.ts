@@ -114,6 +114,30 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   throw new AppError("INTERNAL", "استجابة غير صالحة من الخادم.");
 }
 
+/** P09 (§6 timeout policy): bounded window for write requests. When the window
+ * elapses the request is aborted CLIENT-side; the outcome AT THE SERVER stays
+ * unknown (it may have committed). AbortSignal.timeout is native in modern
+ * runtimes; when a runtime lacks it, no bound is attached (no invented
+ * polyfill) — the reconcile ladder in cart-lines-store still converges. */
+export const MUTATION_TIMEOUT_MS = 10_000;
+
+export function mutationTimeoutSignal(): AbortSignal | undefined {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(MUTATION_TIMEOUT_MS);
+  }
+  return undefined;
+}
+
+/** P09 (§6) outcome classification: anything that is NOT a parsed contract
+ * rejection is an UNKNOWN outcome at the server — transport failure, timeout/
+ * abort, malformed body, or a 5xx without a known envelope. Definite
+ * rejections (VALIDATION, UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, GONE,
+ * CONFLICT, BUSINESS_RULE, RATE_LIMITED) come only from parseable server
+ * envelopes and are never treated as unknown. */
+export function isUncertainOutcome(error: unknown): boolean {
+  return !(error instanceof AppError) || error.code === "INTERNAL";
+}
+
 /**
  * FE-11 auth-aware display message: server message first (backend owns wording),
  * plus an actionable Arabic recovery hint for session vs permission failures.

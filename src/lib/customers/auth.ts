@@ -262,6 +262,11 @@ export async function authenticateCustomer(
         ${ctx.userAgent ?? null}::text
       )
     `;
+    // Opportunistic TTL cleanup of expired customer sessions (GAP-05).
+    await tx.$executeRaw`
+      DELETE FROM customer_sessions
+       WHERE expires_at < now() - interval '1 day'
+    `.catch(() => {});
     token = rawToken;
   });
 
@@ -273,10 +278,11 @@ export async function authenticateCustomer(
 }
 
 /**
- * Authenticated password change: verify current → policy → rehash →
- * update + revoke EVERY session (including the current one — the client
- * re-authenticates afterwards). Returns false for a wrong current
- * password (caller answers generic 401).
+ * Authenticated password change: check lockout/usability → verify current
+ * (atomic fail-bump + lockout on mismatch, matching authenticateCustomer) →
+ * policy → rehash → update + revoke EVERY session (including the current one —
+ * the client re-authenticates afterwards). Returns false for a wrong current
+ * password or locked/unusable account (caller answers generic 401).
  */
 export async function changeCustomerPassword(
   customerId: string,
@@ -288,7 +294,27 @@ export async function changeCustomerPassword(
     select: { passwordHash: true },
   });
   if (!row?.passwordHash) return false;
-  if (!(await verifyPassword(row.passwordHash, currentPassword))) return false;
+  const passwordOk = await verifyPassword(row.passwordHash, currentPassword);
+  const stateRows = (await prisma.$queryRaw<{ locked: boolean; usable: boolean }[]>`
+    SELECT (locked_until IS NOT NULL AND locked_until > now()) AS locked,
+           (is_active AND deleted_at IS NULL) AS usable
+      FROM customers WHERE id = ${customerId}::uuid
+  `) as unknown as { locked: boolean; usable: boolean }[];
+  const locked = stateRows[0]?.locked === true;
+  const usable = stateRows[0]?.usable === true;
+  if (!passwordOk || locked || !usable) {
+    await prisma.$queryRaw`
+      UPDATE customers
+         SET failed_login_attempts = failed_login_attempts + 1,
+             locked_until = CASE
+               WHEN failed_login_attempts + 1 >= ${CUSTOMER_MAX_FAILED_ATTEMPTS}
+               THEN now() + (${CUSTOMER_LOCKOUT_MINUTES}::text || ' minutes')::interval
+               ELSE locked_until
+             END
+       WHERE id = ${customerId}::uuid
+    `;
+    return false;
+  }
   const policyError = checkPasswordPolicy(newPassword);
   if (policyError) throw new Error(policyError);
   const passwordHash = await hashPassword(newPassword);

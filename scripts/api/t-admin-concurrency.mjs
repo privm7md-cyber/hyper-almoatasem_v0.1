@@ -1,10 +1,12 @@
-// BA-9 admin concurrency suite (real PostgreSQL, scratch-only).
+﻿// BA-9 admin concurrency suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-admin-concurrency.mjs --db <name> --port <port>
 // Only races the operations BA-9 actually defines (no BA-10 matrix):
 //   R1 duplicate user creation (one email) -> one 201 + one 409, one row.
 //   R2 concurrent role assignment (one pair) -> one 201 + one 409.
 //   R3 competing activation writes -> both 200, single consistent state.
-//   R4 competing setting updates -> both 200, winner's valid value stands.
+//   R4 competing setting updates -> one 200 + one 409, winner's valid value
+//      stands (the setting write is a compare-and-set, never a silent
+//      last-write-wins).
 // Prints JSON, never secrets.
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
@@ -25,7 +27,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -129,11 +134,20 @@ async function main() {
     await patch(`/api/admin/users/${idU}`, { isActive: true }, cookie);
 
     // ---------- R4: competing setting updates ----------
+    // The setting write is a compare-and-set on the observed value text
+    // (`patchSetting`): the loser of the race is told 409 instead of
+    // silently overwriting the winner, and the audit row keeps the value it
+    // actually replaced. So the race must produce exactly ONE winner, and
+    // the stored value must be that winner's value (never a third one).
     const [r4a, r4b] = await Promise.all([
       patch(`/api/admin/settings/store.name`, { value: "Race A" }, cookie),
       patch(`/api/admin/settings/store.name`, { value: "Race B" }, cookie),
     ]);
-    t("raceSettings-both-ok", r4a.status === 200 && r4b.status === 200, JSON.stringify([r4a.status, r4b.status]));
+    const r4 = [r4a.status, r4b.status].sort().join(",");
+    t("raceSettings-single-winner", r4 === "200,409", JSON.stringify([r4a.status, r4b.status]));
+    t("raceSettings-loser-conflict-reported",
+      [r4a, r4b].some((r) => r.status === 409 && r.body?.error?.code === "CONFLICT"),
+      JSON.stringify([r4a.body?.error?.code, r4b.body?.error?.code]));
     const cur = await q(`SELECT value_text FROM store_settings WHERE key = 'store.name'`);
     t("raceSettings-valid", cur[0].value_text === "Race A" || cur[0].value_text === "Race B", cur[0].value_text);
     await patch(`/api/admin/settings/store.name`, { value: "Hyper Al-Moatasem" }, cookie);

@@ -14,10 +14,12 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { AppError, apiRequest } from "@/lib/frontend/api-client";
+import { AppError, apiRequest, isUncertainOutcome, mutationTimeoutSignal } from "@/lib/frontend/api-client";
+import { publishCartSnapshot, useCartLinesStore } from "@/lib/frontend/cart-lines-store";
+import { notifyCartCount } from "@/components/store/cart-badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { readGuestCartToken, writeGuestCartToken } from "./guest-cart-token";
+import { clearGuestCartToken, readGuestCartToken, writeGuestCartToken } from "./guest-cart-token";
 import {
   WEIGHT_PRESETS_GRAMS,
   estimatePiastres,
@@ -41,16 +43,22 @@ const SIZE_UNIT_LABEL: Record<string, string> = {
   PIECE: "قطعة",
 };
 
-async function mintGuestToken(): Promise<string | null> {
+async function ensureActiveCart(): Promise<{
+  ok: boolean;
+  token: string | null;
+  uncertain: boolean;
+  error: unknown;
+}> {
   try {
     const res = await apiRequest<{ cart: unknown; guestToken?: string }>("/api/store/cart", {
       method: "POST",
+      signal: mutationTimeoutSignal(),
     });
     const token = typeof res.data.guestToken === "string" ? res.data.guestToken : null;
     if (token) writeGuestCartToken(token);
-    return token;
-  } catch {
-    return null;
+    return { ok: true, token, uncertain: false, error: null };
+  } catch (error) {
+    return { ok: false, token: null, uncertain: isUncertainOutcome(error), error };
   }
 }
 
@@ -135,25 +143,73 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
           method: "POST",
           body: { productVariantId: variant.id, quantity: qtyText },
           ...(token ? { headers: { "x-guest-token": token } } : {}),
+          signal: mutationTimeoutSignal(),
         });
+      const initialToken = readGuestCartToken();
+      let addRes: Awaited<ReturnType<typeof attempt>> | null = null;
       try {
-        await attempt(readGuestCartToken());
+        addRes = await attempt(initialToken);
       } catch (error) {
-        if (
+        if (isUncertainOutcome(error)) {
+          // P09 §6: rethrow — the uncertain outcome is handled below (one
+          // reconcile read, never an automatic second write).
+          throw error;
+        }
+        const missingOrDualIdentity =
           error instanceof AppError &&
           error.code === "VALIDATION" &&
-          /Exactly one of guest token/.test(error.message)
-        ) {
-          const minted = await mintGuestToken();
-          if (!minted) throw error;
-          await attempt(minted);
+          /Exactly one of guest token/.test(error.message);
+        const missingActiveCart =
+          error instanceof AppError &&
+          error.code === "NOT_FOUND" &&
+          /Active cart not found/i.test(error.message);
+
+        if (missingOrDualIdentity && initialToken) {
+          clearGuestCartToken();
+          try {
+            addRes = await attempt(null);
+          } catch (retryErr) {
+            if (isUncertainOutcome(retryErr)) throw retryErr;
+            if (
+              retryErr instanceof AppError &&
+              retryErr.code === "NOT_FOUND" &&
+              /Active cart not found/i.test(retryErr.message)
+            ) {
+              const minted = await ensureActiveCart();
+              if (minted.uncertain) throw minted.error;
+              if (!minted.ok) throw retryErr;
+              addRes = await attempt(minted.token);
+            } else {
+              throw retryErr;
+            }
+          }
+        } else if (missingOrDualIdentity || missingActiveCart) {
+          const minted = await ensureActiveCart();
+          if (minted.uncertain) throw minted.error;
+          if (!minted.ok) throw error;
+          if (!minted.token && initialToken) clearGuestCartToken();
+          addRes = await attempt(minted.token);
         } else {
           throw error;
         }
       }
+      // Phase 07: the confirmed full-cart response is also PUBLISHED to the shared
+      // cart-lines store so card ⇄ PDP ⇄ cart agree (publish holds/delays while a
+      // card op is inflight — see the store; never regresses newer truth).
+      const confirmedCart = (addRes as { data: { cart?: { lines?: unknown[] } } } | null)?.data?.cart;
+      publishCartSnapshot(confirmedCart);
+      if (Array.isArray(confirmedCart?.lines)) {
+        notifyCartCount(confirmedCart.lines.length);
+      }
       notify("success", "تمت الإضافة إلى السلة.");
     } catch (error) {
-      if (error instanceof AppError) {
+      if (isUncertainOutcome(error)) {
+        // P09 §6: timeout/transport/5xx — the outcome at the server is UNKNOWN.
+        // No success claim, no fake failure, NO automatic second write; one
+        // reconcile read through the shared store converges the display.
+        setServerNote("تعذّر التأكد من نتيجة الإضافة — جارٍ التحقق من حالة السلة.");
+        void useCartLinesStore.getState().sync();
+      } else if (error instanceof AppError) {
         if (error.code === "NOT_FOUND") {
           setServerNote("تعذّر العثور على السلة أو الـVariant — حدّث الصفحة وحاول مجددًا.");
         } else if (error.code === "CONFLICT" || error.code === "BUSINESS_RULE") {
@@ -181,8 +237,8 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
   }
 
   return (
-    <div className="grid gap-3">
-      <label className="grid gap-1 text-sm font-semibold">
+    <div className="grid gap-4 rounded-card border border-line bg-white p-5 shadow-xs">
+      <label className="grid gap-1.5 text-sm font-semibold text-ink">
         الاختيار (الوحدة والسعر)
         <select
           aria-label="اختيار الـVariant"
@@ -191,7 +247,7 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
             setVariantId(e.target.value);
             setServerNote(null);
           }}
-          className="min-h-[44px] rounded-control border border-line bg-white px-2"
+          className="min-h-[44px] w-full rounded-control border border-line bg-white px-3 text-sm font-medium focus-visible:border-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand focus-visible:ring-2 focus-visible:ring-brand/15"
         >
           {product.variants.map((v) => (
             <option key={v.id} value={v.id}>
@@ -203,22 +259,30 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
         </select>
       </label>
       {variant ? (
-        <p className="text-sm">
-          <bdi>
-            {variant.price} ج.م {perKg ? "/ كجم" : ""}
-          </bdi>
-          {!perKg && variant.sizeValue && variant.sizeUnit ? (
-            <span className="ms-2 text-xs text-secondary">
-              عبوة {Number(variant.sizeValue)} {SIZE_UNIT_LABEL[variant.sizeUnit] ?? variant.sizeUnit}
-            </span>
-          ) : null}
-          {variant.compareAt !== null ? (
-            <bdi className="ms-2 text-xs text-secondary">
-              {variant.compareAt} ج.م (مرجع، ليس عرضًا مثبتًا)
+        <p className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-line/70 bg-purple-surface/40 px-3.5 py-2.5 text-sm">
+          <span>
+            <bdi className="text-xl font-extrabold tabular-nums text-brand-deep">
+              {variant.price} ج.م {perKg ? "/ كجم" : ""}
             </bdi>
-          ) : null}
+            {!perKg && variant.sizeValue && variant.sizeUnit ? (
+              <span className="ms-2 text-xs text-secondary">
+                عبوة {Number(variant.sizeValue)} {SIZE_UNIT_LABEL[variant.sizeUnit] ?? variant.sizeUnit}
+              </span>
+            ) : null}
+            {variant.compareAt !== null ? (
+              <bdi className="ms-2 text-xs text-secondary">
+                {variant.compareAt} ج.م (مرجع، ليس عرضًا مثبتًا)
+              </bdi>
+            ) : null}
+          </span>
           <span
-            className={`ms-2 font-semibold ${variant.stock === "in" ? "text-success" : variant.stock === "oos" ? "text-error" : "text-secondary"}`}
+            className={`rounded-badge px-2.5 py-0.5 text-xs font-semibold ${
+              variant.stock === "in"
+                ? "bg-[color:var(--success-bg)] text-success-ink"
+                : variant.stock === "oos"
+                  ? "bg-[color:var(--error-bg)] text-error"
+                  : "bg-white text-secondary"
+            }`}
           >
             {variant.stock === "in" ? "متوفر" : variant.stock === "oos" ? "غير متوفر" : "التوفر غير محدد حاليًا"}
           </span>
@@ -229,7 +293,7 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
           هذا الصنف غير متاح للبيع بالوزن حاليًا — سعره مسجّل بعبوته في الكتالوج.
         </p>
       ) : perKg ? (
-        <div className="grid gap-2">
+        <div className="grid gap-2.5">
           <p className="text-sm font-semibold">الوزن المطلوب (تقديري — النهائي عند التجهيز)</p>
           <div className="flex flex-wrap gap-2" role="group" aria-label="أوزان جاهزة">
             {presets.map((g) => (
@@ -240,21 +304,21 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
                 aria-pressed={grams === String(g)}
                 className={
                   grams === String(g)
-                    ? "min-h-[44px] rounded-control border border-brand bg-purple-surface px-3 font-semibold text-ink shadow-subtle"
-                    : "min-h-[44px] rounded-control border border-line-strong bg-white px-3 font-semibold text-ink hover:bg-purple-surface"
+                    ? "min-h-[44px] rounded-control border border-brand bg-purple-surface px-3.5 text-sm font-semibold text-brand-deep shadow-subtle transition-[transform,colors,border-color,background-color] duration-[var(--motion-fast,170ms)] active:scale-[0.97]"
+                    : "min-h-[44px] rounded-control border border-line-strong bg-white px-3.5 text-sm font-semibold text-ink transition-[transform,colors,border-color,background-color] duration-[var(--motion-fast,170ms)] hover:bg-purple-surface active:scale-[0.97]"
                 }
               >
                 {g >= 1000 ? `${g / 1000} كجم` : `${g} جم`}
               </button>
             ))}
           </div>
-          <label className="grid gap-1 text-sm">
+          <label className="grid gap-1 text-sm font-semibold">
             وزن مخصص بالجرام
             <input
               inputMode="decimal"
               value={grams}
               onChange={(e) => setGrams(e.target.value)}
-              className="min-h-[44px] max-w-[200px] rounded-control border border-line bg-white px-2"
+              className="min-h-[44px] max-w-[200px] rounded-control border border-line bg-white px-3 text-sm focus-visible:border-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand focus-visible:ring-2 focus-visible:ring-brand/15"
             />
           </label>
           {estimate !== null ? (
@@ -264,13 +328,13 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
           ) : null}
         </div>
       ) : (
-        <label className="grid max-w-[200px] gap-1 text-sm font-semibold">
+        <label className="grid max-w-[200px] gap-1.5 text-sm font-semibold">
           الكمية (عبوات صحيحة)
           <input
             inputMode="numeric"
             value={packs}
             onChange={(e) => setPacks(e.target.value)}
-            className="min-h-[44px] rounded-control border border-line bg-white px-2"
+            className="min-h-[44px] rounded-control border border-line bg-white px-3 text-sm focus-visible:border-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand focus-visible:ring-2 focus-visible:ring-brand/15"
           />
         </label>
       )}
@@ -284,8 +348,8 @@ export function PurchasePanel({ product }: { product: ProductPageData }) {
           {serverNote}
         </p>
       ) : null}
-      <div>
-        <Button disabled={pending || !sellable} loading={pending} onClick={add}>
+      <div className="pt-1">
+        <Button disabled={pending || !sellable} loading={pending} onClick={add} className="w-full justify-center">
           {weightSaleUnsupported
             ? "غير متاح للبيع بالوزن"
             : !sellable

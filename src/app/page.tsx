@@ -5,7 +5,9 @@
 // VXP pass: composed hero, icon-led category tiles, banded product section, restrained
 // scroll-reveal (Reveal wrapper) — data paths and contracts unchanged.
 
+import { Suspense } from "react";
 import type { Metadata } from "next";
+import { canonicalMetadata } from "@/lib/seo/canonical";
 import Link from "next/link";
 import { StoreShell } from "@/components/store/store-shell";
 import { ProductCard } from "@/components/store/product-card";
@@ -20,19 +22,30 @@ import { getFeaturedProducts, type HomeProductCard } from "@/lib/frontend/storef
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
+  ...canonicalMetadata("/"),
   title: "الرئيسية",
   description: "احتياجات بيتك بسهولة ووضوح، وثقة في كل خطوة.",
 };
 
-function HeadingRow({ id, title, hint }: { id: string; title: string; hint?: string }) {
+function HeadingRow({ id, title, hint, actionHref, actionLabel }: { id: string; title: string; hint?: string; actionHref?: string; actionLabel?: string }) {
   return (
-    <div className="flex items-end justify-between gap-4">
+    <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <SectionTitle>
           <span id={id}>{title}</span>
         </SectionTitle>
         {hint ? <p className="mt-1 text-sm text-secondary">{hint}</p> : null}
       </div>
+      {actionHref && actionLabel ? (
+        <Link
+          href={actionHref}
+          prefetch={false}
+          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-control border border-line bg-white px-3.5 text-sm font-semibold text-brand transition-colors duration-200 hover:border-brand hover:bg-purple-surface"
+        >
+          {actionLabel}
+          <ArrowLeft size={15} aria-hidden="true" />
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -47,7 +60,7 @@ async function CategoriesSection() {
   }
   return (
     <section aria-labelledby="home-categories" className="mt-10" >
-      <HeadingRow id="home-categories" title="الأقسام" />
+      <HeadingRow id="home-categories" title="أقسام الهايبر" hint="تصفّح الأقسام الرئيسية والأقسام الفرعية المنظّمة." actionHref="/categories" actionLabel="كل الأقسام" />
       {failed || body === null ? (
         <div className="mt-3">
           {failed ? (
@@ -62,7 +75,8 @@ async function CategoriesSection() {
           <p className="mt-5 flex justify-start text-sm">
             <Link
               href="/categories"
-              className="inline-flex items-center gap-1.5 font-semibold text-brand transition-colors duration-200 hover:text-[color:var(--ink-purple-deep)]"
+              prefetch={false}
+              className="inline-flex min-h-[44px] items-center gap-1.5 font-semibold text-brand transition-colors duration-200 hover:text-[color:var(--ink-purple-deep)]"
             >
               تصفح كل الأقسام
               <ArrowLeft size={16} aria-hidden="true" />
@@ -86,9 +100,15 @@ async function FeaturedSection() {
   return (
     <section
       aria-labelledby="home-featured"
-      className="-mx-4 mt-10 border-y border-line bg-[color:var(--surface-subtle)] px-4 py-10 md:-mx-6 md:px-6"
+      className="mt-10 rounded-card border border-line bg-[color:var(--surface-subtle)] px-4 py-8 md:px-7 md:py-10"
     >
-      <HeadingRow id="home-featured" title="منتجات من المتجر" hint="مختارات حديثة من الكتالوج — بلا ادعاء أكثر مبيعًا." />
+      <HeadingRow
+        id="home-featured"
+        title="منتجات من المتجر"
+        hint="مختارات حديثة من الكتالوج — بلا ادعاء أكثر مبيعًا."
+        actionHref="/search"
+        actionLabel="تصفّح الكتالوج"
+      />
       {failed || products === null ? (
         <div className="mt-3">
           <ErrorState title="تعذّر تحميل المنتجات" text="حاول إعادة تحميل الصفحة." />
@@ -98,8 +118,8 @@ async function FeaturedSection() {
           <EmptyState title="لا توجد منتجات حاليًا" hint="عُد لاحقًا لتصفح المنتجات." />
         </div>
       ) : (
-        <Reveal className="mt-4">
-          <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Reveal className="mt-5">
+          <ul className="grid grid-cols-2 gap-3.5 md:grid-cols-4 md:gap-4">
             {products.map((p) => (
               <li key={p.id} className="min-w-0">
                 <ProductCard product={p} />
@@ -112,6 +132,36 @@ async function FeaturedSection() {
   );
 }
 
+function CategoriesFallback() {
+  return (
+    <section aria-labelledby="home-categories" className="mt-10 min-h-[160px]" aria-busy="true">
+      <HeadingRow id="home-categories" title="أقسام الهايبر" hint="تصفّح الأقسام الرئيسية والأقسام الفرعية المنظّمة." />
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="vxp-shimmer h-20 rounded-card bg-purple-surface" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FeaturedFallback() {
+  return (
+    <section
+      aria-labelledby="home-featured"
+      className="mt-10 min-h-[300px] rounded-card border border-line bg-[color:var(--surface-subtle)] px-4 py-8 md:px-7 md:py-10"
+      aria-busy="true"
+    >
+      <HeadingRow id="home-featured" title="منتجات من المتجر" hint="مختارات حديثة من الكتالوج — بلا ادعاء أكثر مبيعًا." />
+      <div className="mt-5 grid grid-cols-2 gap-3.5 md:grid-cols-4 md:gap-4" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="vxp-shimmer h-56 rounded-card bg-purple-surface" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   return (
     <StoreShell>
@@ -119,19 +169,35 @@ export default function HomePage() {
         <HomeHero />
       </div>
       <div id="categories">
-        <CategoriesSection />
+        <Suspense fallback={<CategoriesFallback />}>
+          <CategoriesSection />
+        </Suspense>
       </div>
-      <FeaturedSection />
-      <p className="mt-8 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-sm text-secondary">
-        <span>لا تجد ما تبحث عنه؟</span>
-        <Link href="/search" className="font-semibold text-brand transition-colors duration-200 hover:text-[color:var(--ink-purple-deep)]">
-          ابحث في المتجر
-        </Link>
-        <span aria-hidden="true">·</span>
-        <Link href="/brands" className="font-semibold text-brand transition-colors duration-200 hover:text-[color:var(--ink-purple-deep)]">
-          العلامات التجارية
-        </Link>
-      </p>
+      <Suspense fallback={<FeaturedFallback />}>
+        <FeaturedSection />
+      </Suspense>
+      <section
+        aria-label="طرق تصفح إضافية"
+        className="mt-10 flex flex-wrap items-center justify-between gap-4 rounded-card border border-line bg-white px-5 py-4 shadow-xs"
+      >
+        <p className="text-sm font-medium text-secondary">لا تجد ما تبحث عنه؟ جرّب البحث المباشر أو تصفّح العلامات التجارية.</p>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            href="/search"
+            prefetch={false}
+            className="inline-flex min-h-[44px] items-center rounded-control border border-line-strong bg-purple-surface/60 px-4 text-sm font-semibold text-brand transition-colors duration-200 hover:border-brand hover:bg-purple-surface"
+          >
+            ابحث في المتجر
+          </Link>
+          <Link
+            href="/brands"
+            prefetch={false}
+            className="inline-flex min-h-[44px] items-center rounded-control border border-line bg-white px-4 text-sm font-semibold text-brand transition-colors duration-200 hover:border-brand hover:bg-purple-surface"
+          >
+            العلامات التجارية
+          </Link>
+        </div>
+      </section>
     </StoreShell>
   );
 }

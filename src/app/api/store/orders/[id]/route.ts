@@ -29,7 +29,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       const r = ok({ order: toOrder(row) });
       return NextResponse.json(r.body, { status: r.status });
     }
-    const full = await requireGuestOrder(request, id);
+    const full = await requireGuestOrder(request, id, { allowCheckoutSession: true });
     const r = ok({ order: toOrder(full) });
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {

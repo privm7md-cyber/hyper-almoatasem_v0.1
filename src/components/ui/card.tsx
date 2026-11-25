@@ -12,7 +12,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <Tag className={["rounded-card bg-white p-4 shadow-subtle", className].join(" ")}>
+    <Tag className={["rounded-card border border-line bg-white p-4 shadow-subtle md:p-5", className].filter(Boolean).join(" ")}>
       {children}
     </Tag>
   );

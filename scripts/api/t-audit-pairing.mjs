@@ -1,8 +1,8 @@
-// PRE-BA-11 audit-pairing retrofit suite (real PostgreSQL, scratch-only).
+﻿// PRE-BA-11 audit-pairing retrofit suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-audit-pairing.mjs --db <name> --port <port>
 // For every retrofitted BA-2..BA-8 admin surface: A (success commits
 // mutation+audit), B (business failure commits neither), C (forced audit
-// failure rolls back the business mutation — scratch-only BEFORE INSERT
+// failure rolls back the business mutation â€” scratch-only BEFORE INSERT
 // trigger installed/dropped inside this harness; no production hook).
 // Plus concurrency: same-mutation race, mutation+read, mutation conflict,
 // RBAC-mutation + sensitive-op race. Customer self-service paths stay
@@ -10,6 +10,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -26,7 +27,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -63,6 +67,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const get = async (path, cookie = null) => {
     const r = await fetch(`${baseUrl}${path}`, { headers: cookie ? { cookie } : {} });
@@ -147,7 +157,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -163,7 +173,7 @@ async function main() {
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers: { "content-type": "application/json", ...H(sessTok) },
-      body: JSON.stringify({ addressId: addrId, idempotencyKey: k }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE }),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
@@ -180,7 +190,7 @@ async function main() {
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
     t("logins-ok", store.status === 201 && owner.status === 201);
     if (store.status !== 201 || owner.status !== 201 || !store.cookie || !owner.cookie) {
-      console.error(`REFUSED_LOGIN: store=${store.status} owner=${owner.status} (rate buckets may be exhausted — retry after rollover)`);
+      console.error(`REFUSED_LOGIN: store=${store.status} owner=${owner.status} (rate buckets may be exhausted â€” retry after rollover)`);
       await db.end().catch(() => {});
       process.exit(1);
     }

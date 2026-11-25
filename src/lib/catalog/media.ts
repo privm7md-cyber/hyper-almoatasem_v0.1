@@ -197,3 +197,35 @@ export async function deleteImage(id: string, actorId: string): Promise<boolean>
   });
   return true;
 }
+
+/**
+ * Batch-fetch the primary (or first by sort_order ASC, id ASC) image for a
+ * bounded list of product IDs in ONE query (BUG-09 N+1 remediation).
+ */
+export async function listPrimaryImagesForProducts(
+  productIds: string[],
+): Promise<Map<string, MediaRow>> {
+  const map = new Map<string, MediaRow>();
+  if (productIds.length === 0) return map;
+  const rows = await prisma.$queryRaw<MediaRow[]>`
+    SELECT DISTINCT ON (product_id)
+      id::text AS id,
+      product_id::text AS "productId",
+      url,
+      alt_text AS "altText",
+      mime_type AS "mimeType",
+      byte_size AS "byteSize",
+      width,
+      height,
+      sort_order AS "sortOrder",
+      is_primary AS "isPrimary",
+      created_at AS "createdAt"
+    FROM product_images
+    WHERE product_id = ANY(${productIds}::uuid[])
+    ORDER BY product_id, is_primary DESC, sort_order ASC, id ASC
+  `;
+  for (const row of rows) {
+    map.set(row.productId, row);
+  }
+  return map;
+}

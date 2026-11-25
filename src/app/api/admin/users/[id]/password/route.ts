@@ -5,6 +5,7 @@
 // never logged, stored, or returned (policy failures answer 422).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
@@ -13,6 +14,10 @@ import { setUserPassword } from "@/lib/admin/writes";
 import { toAdminUser } from "@/lib/admin/serialize";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("users.manage");
   if (auth.ok === false) {
     const r = fail(
@@ -41,7 +46,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    const updated = await setUserPassword(id, parsed.data.password, auth.admin.user.id);
+    const updated = await setUserPassword(
+      id, parsed.data.password, auth.admin.user.id, auth.admin.permissions, auth.admin.roles,
+    );
     if (!updated) {
       const r = fail(new ApiError("NOT_FOUND", "User not found."));
       return NextResponse.json(r.body, { status: r.status });

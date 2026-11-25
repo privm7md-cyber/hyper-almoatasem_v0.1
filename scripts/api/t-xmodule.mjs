@@ -1,4 +1,4 @@
-// BA-10 cross-module concurrency suite (real PostgreSQL, scratch-only).
+﻿// BA-10 cross-module concurrency suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-xmodule.mjs --db <name> --port <port>
 // New ground only (single-module races live in their BA suites):
 //   X1 Catalog x Cart: price moves after add -> snapshot frozen, drift 409.
@@ -16,6 +16,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -32,7 +33,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -72,6 +76,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jpost = async (path, data, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -130,7 +140,7 @@ async function main() {
     const H = (tok) => ({ "x-customer-token": tok });
     const CPW = "Cust-Test-Pass-0001!";
     const sess = async (phone, firstName) => {
-      // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+      // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
       const reg = await jpost(`/api/store/customers/register`, { phone, firstName, password: CPW });
       if (reg.status === 201) {
         return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -158,7 +168,7 @@ async function main() {
     t("x1-snapshot-frozen", cartAfter.status === 200 && snapKept && num(snapKept.unitPriceSnapshot) === 15);
     await mergeTo(gx.token, tC1);
     const driftOrder = await jpost(`/api/store/orders`,
-      { addressId: idA1, idempotencyKey: key("x1") }, H(tC1));
+      { addressId: idA1, idempotencyKey: key("x1"), expectedDeliveryFee: FEE }, H(tC1));
     t("x2-drift-409", driftOrder.status === 409);
     const noOrder = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key LIKE 'ba10x-x1%'`);
     const cartStill = await jget(`/api/store/cart`, H(tC1));
@@ -173,7 +183,7 @@ async function main() {
     await mergeTo(xa.token, tC1);
     const adjBody = { productVariantId: P330, delta: "-1.000", movementType: "ADJUSTMENT", referenceType: "MANUAL", referenceId: "BA10X3" };
     const [x3o, x3a] = await Promise.all([
-      jpost(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("x3o") }, H(tC1)),
+      jpost(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("x3o"), expectedDeliveryFee: FEE }, H(tC1)),
       jpost(`/api/admin/inventory/adjust`, adjBody, ck),
     ]);
     const x3ok = (x3o.status === 201 && x3a.status === 409) || (x3o.status === 409 && x3a.status === 201);
@@ -184,12 +194,12 @@ async function main() {
     await db.query(`DELETE FROM inventory_movements WHERE reference_id = 'BA10X3'`).catch(() => {});
 
     // ---------- X4: approve vs admin reserve on one unit ----------
-    // Note: approve answers 200, reserve answers 201 — pairs below use both.
+    // Note: approve answers 200, reserve answers 201 â€” pairs below use both.
     const mkProposal = async (suffix) => {
       const cart = await mkCart([[P330, "1"]]);
       await mergeTo(cart.token, tC1);
       const o = await jpost(`/api/store/orders`,
-        { addressId: idA1, idempotencyKey: key(`x4o-${suffix}`) }, H(tC1));
+        { addressId: idA1, idempotencyKey: key(`x4o-${suffix}`), expectedDeliveryFee: FEE }, H(tC1));
       const items = (await jget(`/api/store/orders/${o.body.data.order.id}`, H(tC1))).body.data.order.items;
       const p = await jpost(`/api/admin/orders/${o.body.data.order.id}/items/${items[0].id}/replacements`,
         { replacementVariantId: P1L, replacementQuantity: "1" }, ck);
@@ -222,7 +232,7 @@ async function main() {
       const cart = await mkCart([[P330, "2"]]);
       await mergeTo(cart.token, tC1);
       const o = await jpost(`/api/store/orders`,
-        { addressId: idA1, idempotencyKey: key("x7o") }, H(tC1));
+        { addressId: idA1, idempotencyKey: key("x7o"), expectedDeliveryFee: FEE }, H(tC1));
       return o.body.data.order;
     })();
     const ox7items = (await jget(`/api/store/orders/${ox7.id}`, H(tC1))).body.data.order.items;
@@ -233,7 +243,7 @@ async function main() {
     await mergeTo(cx7.token, tC2);
     const [x7a, x7b, x7c] = await Promise.all([
       jpost(`/api/store/orders/${ox7.id}/replacements/${idRX7}/decide`, { action: "approve" }, H(tC1)),
-      jpost(`/api/store/orders`, { addressId: idA2, idempotencyKey: key("x7b") }, H(tC2)),
+      jpost(`/api/store/orders`, { addressId: idA2, idempotencyKey: key("x7b"), expectedDeliveryFee: FEE }, H(tC2)),
       jpost(`/api/store/orders/${ox7.id}/cancel`, {}, H(tC1)),
     ]);
     const trio = [x7a.status, x7b.status, x7c.status];

@@ -16,9 +16,11 @@ import {
 } from "@/lib/replacements/queries";
 import { toOrder, toOrderListItem, type OrderShape } from "@/lib/orders/serialize";
 import { toReplacement, type ReplacementShape } from "@/lib/replacements/serialize";
+import { guestOrderCookieName, isGuestOrderCookieName } from "@/lib/orders/guest-order-cookie";
+import { GUEST_CHECKOUT_COOKIE_NAMES } from "@/lib/orders/guest-checkout-cookie";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const GUEST_COOKIE_PREFIX = "__Host-guest-order-";
+const ADMIN_SESSION_COOKIES = new Set<string>(["__Host-admin-session", "hyper-admin-session-dev"]);
 
 export type OrderAccessError = "INVALID_ID" | "UNAUTHENTICATED" | "RATE_LIMITED" | "GONE" | "NOT_FOUND";
 
@@ -36,7 +38,7 @@ async function sessionCookieHeader(): Promise<string> {
   const jar = await cookies();
   return jar
     .getAll()
-    .filter((c) => !c.name.startsWith(GUEST_COOKIE_PREFIX))
+    .filter((c) => !isGuestOrderCookieName(c.name) && !ADMIN_SESSION_COOKIES.has(c.name))
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");
 }
@@ -70,10 +72,21 @@ export async function getOrderDetail(orderId: string): Promise<OrderDetail | { e
     }
   }
   const jar = await cookies();
-  const credential = jar.get(`${GUEST_COOKIE_PREFIX}${orderId.toLowerCase()}`);
-  if (!credential) return { error: "UNAUTHENTICATED" };
+  const credential = jar.get(guestOrderCookieName(orderId));
+  // Recovery path: a pre-established checkout session (HttpOnly, cart-bound at
+  // mint, order-bound in the create tx) authorizes READ access even when the
+  // one-time 201 credential never reached the browser. The session cookie is
+  // forwarded as-is; the database decides whether it is bound to THIS order.
+  const hasCheckoutSession = jar
+    .getAll()
+    .some((c) => (GUEST_CHECKOUT_COOKIE_NAMES as readonly string[]).includes(c.name));
+  if (!credential && !hasCheckoutSession) return { error: "UNAUTHENTICATED" };
+  const guestHeaders: Record<string, string> = {};
+  const passedCookies = await sessionCookieHeader();
+  if (passedCookies !== "") guestHeaders.cookie = passedCookies;
+  if (credential) guestHeaders[GUEST_ORDER_TOKEN_HEADER] = credential.value;
   try {
-    const full = await requireGuestOrder(probe({ [GUEST_ORDER_TOKEN_HEADER]: credential.value }), orderId);
+    const full = await requireGuestOrder(probe(guestHeaders), orderId, { allowCheckoutSession: true });
     const replacements = (await listReplacementsForGuestOrder(orderId).catch(() => null)) ?? [];
     return { order: toOrder(full), replacements: replacements.map(toReplacement), via: "guest" };
   } catch (error) {

@@ -1,65 +1,89 @@
-// FE-10F customer register island ("use client"): admin-assisted password provisioning
-// for guest→registered conversion (POST customers/[id]/register). Server owns policy + audit.
+// CUSTOMER REGISTER ISLAND ("use client").
+//
+// Staff-assisted guest → registered upgrade
+// (POST /api/admin/customers/[id]/register). The server owns the policy, the
+// uniqueness check and the audit row; this island only collects the secret
+// and shows the outcome in Arabic.
 
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
+import { apiRequest } from "@/lib/frontend/api-client";
+import { adminErrorMessage } from "@/lib/admin/errors";
+import { AdminButton, AdminField, AdminInput } from "@/components/admin/ui/controls";
+
+/** The store's password floor — the server refuses anything shorter. */
+const PASSWORD_MIN = 12;
 
 export function CustomerRegisterForm({ customerId }: { customerId: string }) {
   const router = useRouter();
-  const { notify } = useToast();
   const [password, setPassword] = useState("");
-  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [pending, setPending] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     if (pending) return;
-    setNote(null);
-    if (password.length < 1) {
-      setNote("أدخل كلمة المرور (السياسة 12..128 تُفرض على الخادم).");
+    setError(null);
+    setSaved(false);
+
+    if (password.length < PASSWORD_MIN) {
+      setError(`كلمة السر لازم تكون ${PASSWORD_MIN} حرف على الأقل.`);
       return;
     }
+
     setPending(true);
     try {
       await apiRequest(`/api/admin/customers/${customerId}/register`, {
         method: "POST",
         body: { password },
       });
-      notify("success", "تم تسجيل العميل.");
-      router.refresh();
+      setSaved(true);
       setPassword("");
-    } catch (error) {
-      setNote(displayFailure(error, "تعذّر التسجيل."));
+      router.refresh();
+    } catch (failure) {
+      setError(adminErrorMessage(failure, "تعذّر تسجيل العميل. جرّب تاني."));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-[420px] gap-3">
-      <label className="grid gap-1 text-sm font-semibold">
-        كلمة المرور الجديدة
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          autoComplete="new-password"
-          className="min-h-[44px] rounded-control border border-line bg-white px-2"
-        />
-      </label>
-      {note ? (
-        <p role="alert" className="text-sm text-secondary">
-          {note}
+    <form className="adm-form" noValidate onSubmit={(event) => void submit(event)}>
+      <AdminField
+        label="كلمة مرور العميل"
+        required
+        hint={`العميل هيستخدمها مع تليفونه عشان يدخل على المتجر. ${PASSWORD_MIN} حرف على الأقل.`}
+      >
+        {({ inputId, describedBy }) => (
+          <AdminInput
+            inputId={inputId}
+            describedBy={describedBy}
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            maxLength={128}
+          />
+        )}
+      </AdminField>
+
+      {error ? (
+        <p className="adm-error" role="alert">
+          {error}
         </p>
       ) : null}
-      <Button type="submit" loading={pending} variant="secondary">
-        تسجيل العميل
-      </Button>
+      {saved && !error ? (
+        <p className="adm-note adm-note--accent">العميل اتسجل والقدر يدخل على المتجر.</p>
+      ) : null}
+
+      <div className="adm-btn-row">
+        <AdminButton type="submit" loading={pending}>
+          تسجيل العميل
+        </AdminButton>
+      </div>
     </form>
   );
 }

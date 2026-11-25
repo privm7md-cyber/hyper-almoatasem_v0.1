@@ -20,6 +20,7 @@ const dbName = args[dbFlag + 1];
 // Guarded: only explicitly allowlisted scratch databases (never production).
 const ALLOWED_SCRATCH_DBS = [
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",

@@ -14,6 +14,7 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { resolveClientIp } from "@/lib/api/client-ip";
 import { ApiError, conflict } from "@/lib/api/errors";
 import { hashToken, newOpaqueToken } from "@/lib/auth/tokens";
 import {
@@ -22,12 +23,21 @@ import {
   guestOrderReadBucket,
 } from "@/lib/auth/rate-limit";
 import { getOrderFull } from "@/lib/orders/queries";
+import { GUEST_ORDER_CREDENTIAL_TTL_DAYS } from "@/lib/orders/guest-order-cookie";
+import {
+  isGuestCheckoutSessionBoundToOrder,
+  readGuestCheckoutToken,
+  revokeGuestCheckoutSessionsForOrder,
+} from "@/lib/orders/guest-checkout-session";
 
 /** Guest order credential transport header (sole carrier — never URL). */
 export const GUEST_ORDER_TOKEN_HEADER = "x-guest-order-token";
 
-/** Guest credential lifetime: 90 days, fixed (no sliding extension). */
-export const GUEST_ORDER_CREDENTIAL_TTL_DAYS = 90;
+/** Guest credential lifetime: 90 days, fixed (no sliding extension).
+ *  The single definition lives in the cookie-policy module so the server
+ *  action layer may read it without exporting a value from a "use server"
+ *  file (which Next.js rejects at runtime). */
+export { GUEST_ORDER_CREDENTIAL_TTL_DAYS };
 
 /** Read the presented guest order token (raw header value or null). */
 export function readGuestOrderToken(request: Request): string | null {
@@ -128,6 +138,10 @@ export async function revokeGuestOrderCredential(tx: Tx, orderId: string): Promi
     UPDATE guest_order_credentials SET revoked_at = now()
      WHERE order_id = ${orderId}::uuid AND revoked_at IS NULL
   `;
+  // The recovery session is a second access path to the same order; revoking
+  // the credential without it would leave a live path the operator thinks is
+  // closed. Runs in the caller's tx (same audit boundary).
+  await revokeGuestCheckoutSessionsForOrder(tx, orderId);
   return n >= 1;
 }
 
@@ -145,6 +159,9 @@ export async function rotateGuestOrderCredential(
       UPDATE guest_order_credentials SET revoked_at = now()
        WHERE order_id = ${orderId}::uuid AND revoked_at IS NULL
     `;
+    // Rotation invalidates EVERY prior access path, including a checkout
+    // recovery session bound to this order; the fresh token is the sole way in.
+    await revokeGuestCheckoutSessionsForOrder(tx, orderId);
     return await issueGuestOrderCredential(tx, orderId);
   } catch (error) {
     // Concurrent rotations serialize on the partial live-UQ: the loser sees
@@ -166,7 +183,12 @@ export async function rotateGuestOrderCredential(
 
 export type OrderAccess =
   | { kind: "customer"; customerId: string }
-  | { kind: "guest"; credentialId: string };
+  | {
+      kind: "guest";
+      /** Per-order credential id; null when access came from the checkout session. */
+      credentialId: string | null;
+      via: "credential" | "checkout_session";
+    };
 
 export type OrderAccessVerdict =
   | { status: "granted"; access: OrderAccess }
@@ -183,19 +205,60 @@ export type OrderAccessVerdict =
 export async function resolveGuestOrderAccess(
   request: Request,
   orderId: string,
+  opts: { allowCheckoutSession?: boolean } = {},
 ): Promise<OrderAccessVerdict> {
+  // Path 1: the per-order credential (unchanged contract, header transport).
   const token = readGuestOrderToken(request);
-  if (token === null) return { status: "denied" };
-  const verdict = await validateGuestOrderToken(token, orderId);
-  if (verdict.status === "valid") {
-    return { status: "granted", access: { kind: "guest", credentialId: verdict.credentialId } };
+  let credentialExpired = false;
+  if (token !== null) {
+    const verdict = await validateGuestOrderToken(token, orderId);
+    if (verdict.status === "valid") {
+      return {
+        status: "granted",
+        access: { kind: "guest", credentialId: verdict.credentialId, via: "credential" },
+      };
+    }
+    credentialExpired = verdict.status === "expired";
   }
-  if (verdict.status === "expired") return { status: "expired" };
+
+  // Path 2: the pre-established checkout recovery session, structurally bound
+  // to THIS order id. It is a READ-access recovery path only: mutating routes
+  // (cancel, replacement decision) never opt in. It never reissues a
+  // credential and is never accepted for a different order.
+  if (opts.allowCheckoutSession === true) {
+    const checkoutToken = readGuestCheckoutToken(request);
+    if (checkoutToken !== null && (await isGuestCheckoutSessionBoundToOrder(checkoutToken, orderId))) {
+      return {
+        status: "granted",
+        access: { kind: "guest", credentialId: null, via: "checkout_session" },
+      };
+    }
+  }
+
+  if (credentialExpired) return { status: "expired" };
   return { status: "denied" };
 }
 
+/**
+ * Replay recovery probe for the create route: true when the caller can still
+ * read the replayed order through a valid per-order credential OR a live
+ * checkout session bound to it. Never returns a secret.
+ */
+export async function guestReplayRecoveryAvailable(
+  request: Request,
+  orderId: string,
+): Promise<boolean> {
+  const token = readGuestOrderToken(request);
+  if (token !== null) {
+    const verdict = await validateGuestOrderToken(token, orderId);
+    if (verdict.status === "valid") return true;
+  }
+  const checkoutToken = readGuestCheckoutToken(request);
+  return isGuestCheckoutSessionBoundToOrder(checkoutToken, orderId);
+}
+
 function requestIp(request: Request): string | null {
-  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+  return resolveClientIp(request.headers).ip;
 }
 
 /**
@@ -206,7 +269,11 @@ function requestIp(request: Request): string | null {
  * orders — anything else reads 404, never leaked). Throws; never returns
  * null. Callers run this only when no valid customer session owns the order.
  */
-export async function requireGuestOrder(request: Request, orderId: string) {
+export async function requireGuestOrder(
+  request: Request,
+  orderId: string,
+  opts: { allowCheckoutSession?: boolean } = {},
+) {
   const gate = await checkAndRecordRateLimit(
     guestOrderReadBucket(requestIp(request)),
     GUEST_ORDER_READ_BUCKET_LIMIT,
@@ -216,7 +283,7 @@ export async function requireGuestOrder(request: Request, orderId: string) {
   if (!gate.allowed) {
     throw new ApiError("RATE_LIMITED", "Too many requests.", null, true);
   }
-  const access = await resolveGuestOrderAccess(request, orderId);
+  const access = await resolveGuestOrderAccess(request, orderId, opts);
   if (access.status === "expired") {
     throw new ApiError("GONE", "Guest order access has expired.", null);
   }

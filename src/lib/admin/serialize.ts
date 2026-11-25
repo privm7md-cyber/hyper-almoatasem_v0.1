@@ -3,7 +3,8 @@
 // password_hash, lockout columns, session/token material NEVER cross the
 // boundary (omitted by construction — the interfaces below have no such
 // fields; suites assert their absence). DateTimes as ISO strings.
-import type { Permission, Prisma, Role, StoreSetting, User } from "@prisma/client";
+import type { DeliveryZone, Permission, Prisma, Role, StoreSetting, User } from "@prisma/client";
+import type { DeliveryScope } from "@/lib/orders/delivery-scope";
 import { iso } from "@/lib/api/serialize";
 
 export interface AdminUserShape {
@@ -95,6 +96,32 @@ export function toSetting(s: StoreSetting): SettingShape {
   };
 }
 
+export interface DeliveryZoneShape {
+  scope?:DeliveryScope|null;
+  id: string;
+  name: string;
+  normalizedName: string;
+  fee: string;
+  isActive: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toDeliveryZone(z: DeliveryZone & {scope?:DeliveryScope|null}): DeliveryZoneShape {
+  return {
+    ...(z.scope!==undefined ? {scope:z.scope} : {}),
+    id: z.id,
+    name: z.name,
+    normalizedName: z.normalizedName,
+    fee: z.fee.toString(),
+    isActive: z.isActive,
+    version: z.version,
+    createdAt: z.createdAt.toISOString(),
+    updatedAt: z.updatedAt.toISOString(),
+  };
+}
+
 export interface AuditShape {
   id: string;
   userId: string | null;
@@ -123,7 +150,20 @@ export interface AuditRow {
   created_at: Date;
 }
 
-export function toAudit(r: AuditRow): AuditShape {
+function projectAuditValues(value: unknown, canReadCost: boolean): Prisma.JsonValue {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value.map((item) => projectAuditValues(item, canReadCost));
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).filter(([key]) => canReadCost || key.replace(/[_-]/g, "").toLowerCase() !== "costprice")
+        .map(([key, item]) => [key, projectAuditValues(item, canReadCost)]),
+    );
+  }
+  return value as Prisma.JsonValue;
+}
+
+export function toAudit(r: AuditRow, permissions: readonly string[]): AuditShape {
+  const canReadCost = permissions.includes("prices.view");
   return {
     id: r.id,
     userId: r.user_id,
@@ -131,8 +171,8 @@ export function toAudit(r: AuditRow): AuditShape {
     action: r.action,
     entityType: r.entity_type,
     entityId: r.entity_id,
-    oldValues: (r.old_values ?? null) as Prisma.JsonValue | null,
-    newValues: (r.new_values ?? null) as Prisma.JsonValue | null,
+    oldValues: projectAuditValues(r.old_values, canReadCost),
+    newValues: projectAuditValues(r.new_values, canReadCost),
     ipAddress: r.ip_address,
     userAgent: r.user_agent,
     createdAt: r.created_at.toISOString(),

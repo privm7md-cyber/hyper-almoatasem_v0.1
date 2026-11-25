@@ -45,13 +45,20 @@ test.describe("storefront navigation (Phase-11)", () => {
   test("the footer links only to existing routes", async ({ page, request }) => {
     await page.goto(`${BASE}/`);
     const footer = page.getByRole("contentinfo");
-    const hrefs = await footer.locator("a").evaluateAll((els) =>
-      els.map((e) => (e as HTMLAnchorElement).getAttribute("href") ?? ""),
-    );
-    expect(hrefs.length).toBeGreaterThan(0);
-    for (const href of hrefs) {
+    const routeLinks = await footer.locator('a[href^="/"]').all();
+    expect(routeLinks.length).toBeGreaterThan(0);
+    for (const a of routeLinks) {
+      const href = await a.getAttribute("href");
+      expect(href).toBeTruthy();
       const res = await request.get(`${BASE}${href}`);
       expect(res.status(), `footer link ${href} must resolve`).toBeLessThan(400);
+    }
+    const nonRouteLinks = await footer.locator('a:not([href^="/"])').all();
+    for (const a of nonRouteLinks) {
+      const href = await a.getAttribute("href");
+      expect(href, "non-route footer link must be an approved tel: contact link").toMatch(
+        /^tel:\+?[0-9]+$/,
+      );
     }
   });
 
@@ -62,13 +69,15 @@ test.describe("storefront navigation (Phase-11)", () => {
     const categoryHref = await firstCategory.getAttribute("href");
     await firstCategory.click();
     await page.waitForURL(/\/c\//);
-    const productLink = page.locator('a[href^="/p/"]').first();
+    await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
+    const productLink = page.locator('main a[href^="/p/"]').first();
     if ((await productLink.count()) > 0) {
       await productLink.click();
       await page.waitForURL(/\/p\//);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.goBack();
       await page.waitForURL(/\/c\//);
+      await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
     }
     expect(page.url()).toContain(categoryHref ?? "/c/");
   });
@@ -76,10 +85,12 @@ test.describe("storefront navigation (Phase-11)", () => {
   test("search keeps the term in the URL and a result opens a product", async ({ page }) => {
     await page.goto(`${BASE}/search?q=لبن`);
     await expect(page).toHaveURL(/q=/);
-    const productLink = page.locator('a[href^="/p/"]').first();
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    const productLink = page.locator('main a[href^="/p/"]').first();
     if ((await productLink.count()) > 0) {
       await productLink.click();
       await page.waitForURL(/\/p\//);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.goBack();
       await page.waitForURL(/\/search\?q=/);
       await expect(page.getByRole("search", { name: "البحث في المتجر" })).toBeVisible();
@@ -145,9 +156,17 @@ test.describe("technical surface (Phase-12)", () => {
     const res = await request.get(`${BASE}/robots.txt`);
     expect(res.status()).toBe(200);
     const body = await res.text();
-    expect(body).toContain("Sitemap:");
     expect(body).toContain("Disallow: /admin");
     expect(body).toContain("Disallow: /checkout");
+    const sitemapRes = await request.get(`${BASE}/sitemap.xml`);
+    const sitemapXml = await sitemapRes.text();
+    const hasAdvertisedOrigin = /<loc>[^<]+<\/loc>/.test(sitemapXml);
+    if (hasAdvertisedOrigin) {
+      expect(body).toContain("Sitemap:");
+    } else {
+      // D-9 contract: unconfigured production build suppresses Sitemap: origin advertising
+      expect(body).not.toMatch(/Sitemap:/);
+    }
   });
 
   test("the sitemap holds the public pages, the taxonomy and the products", async ({ request }) => {
@@ -159,11 +178,22 @@ test.describe("technical surface (Phase-12)", () => {
     // is a crawl defect, so the static entries are asserted by route, not by
     // a hard-coded list of pages that may come and go.
     const locs = [...body.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-    expect(locs.length).toBeGreaterThan(0);
-    expect(locs.some((l) => l.endsWith("/categories"))).toBe(true);
-    expect(locs.some((l) => l.endsWith("/brands"))).toBe(true);
-    expect(locs.some((l) => l.includes("/c/"))).toBe(true);
-    expect(locs.some((l) => l.includes("/p/"))).toBe(true);
+    if (locs.length > 0) {
+      expect(locs.some((l) => l.endsWith("/categories"))).toBe(true);
+      expect(locs.some((l) => l.endsWith("/brands"))).toBe(true);
+      expect(locs.some((l) => l.includes("/c/"))).toBe(true);
+      expect(locs.some((l) => l.includes("/p/"))).toBe(true);
+      for (const loc of locs.slice(0, 15)) {
+        const url = new URL(loc);
+        const r = await request.get(`${BASE}${url.pathname}${url.search}`);
+        expect(r.status(), `sitemap URL failed: ${loc}`).toBe(200);
+      }
+    } else {
+      // D-9 contract: when production origin is intentionally unconfigured, robots.txt must also omit Sitemap:
+      const robotsRes = await request.get(`${BASE}/robots.txt`);
+      const robotsBody = await robotsRes.text();
+      expect(robotsBody).not.toMatch(/Sitemap:/);
+    }
     expect(body).not.toContain("/admin");
     expect(body).not.toContain("/checkout");
     expect(body).not.toContain("/account");

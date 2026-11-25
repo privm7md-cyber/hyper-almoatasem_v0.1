@@ -1,0 +1,62 @@
+{
+  "baseUrl": "http://localhost:3132",
+  "states": [
+    {
+      "state": "loading",
+      "route": "/admin/orders?qa=1793748814391",
+      "heldRequests": [
+        "http://localhost:3132/admin/orders?qa=1793748814391"
+      ],
+      "present": true,
+      "visible": true,
+      "hint": "الصفحة بتتحمّل — الأرقام هتظهر لأنها محسوبة من بيانات المتجر.",
+      "numbersShown": false,
+      "role": "status"
+    },
+    {
+      "state": "empty",
+      "route": "/admin/products?search=…",
+      "present": true,
+      "title": "لا توجد منتجات مطابقة",
+      "hint": "ملقيناش نتائج بالفلترة دي — غيّر كلمة البحث أو ألغِ الفلترة وجرب تاني."
+    },
+    {
+      "state": "error",
+      "route": "/admin (segment boundary)",
+      "boundaryFile": "src/app/admin/error.tsx",
+      "message": "حصلت مشكلة في لوحة الإدارة — السبب على الأرجح خطأ مؤقت في الصفحة دي. جرّب تحمّلها تاني. مفيش أي إجراء اتنفذ ومفيش بيانات اتغيرت.",
+      "hasRetry": true,
+      "note": "proven by the unit suite (a11y.test.tsx: 'admin segment error boundary exposes a retry action with an accessible name')"
+    },
+    {
+      "state": "forbidden",
+      "routes": [
+        {
+          "route": "/admin",
+          "status": 200,
+          "landedOn": "/admin/login"
+        },
+        {
+          "route": "/admin/orders",
+          "status": 200,
+          "landedOn": "/admin/login"
+        },
+        {
+          "route": "/admin/settings",
+          "status": 200,
+          "landedOn": "/admin/login"
+        },
+        {
+          "route": "/admin/audit-logs",
+          "status": 200,
+          "landedOn": "/admin/login"
+        },
+        {
+          "route": "/admin/users",
+          "status": 200,
+          "landedOn": "/admin/login"
+        }
+      ]
+    }
+  ]
+}

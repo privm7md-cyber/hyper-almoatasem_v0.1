@@ -1,7 +1,7 @@
-// BA-3 inventory concurrency suite (real PostgreSQL, scratch-only).
+﻿// BA-3 inventory concurrency suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-inventory-concurrency.mjs --db <name> --port <port>
 // Races A-E run against the built server (HTTP, READ COMMITTED, row locks,
-// atomic predicates — never SERIALIZABLE, never read-check-write):
+// atomic predicates â€” never SERIALIZABLE, never read-check-write):
 //   A: same PIECE stock (1): two reserve(1) -> exactly one 201, one 409.
 //   B: same WEIGHT stock (1.000): two reserve(0.750) -> single winner.
 //   C: over-reservation (5): two reserve(3) -> single winner, reserved=3.
@@ -30,7 +30,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",

@@ -1,16 +1,17 @@
-// BA-7 replacements concurrency suite (real PostgreSQL, scratch-only).
+﻿// BA-7 replacements concurrency suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-replacements-concurrency.mjs --db <name> --port <port>
 // Only races between operations the frozen contract actually defines:
 //   R1 double-approve: one materialization, single winner, loser 409.
 //   R2 approve-vs-reject: one terminal outcome, loser 409, valid end state.
 //   R3 double-propose: one PROPOSED (partial UQ), loser 409.
-//   R4 cancel-vs-approve: either order wins coherently — no partial writes,
+//   R4 cancel-vs-approve: either order wins coherently â€” no partial writes,
 //     no deadlock, valid end state either way.
 // (No READY-transition race exists: nothing targets READY in this scope.)
 // Prints JSON, never secrets.
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -27,7 +28,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -64,6 +68,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const getH = async (path, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, { headers: { ...extra } });
@@ -82,7 +92,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -122,7 +132,7 @@ async function main() {
     cartIds.add(g.body.data.cart.id);
     for (const [vid, qty] of lines) await post(`/api/store/cart/items`, { productVariantId: vid, quantity: qty }, tok);
     await mergeTo(tok, sessTok);
-    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k }, null, H(sessTok));
+    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE }, null, H(sessTok));
     return o.body?.data?.order;
   };
   const itemsOf = async (orderId, sessTok) =>

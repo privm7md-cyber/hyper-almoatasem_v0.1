@@ -1,11 +1,11 @@
-// BA-5 cart API suite (scratch-only, needs built server pointed at DB).
+﻿// BA-5 cart API suite (scratch-only, needs built server pointed at DB).
 // Usage: node scripts/api/t-cart.mjs --db <name> --port <port>
 // Covers: guest/customer cart create+resolve, add (aggregate, snapshots,
 // counting units, step/pack gates), set-qty, remove, clear, merge
 // (reassign/sum/drop + report), subtotal math, ownership isolation, and
 // error envelopes. Uses frozen catalog fixtures (Romi/P330/P1L) read-only
 // plus BA-4 identify for customer carts; all carts/customers created here
-// are removed in cleanup. Draft only — asserts inventory untouched.
+// are removed in cleanup. Draft only â€” asserts inventory untouched.
 // Prints JSON, never tokens beyond test flow (no secrets).
 import "dotenv/config";
 import { Client } from "pg";
@@ -25,7 +25,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -95,7 +98,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null, status: reg.status };

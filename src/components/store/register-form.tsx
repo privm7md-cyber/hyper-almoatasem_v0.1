@@ -10,6 +10,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppError, apiRequest } from "@/lib/frontend/api-client";
 import { returnToQuery, safeReturnTo } from "@/lib/frontend/return-to";
+import { clearGuestCartToken, readGuestCartToken } from "@/components/store/guest-cart-token";
+import { notifyCartCount } from "@/components/store/cart-badge";
 import { Field, TextInput } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
@@ -19,13 +21,19 @@ export function RegisterForm() {
   const [firstName, setFirstName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ phone?: string; firstName?: string; password?: string }>({});
   const [pending, setPending] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (pending) return;
     setError(null);
-    if (phone.trim() === "" || firstName.trim() === "" || password === "") {
+    const nextErrors: { phone?: string; firstName?: string; password?: string } = {};
+    if (phone.trim() === "") nextErrors.phone = "أدخل رقم الهاتف.";
+    if (firstName.trim() === "") nextErrors.firstName = "أدخل الاسم الأول.";
+    if (password === "") nextErrors.password = "أدخل كلمة المرور.";
+    setFieldErrors(nextErrors);
+    if (nextErrors.phone || nextErrors.firstName || nextErrors.password) {
       setError("أكمل الحقول المطلوبة: الهاتف والاسم وكلمة المرور.");
       return;
     }
@@ -35,6 +43,23 @@ export function RegisterForm() {
         method: "POST",
         body: { phone: phone.trim(), firstName: firstName.trim(), password },
       });
+      // GAP-01 remediation: automatically merge guest cart if a guest cart token exists.
+      const guestToken = readGuestCartToken();
+      if (guestToken) {
+        try {
+          const merged = await apiRequest<{ cart?: { lines?: unknown[] } }>("/api/store/cart/merge", {
+            method: "POST",
+            headers: { "x-guest-token": guestToken },
+          });
+          if (Array.isArray(merged?.data?.cart?.lines)) {
+            notifyCartCount(merged.data.cart.lines.length);
+          }
+        } catch {
+          // Non-fatal: registration still succeeds even if guest cart was empty/expired.
+        } finally {
+          clearGuestCartToken();
+        }
+      }
       const next = safeReturnTo(new URLSearchParams(window.location.search).get("next"));
       router.push(next);
       router.refresh();
@@ -51,12 +76,14 @@ export function RegisterForm() {
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-[420px] gap-3">
-      <Field label="رقم الهاتف">
+    <form onSubmit={(e) => void submit(e)} className="grid max-w-[420px] gap-3" noValidate>
+      <Field label="رقم الهاتف" required error={fieldErrors.phone}>
         {({ inputId, describedBy }) => (
           <TextInput
             inputId={inputId}
             describedBy={describedBy}
+            invalid={Boolean(fieldErrors.phone)}
+            required
             inputMode="tel"
             autoComplete="username"
             value={phone}
@@ -64,22 +91,26 @@ export function RegisterForm() {
           />
         )}
       </Field>
-      <Field label="الاسم الأول">
+      <Field label="الاسم الأول" required error={fieldErrors.firstName}>
         {({ inputId, describedBy }) => (
           <TextInput
             inputId={inputId}
             describedBy={describedBy}
+            invalid={Boolean(fieldErrors.firstName)}
+            required
             autoComplete="given-name"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
           />
         )}
       </Field>
-      <Field label="كلمة المرور" hint="12 حرفًا على الأقل حسب سياسة الخادم">
+      <Field label="كلمة المرور" required hint="12 حرفًا على الأقل حسب سياسة الخادم" error={fieldErrors.password}>
         {({ inputId, describedBy }) => (
           <TextInput
             inputId={inputId}
             describedBy={describedBy}
+            invalid={Boolean(fieldErrors.password)}
+            required
             type="password"
             autoComplete="new-password"
             value={password}

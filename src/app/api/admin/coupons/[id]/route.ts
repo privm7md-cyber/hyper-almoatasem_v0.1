@@ -18,9 +18,9 @@ import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
 import { couponPatchSchema } from "@/lib/promotions/validation";
-import { getCoupon } from "@/lib/promotions/queries";
+import { getCouponAdmin } from "@/lib/promotions/admin-coupon-queries";
 import { deleteCoupon, patchCoupon } from "@/lib/promotions/writes";
-import { toCoupon } from "@/lib/promotions/serialize";
+import { toAdminCoupon } from "@/lib/promotions/serialize";
 
 /**
  * The permission a coupon write needs:
@@ -55,12 +55,12 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const r = fail(new ApiError("VALIDATION", "Invalid coupon id."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const row = await getCoupon(id);
+  const row = await getCouponAdmin(id);
   if (!row) {
     const r = fail(new ApiError("NOT_FOUND", "Coupon not found."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const r = ok(toCoupon(row));
+  const r = ok(toAdminCoupon(row));
   return NextResponse.json(r.body, { status: r.status });
 }
 
@@ -106,7 +106,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const r = fail(new ApiError("NOT_FOUND", "Coupon not found."));
       return NextResponse.json(r.body, { status: r.status });
     }
-    const r = ok(toCoupon(updated));
+    const fresh = await getCouponAdmin(id);
+    const r = ok(fresh ? toAdminCoupon(fresh) : toAdminCoupon(updated as never));
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {
     const r = fail(error);

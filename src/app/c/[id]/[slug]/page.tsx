@@ -3,6 +3,7 @@
 // unknown/inactive id → not-found. Indexable with canonical slug.
 
 import type { Metadata } from "next";
+import { canonicalMetadata } from "@/lib/seo/canonical";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { StoreShell } from "@/components/store/store-shell";
@@ -14,11 +15,19 @@ import { PageTitle } from "@/components/ui/container";
 import { loadMoreCategory } from "@/app/actions/catalog";
 import {
   getAllBrands,
+  getAllCategories,
   getCategoryById,
   listCategoryProducts,
 } from "@/lib/frontend/storefront-reads";
+import { emptyCategoryCopy, selectCategoryChildren, selectCategoryParent } from "@/lib/frontend/category-context";
 import { hasAnyInventoryRows } from "@/lib/inventory/queries";
-import { LISTING_SORT_OPTIONS, loadMoreKey, parseListingParams, sortKeyFor } from "@/lib/frontend/listing-params";
+import {
+  LISTING_SORT_OPTIONS,
+  hasReversedPriceWindow,
+  loadMoreKey,
+  parseListingParams,
+  sortKeyFor,
+} from "@/lib/frontend/listing-params";
 import { slugMatches, wireSlugOf } from "@/lib/frontend/slug";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +40,11 @@ export async function generateMetadata({
   const { id } = await params;
   const category = await getCategoryById(id).catch(() => null);
   if (!category) return { title: "قسم غير موجود" };
-  return { title: category.name, description: `منتجات قسم ${category.name} في هايبر المعتصم.` };
+  return {
+    title: category.name,
+    description: `منتجات قسم ${category.name} في هايبر المعتصم.`,
+    ...canonicalMetadata(`/c/${category.id}/${wireSlugOf(category.slug)}`),
+  };
 }
 
 export default async function CategoryPage({
@@ -43,38 +56,94 @@ export default async function CategoryPage({
 }) {
   const { id, slug } = await params;
   const sp = await searchParams;
-  const category = await getCategoryById(id).catch(() => null);
+
+  // Batch 6 perf: Parallelize category lookup and catalog metadata reads via Promise.all
+  // instead of 5 serial round-trips, delivering the initial HTML chunk significantly faster.
+  const [category, allActiveCategories, brands, availabilityKnown] = await Promise.all([
+    getCategoryById(id).catch(() => null),
+    getAllCategories().catch(() => []),
+    getAllBrands().catch(() => []),
+    hasAnyInventoryRows().catch(() => false),
+  ]);
+
   if (!category) notFound();
   if (!slugMatches(slug, category.slug)) permanentRedirect(`/c/${category.id}/${wireSlugOf(category.slug)}`);
 
   const query = parseListingParams(sp, "listing");
-  // Phase 07 D02: the availability filter is only honoured when the catalog
-  // carries stock data. Without it the request is NOT narrowed by an
-  // impossible condition (which would empty the whole store's listing) and the
-  // panel states the reason instead.
-  const availabilityKnown = await hasAnyInventoryRows().catch(() => false);
   const effectiveQuery = availabilityKnown ? query : { ...query, inStock: null };
   let page: Awaited<ReturnType<typeof listCategoryProducts>> | null = null;
-  try {
-    page = await listCategoryProducts(category.id, effectiveQuery);
-  } catch {
-    page = null;
+  const reversedWindow = hasReversedPriceWindow(effectiveQuery);
+  if (!reversedWindow) {
+    try {
+      page = await listCategoryProducts(category.id, effectiveQuery);
+    } catch {
+      page = null;
+    }
   }
-  const brands = await getAllBrands().catch(() => []);
+  const parent = selectCategoryParent(category, allActiveCategories);
+  const subcategories = selectCategoryChildren(category, allActiveCategories);
+  // Empty-state honesty: merge nothing — a category with zero real products and
+  // a category whose filters matched nothing are different states (P05 wording).
+  const hasActiveFilters =
+    effectiveQuery.brandId !== null ||
+    effectiveQuery.type !== null ||
+    effectiveQuery.inStock !== null ||
+    effectiveQuery.minPrice !== null ||
+    effectiveQuery.maxPrice !== null;
+  const emptyCopy = emptyCategoryCopy(hasActiveFilters);
 
   return (
     <StoreShell>
       <nav aria-label="مسار التنقل" className="mt-4 text-sm text-secondary">
-        <Link href="/categories" className="hover:text-brand">
+        <Link href="/" prefetch={false} className="hover:text-brand">
+          الرئيسية
+        </Link>
+        <span aria-hidden="true"> / </span>
+        <Link href="/categories" prefetch={false} className="hover:text-brand">
           الأقسام
         </Link>
+        {parent ? (
+          <>
+            <span aria-hidden="true"> / </span>
+            <Link
+              href={`/c/${parent.id}/${wireSlugOf(parent.slug)}`}
+              prefetch={false}
+              className="hover:text-brand"
+            >
+              {parent.name}
+            </Link>
+          </>
+        ) : null}
         <span aria-hidden="true"> / </span>
         <span aria-current="page">{category.name}</span>
       </nav>
-      <div className="mt-2">
+      <div className="mt-3 rounded-card border border-line bg-white p-5 shadow-xs">
         <PageTitle>{category.name}</PageTitle>
+        {subcategories.length > 0 ? (
+          <p className="mt-1.5 text-sm text-secondary">
+            المُعروض ضمن هذا القسم يشمل منتجات أقسامه الفرعية أيضًا.
+          </p>
+        ) : null}
+        {subcategories.length > 0 ? (
+          <div className="mt-3.5">
+            <ul className="flex flex-wrap gap-2">
+              {subcategories.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/c/${c.id}/${wireSlugOf(c.slug)}`}
+                    prefetch={false}
+                    className="inline-flex min-h-[40px] items-center rounded-badge border border-line bg-purple-surface/65 px-3.5 text-sm font-medium text-ink transition-colors duration-150 hover:border-brand hover:bg-purple-surface hover:text-brand"
+                    aria-label={`قسم فرعي ${c.name} ضمن ${category.name}`}
+                  >
+                    {c.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
-      <div className="mt-3">
+      <div className="mt-4">
         <FilterPanel
           query={effectiveQuery}
           brands={brands}
@@ -84,20 +153,32 @@ export default async function CategoryPage({
           availabilityKnown={availabilityKnown}
         />
       </div>
-      {page === null ? (
+      {reversedWindow ? (
+        <div className="mt-4">
+          <EmptyState
+            title="نطاق السعر غير صالح"
+            hint="الحد الأول أكبر من الثاني — عدّل النطاق ثم أعد المحاولة."
+          />
+        </div>
+      ) : page === null ? (
         <div className="mt-4">
           <ErrorState title="تعذّر تحميل المنتجات" text="حاول إعادة تحميل الصفحة." />
         </div>
       ) : page.cards.length === 0 ? (
         <div className="mt-4">
-          <EmptyState title="لا توجد منتجات مطابقة" hint="جرّب تعديل الفلاتر أو مسحها." />
+          <EmptyState title={emptyCopy.title} hint={emptyCopy.hint} />
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {page.cards.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
+        <section aria-labelledby="category-products-heading">
+          <h2 id="category-products-heading" className="sr-only">
+            المنتجات
+          </h2>
+          <div className="mt-4 grid grid-cols-2 gap-3.5 md:grid-cols-4 md:gap-4">
+            {page.cards.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        </section>
       )}
       {page !== null ? (
         <LoadMore

@@ -21,7 +21,13 @@ import { prisma } from "@/lib/db";
 import { ApiError, businessRule, conflict } from "@/lib/api/errors";
 import { auditInTx } from "@/lib/api/audit";
 import { orderLockIds } from "@/lib/api/concurrency";
-import { preConsentCovers } from "@/lib/replacements/state-machine";
+import { preConsentCovered } from "@/lib/replacements/state-machine";
+import {
+  parseStoredAlternativesEnvelope,
+  serializeAlternatives,
+  serializeStoredAlternatives,
+  type StoredAlternative,
+} from "@/lib/replacements/validation";
 import {
   formatPiastres,
   lineTotalPiastres,
@@ -112,6 +118,7 @@ interface SubstituteCtx {
   saleStep: number | null;
   priceText: string;
   priceCents: number;
+  sizeValue: string | null;
 }
 
 async function loadSubstitute(
@@ -125,7 +132,7 @@ async function loadSubstitute(
     include: { product: { include: { brand: { select: { name: true } } } } },
   });
   if (!v) throw new ApiError("NOT_FOUND", "Substitute variant not found.", null);
-  if (!v.isActive || v.deletedAt !== null) onStale();
+  if (!v.isActive || v.deletedAt !== null || !v.product.isActive || v.product.deletedAt !== null) onStale();
   const unit = substituteUnit(v.product.productType, v.sizeUnit, v.product.saleStepGrams, quantity);
   const code = await tx.$queryRaw<Array<{ code: string; type: string }>>`
     SELECT code, type FROM product_codes
@@ -143,14 +150,22 @@ async function loadSubstitute(
     saleStep: v.product.saleStepGrams,
     priceText: v.price.toString(),
     priceCents: priceToPiastres(v.price.toString()),
+    sizeValue: v.sizeValue?.toString() ?? null,
   };
 }
 
 export interface ProposeArgs {
   orderId: string;
   orderItemId: string;
-  replacementVariantId: string;
-  replacementQuantity: string;
+  /** Owner decision update (2026-11-19): MULTI-ALTERNATIVE proposals —
+   *  the store sends ONE proposal with N alternatives; the singular columns
+   *  mirror alternative #1 (frozen table keeps its single-row semantics). */
+  alternatives: Array<{
+    replacementVariantId: string;
+    replacementQuantity: string;
+    reason?: string | null;
+  }>;
+  /** Proposal-level reason (kept for the aggregate + card message). */
   reason: string | null;
   markUnavailable: boolean;
   proposerType: "STAFF" | "SYSTEM";
@@ -187,29 +202,43 @@ export async function proposeReplacement(args: ProposeArgs): Promise<string> {
         throw conflict("Line cannot take a replacement proposal.", { itemStatus: item.item_status });
       }
 
-      const sub = await loadSubstitute(tx, args.replacementVariantId, args.replacementQuantity, () => {
-        throw businessRule("Substitute variant is not sellable.", null);
-      });
-      const diffCents =
-        (lineTotalPiastres(args.replacementQuantity, sub.priceText) as number) -
-        priceToPiastres(item.est);
+      const subs: SubstituteCtx[] = [];
+      for (const alt of args.alternatives) {
+        subs.push(
+          await loadSubstitute(tx, alt.replacementVariantId, alt.replacementQuantity, () => {
+            throw businessRule("Substitute variant is not sellable.", null);
+          }),
+        );
+      }
+      const sub = subs[0];
+      const diffCentsList = subs.map((s, i) =>
+        (lineTotalPiastres(args.alternatives[i].replacementQuantity, s.priceText) as number) - priceToPiastres(item.est),
+      );
+      const diffCents = diffCentsList[0] as number;
 
       if (flip) {
         await tx.$executeRaw`
           UPDATE order_items SET item_status = 'UNAVAILABLE' WHERE id = ${args.orderItemId}::uuid`;
       }
+      const storedAlts = serializeAlternatives(args.alternatives, subs.map((s) => ({
+        priceText: s.priceText,
+        variantName: s.variantName,
+        productName: s.productName,
+        sizeValue: s.sizeValue,
+        unit: s.unit,
+        productType: s.productType,
+      })), diffCentsList);
+      const storedJson = serializeStoredAlternatives(storedAlts, args.reason);
+      const storedReason = storedAlts[0]?.reason ?? "";
       const rows = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO order_item_replacements (id, order_item_id, replacement_variant_id,
           replacement_quantity, replacement_unit_price, price_difference, reason,
           status, proposed_by_type, proposed_by_id)
-        VALUES (${newUuidV7()}::uuid, ${args.orderItemId}::uuid, ${args.replacementVariantId}::uuid,
-          ${args.replacementQuantity}::numeric, ${sub.priceText}::numeric,
-          ${formatPiastres(diffCents)}::numeric, ${args.reason}::text,
+        VALUES (${newUuidV7()}::uuid, ${args.orderItemId}::uuid, ${sub.variantId}::uuid,
+          ${sub.quantity}::numeric, ${sub.priceText}::numeric,
+          ${formatPiastres(diffCents)}::numeric, ${storedReason}::text,
           'PROPOSED', ${args.proposerType}, ${args.proposerId}::uuid)
         RETURNING id::text AS id`;
-      // PRE-BA-11 decision #2: staff proposals pair an audit row in this
-      // same tx (no SYSTEM proposer engine exists frozen; only the STAFF
-      // admin surface audits).
       if (args.proposerType === "STAFF" && args.proposerId !== null) {
         await auditInTx(tx, {
           action: "replacements.propose",
@@ -217,9 +246,17 @@ export async function proposeReplacement(args: ProposeArgs): Promise<string> {
           entityType: "order_item_replacements",
           entityId: rows[0].id,
           oldValues: null,
-          newValues: { orderItemId: args.orderItemId, status: "PROPOSED" },
+          newValues: {
+            orderItemId: args.orderItemId,
+            status: "PROPOSED",
+            alternativesCount: storedAlts.length,
+          },
         });
       }
+      // Multi-alt cards live in the proposal's reason (versioned JSON); the
+      // singular columns above mirror alternative #1 per frozen schema.
+      await tx.$executeRaw`
+        UPDATE order_item_replacements SET reason = ${storedJson}::text WHERE id = ${rows[0].id}::uuid`;
       return rows[0].id;
     });
   } catch (error) {
@@ -238,6 +275,9 @@ interface ApprovalContext {
   origVariantId: string;
   origRequested: string;
   sub: SubstituteCtx;
+  storedAlternatives: StoredAlternative[];
+  proposalReason: string | null;
+  chosenIndex: number | null;
 }
 
 /** Shared R10 materialization on an open tx (locks already held by the
@@ -271,6 +311,13 @@ async function approveSteps(
   const estimatedText = formatPiastres(
     lineTotalPiastres(ctx.sub.quantity, ctx.sub.priceText) as number,
   );
+  // The frozen singular columns mirror alternative #1 while PROPOSED. Once a
+  // customer chooses, they must mirror the CHOSEN alternative — otherwise the
+  // admin/customer cards keep showing alt #1's price and quantity after an
+  // alt #2 approval (the materialized line itself was already correct).
+  const chosen = ctx.storedAlternatives.length > 0
+    ? ctx.storedAlternatives[ctx.chosenIndex ?? 0] ?? null
+    : null;
   await tx.$executeRaw`
     INSERT INTO order_items (id, order_id, product_variant_id,
       product_name_snapshot, variant_name_snapshot, brand_name_snapshot,
@@ -282,10 +329,18 @@ async function approveSteps(
       ${ctx.sub.code}, ${ctx.sub.codeType}, ${ctx.sub.unit},
       ${ctx.sub.productType}, ${ctx.sub.saleStep}, ${ctx.sub.priceText}::numeric,
       ${ctx.sub.quantity}::numeric, ${estimatedText}::numeric)`;
+  const storedReason = ctx.storedAlternatives.length > 0
+    ? serializeStoredAlternatives(ctx.storedAlternatives, ctx.proposalReason, ctx.chosenIndex)
+    : null;
   await tx.$executeRaw`
     UPDATE order_item_replacements
        SET status = ${status}, decided_by_type = ${deciderType},
-           decided_by_id = ${deciderId}::uuid, replacement_order_item_id = ${lineId}::uuid
+           decided_by_id = ${deciderId}::uuid, replacement_order_item_id = ${lineId}::uuid,
+           replacement_variant_id = COALESCE(${chosen?.variantId ?? null}::uuid, replacement_variant_id),
+           replacement_quantity = COALESCE(${chosen?.quantity ?? null}::numeric, replacement_quantity),
+           replacement_unit_price = COALESCE(${chosen?.price ?? null}::numeric, replacement_unit_price),
+           price_difference = COALESCE(${chosen?.priceDifference ?? null}::numeric, price_difference),
+           reason = COALESCE(${storedReason}::text, reason)
      WHERE id = ${ctx.replacementId}::uuid`;
   await tx.$executeRaw`
     UPDATE order_items SET item_status = 'REPLACED' WHERE id = ${ctx.orderItemId}::uuid`;
@@ -295,6 +350,7 @@ async function loadApprovalContext(
   tx: Prisma.TransactionClient,
   replacementId: string,
   expectedOrderId: string | null,
+  alternativeIndex: number | null | undefined,
 ): Promise<ApprovalContext> {
   const reps = await tx.$queryRaw<
     Array<{
@@ -304,6 +360,7 @@ async function loadApprovalContext(
       status: string;
       rep_variant: string;
       rep_qty: string;
+      rep_reason: string | null;
       orig_variant: string;
       orig_req: string;
       orig_actual: string | null;
@@ -312,6 +369,7 @@ async function loadApprovalContext(
   >`
     SELECT r.id::text AS id, oi.order_id::text AS order_id, r.order_item_id::text AS order_item_id,
       r.status, r.replacement_variant_id::text AS rep_variant, r.replacement_quantity::text AS rep_qty,
+      r.reason AS rep_reason,
       oi.product_variant_id::text AS orig_variant, oi.requested_quantity::text AS orig_req,
       oi.actual_quantity::text AS orig_actual, oi.item_status AS orig_status
       FROM order_item_replacements r JOIN order_items oi ON oi.id = r.order_item_id
@@ -328,14 +386,22 @@ async function loadApprovalContext(
   if (rep.status !== "PROPOSED") {
     throw conflict("Replacement is no longer open.", { status: rep.status });
   }
-  if (rep.orig_actual !== null || (rep.orig_status !== "PENDING" && rep.orig_status !== "UNAVAILABLE")) {
-    throw conflict("Original line cannot be replaced now.", { itemStatus: rep.orig_status });
+  const storedEnvelope = parseStoredAlternativesEnvelope(rep.rep_reason);
+  const storedAlts = storedEnvelope?.alternatives ?? [];
+  // Owner decision update (2026-11-19): the customer chose ONE alternative —
+  // validate the choice server-side against the stored alternatives.
+  let sub: SubstituteCtx;
+  if (alternativeIndex != null) {
+    const alt = storedAlts[alternativeIndex];
+    if (!alt) throw conflict("The chosen alternative is no longer available.", null);
+    sub = await loadSubstitute(tx, alt.variantId, alt.quantity, () => {
+      throw conflict("Substitute is no longer sellable.", null);
+    });
+  } else {
+    sub = await loadSubstitute(tx, rep.rep_variant, rep.rep_qty, () => {
+      throw conflict("Substitute is no longer sellable.", null);
+    });
   }
-  await tx.$queryRaw`
-    SELECT 1 FROM order_items WHERE id = ${rep.order_item_id}::uuid FOR UPDATE`;
-  const sub = await loadSubstitute(tx, rep.rep_variant, rep.rep_qty, () => {
-    throw conflict("Substitute is no longer sellable.", null);
-  });
   return {
     replacementId: rep.id,
     orderId: rep.order_id,
@@ -343,6 +409,9 @@ async function loadApprovalContext(
     origVariantId: rep.orig_variant,
     origRequested: rep.orig_req,
     sub,
+    storedAlternatives: storedAlts,
+    proposalReason: storedEnvelope?.proposalReason ?? null,
+    chosenIndex: storedAlts.length > 0 ? (alternativeIndex ?? 0) : null,
   };
 }
 
@@ -353,6 +422,10 @@ export interface DecideArgs {
   deciderType: "CUSTOMER" | "STAFF" | "GUEST";
   /** Guest deciders carry NULL (no customer row exists). */
   deciderId: string | null;
+  /** Owner decision update (2026-11-19): multi-alt — the customer picks ONE
+   *  alternative (0-based index into the stored alternatives). Server-side
+   *  validated against the stored alternatives before any materialization. */
+  alternativeIndex?: number | null;
 }
 
 /**
@@ -375,7 +448,7 @@ export async function decideReplacement(args: DecideArgs): Promise<string> {
   }
   try {
     return await prisma.$transaction(async (tx) => {
-      const ctx = await loadApprovalContext(tx, args.replacementId, args.expectedOrderId);
+    const ctx = await loadApprovalContext(tx, args.replacementId, args.expectedOrderId, args.alternativeIndex);
       if (args.outcome === "reject") {
         const status = "CUSTOMER_REJECTED";
         await tx.$executeRaw`
@@ -415,6 +488,57 @@ export async function decideReplacement(args: DecideArgs): Promise<string> {
   }
 }
 
+export interface RejectAllProposedResult {
+  rejectedProposals: number;
+  itemStatus: string;
+}
+
+/**
+ * Owner decision update (2026-11-19): customer rejects ALL alternatives of
+ * a line — mark the original order item CANCELLED ("cancelled/omitted
+ * within the order", catalog product untouched). All open PROPOSED
+ * proposals of the item are flipped to CUSTOMER_REJECTED atomically.
+ */
+export async function rejectAllProposedReplacements(args: {
+  expectedOrderId: string;
+  orderItemId: string;
+  deciderType: "CUSTOMER" | "GUEST";
+  deciderId: string | null;
+}): Promise<RejectAllProposedResult> {
+  return prisma.$transaction(async (tx) => {
+    const orders = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT o.status FROM orders o JOIN order_items i ON i.order_id = o.id
+       WHERE i.id = ${args.orderItemId}::uuid AND o.id = ${args.expectedOrderId}::uuid FOR UPDATE`;
+    if (orders.length === 0) throw new ApiError("NOT_FOUND", "Order item not found.", null);
+    assertWorkableOrderStatus(orders[0].status);
+    const item = await tx.$queryRaw<Array<{ item_status: string }>>`
+      SELECT item_status FROM order_items
+       WHERE id = ${args.orderItemId}::uuid AND order_id = ${args.expectedOrderId}::uuid FOR UPDATE`;
+    if (item.length === 0) throw new ApiError("NOT_FOUND", "Order item not found.", null);
+    if (item[0].item_status !== "PENDING" && item[0].item_status !== "UNAVAILABLE") {
+      throw conflict("This line cannot take a replacement decision.", { itemStatus: item[0].item_status });
+    }
+    const upd = await tx.$queryRaw<Array<{ one: number }>>`
+      UPDATE order_items SET item_status = 'UNAVAILABLE'
+       WHERE id = ${args.orderItemId}::uuid AND item_status IN ('PENDING', 'UNAVAILABLE')
+      RETURNING 1 AS one`;
+    if (upd.length === 0) {
+      throw conflict("This line cannot take a replacement decision.", { itemStatus: item[0].item_status });
+    }
+    const repl = await tx.$queryRaw<Array<{ id: string }>>`
+      UPDATE order_item_replacements SET status = 'CUSTOMER_REJECTED',
+        decided_by_type = ${args.deciderType}, decided_by_id = ${args.deciderId}::uuid
+       WHERE order_item_id = ${args.orderItemId}::uuid AND status = 'PROPOSED'
+      RETURNING id::text AS id`;
+    // Owner decision update (2026-11-19): "cancelled/omitted within the order"
+    // is the UNAVAILABLE state on the frozen DB (transition trigger bans
+    // UNAVAILABLE→CANCELLED; the line is omitted from preparation: the R2
+    // READY gate only blocks on PENDING lines). The catalog product is
+    // untouched.
+    return { rejectedProposals: repl.length, itemStatus: "UNAVAILABLE" };
+  });
+}
+
 export interface AutoAcceptArgs {
   replacementId: string;
   executorAdminId: string;
@@ -433,7 +557,7 @@ export interface AutoAcceptArgs {
 export async function autoAcceptReplacement(args: AutoAcceptArgs): Promise<string> {
   try {
     return await prisma.$transaction(async (tx) => {
-      const ctx = await loadApprovalContext(tx, args.replacementId, null);
+      const ctx = await loadApprovalContext(tx, args.replacementId, null, null);
       const cust = await tx.$queryRaw<Array<{ consent: boolean; diff: string; est: string }>>`
         SELECT c.auto_accept_replacements AS consent,
           r.price_difference::text AS diff, oi.estimated_total::text AS est
@@ -443,10 +567,16 @@ export async function autoAcceptReplacement(args: AutoAcceptArgs): Promise<strin
           JOIN customers c ON c.id = o.customer_id
          WHERE r.id = ${args.replacementId}::uuid`;
       const row = cust[0];
-      const covered = preConsentCovers(
-        row.consent === true,
-        priceToPiastres(row.diff),
-        priceToPiastres(row.est),
+      // A guest order has no customer row, so the lookup returns nothing: the
+      // replacement is not covered and explicit approval stays required.
+      const covered = preConsentCovered(
+        row === undefined
+          ? undefined
+          : {
+              consent: row.consent === true,
+              diff: row.diff,
+              est: row.est,
+            },
       );
       if (!covered) {
         throw businessRule("Pre-consent does not cover this replacement.", null);

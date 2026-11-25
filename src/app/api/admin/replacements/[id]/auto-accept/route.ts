@@ -7,6 +7,7 @@
 // non-null decider id on terminal rows).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
@@ -14,7 +15,11 @@ import { autoAcceptReplacement } from "@/lib/replacements/writes";
 import { getReplacement } from "@/lib/replacements/queries";
 import { toReplacement } from "@/lib/replacements/serialize";
 
-export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("orders.update");
   if (auth.ok === false) {
     const r = fail(

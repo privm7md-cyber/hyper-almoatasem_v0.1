@@ -1,20 +1,23 @@
-// FE-12 admin segment error boundary: isolates admin failures from the storefront.
-// Same honesty contract as the root boundary — shared ErrorState, safe reset,
-// no internals/secrets (digest is opaque). Admin auth gates (redirect/403) are
-// NOT errors and never reach this boundary.
+// Isolate admin failures without revealing internals or asserting whether a
+// pending write succeeded. Auth gates (redirect/403) are not errors.
 
 "use client";
 
-import { ErrorState } from "@/components/ui/states";
+import { AdminButton } from "@/components/admin/ui/controls";
 
 export default function AdminError({ reset }: { reset: () => void }) {
   return (
-    <main className="mx-auto flex w-full max-w-[560px] flex-1 flex-col justify-center p-6">
-      <ErrorState
-        title="حدث خطأ في لوحة الإدارة"
-        text="حاول إعادة المحاولة. لم تُفقد بيانات — لم يُرسل أي إجراء."
-        onRetry={reset}
-      />
-    </main>
+    <div className="adm-empty adm-empty--danger" role="alert">
+      <p className="adm-empty-title">تعذّر عرض هذه الصفحة في لوحة الإدارة</p>
+      <p className="adm-empty-hint">
+        تعذّر عرض الصفحة. جرّب تحميلها تاني. لو كنت بتنفّذ إجراء، راجع حالته قبل تكراره؛
+        مش ممكن نتأكد من نتيجته من الشاشة دي.
+      </p>
+      <div className="adm-btn-row">
+        <AdminButton variant="primary" onClick={reset}>
+          جرّب تاني
+        </AdminButton>
+      </div>
+    </div>
   );
 }

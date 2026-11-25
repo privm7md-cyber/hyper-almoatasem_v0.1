@@ -1,4 +1,4 @@
-// BA-B catalog/search/media verification (real PostgreSQL, scratch-only).
+﻿// BA-B catalog/search/media verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-bab-catalog.mjs --db <name> --port <port>
 // Covers: keyset pagination correctness (duplicate sort values, both dirs,
 // invalid cursor, mid-walk deactivation), price/availability/subtree filters
@@ -24,7 +24,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -128,7 +131,7 @@ async function main() {
       planText.split("\n").slice(0, 3).join(" / ").slice(0, 160));
     // Latency evidence on 20k rows (API-observed; generous bound, actuals recorded).
     const latSamples = [];
-    for (const qq of ["سكر", "ارز", "بيسبي", "مكرونة"]) {
+    for (const qq of ["سكر", "ط§ط±ط²", "بيسبي", "ظ…ظƒط±ظˆظ†ط©"]) {
       const t0 = Date.now();
       const rr = await get(`/api/store/catalog/search?q=${encodeURIComponent(qq)}&limit=10`);
       latSamples.push(Date.now() - t0);

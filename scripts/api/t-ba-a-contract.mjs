@@ -1,10 +1,10 @@
-// BA-A API contract suite (real PostgreSQL scratch + static checks).
+﻿// BA-A API contract suite (real PostgreSQL scratch + static checks).
 // Usage: node scripts/api/t-ba-a-contract.mjs --db <name> --port <port>
 // Covers the BA-A foundation gate: canonical envelopes (success/error/201/
 // safe-500), strict validation, pagination, decimal strings, ISO instants,
 // Idempotency-Key header contract (6-case matrix), SQL time boundaries,
 // phone ladder (+ concurrent identity), guest-token lifecycle (incl.
-// expired-token rejection), and bidirectional openapi.yaml ⇄ routes
+// expired-token rejection), and bidirectional openapi.yaml â‡„ routes
 // coverage. Prints JSON, never secrets.
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 import { checkRouteCoverage } from "./route-coverage.mjs";
 
 const args = process.argv.slice(2);
@@ -29,7 +30,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -45,7 +49,7 @@ const CANON = (p) => "2010" + p.slice(3);
 const ROOT = process.cwd();
 
 async function main() {
-  // ---------- static S1: openapi ⇄ routes bidirectional coverage ----------
+  // ---------- static S1: openapi â‡„ routes bidirectional coverage ----------
   // Logic lives in ./route-coverage.mjs (shared with the CI drift gate).
   try {
     const { docPaths, missingInDoc, missingInImpl } = checkRouteCoverage();
@@ -103,6 +107,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const get = async (path, cookie = null, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, { headers: { ...(cookie ? { cookie } : {}), ...headers } });
@@ -141,7 +151,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -290,7 +300,7 @@ async function main() {
           ...(sessTok ? H(sessTok) : {}),
           ...(keyHeader ? { "idempotency-key": keyHeader } : {}),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ expectedDeliveryFee: FEE, ...(body ?? {}) }),
       });
       return { status: r.status, body: await r.json().catch(() => ({})) };
     };
@@ -325,7 +335,7 @@ async function main() {
     t("i5-failed-reusable", i5bad.status === 404 && i5retry.status === 201, `${i5bad.status}/${i5retry.status}`);
     const t6 = await mkGuestCart([[P330, "1"]]);
     await mergeTo(t6, sCu.tok);
-    const i6both = await orderPost(sCu.tok, { addressId: idAddr, idempotencyKey: key("other") }, key("h6"));
+    const i6both = await orderPost(sCu.tok, { addressId: idAddr, idempotencyKey: key("other"), expectedDeliveryFee: FEE }, key("h6"));
     t("i6-conflict-400", i6both.status === 400, String(i6both.status));
     const i6bad = await orderPost(sCu.tok, { addressId: idAddr }, "has space");
     t("i6-malformed-400", i6bad.status === 400, String(i6bad.status));

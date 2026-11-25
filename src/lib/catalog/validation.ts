@@ -8,6 +8,72 @@ import { z } from "zod";
 import { strictObject, uuidSchema, opaqueCursorSchema, paginationSchema } from "@/lib/api/validation";
 import { isValidPriceText } from "@/lib/catalog/price";
 
+// P12-07 SEC-07: Disable Zod v4 `new Function("")` JIT codegen probe so client
+// components importing catalog schemas (e.g., ProductImageManager on
+// /admin/products/[id]) never trigger CSP `script-src: eval` violations.
+z.config({ jitless: true });
+
+function isDisallowedAssetHost(rawHostname: string): boolean {
+  const h = rawHostname.toLowerCase();
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h === "0.0.0.0" ||
+    h === "[::1]" ||
+    h === "[::]" ||
+    /^\[(fc|fd)[0-9a-f]{0,2}:/i.test(h) ||
+    /^\[fe[89ab][0-9a-f]:/i.test(h)
+  ) {
+    return true;
+  }
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+  }
+  return false;
+}
+
+function isSafeHttpsAssetUrl(s: string): boolean {
+  if (/[\s\u0000-\u001f]/.test(s)) return false;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "https:") return false;
+    if (u.username !== "" || u.password !== "") return false;
+    if (!u.hostname || isDisallowedAssetHost(u.hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * P12-07 SEC-08: Safe asset reference for category.image / brand.logo.
+ * Accepts either a safe `https://` URL (no embedded credentials, no loopback/private/metadata IP)
+ * or a clean root-relative path (`/assets/...`), blocking `javascript:`, `data:`, `vbscript:`,
+ * `file:`, `http:`, and protocol-relative `//` / `/\` references.
+ */
+export const catalogAssetRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine(
+    (s) => {
+      if (/[\s\u0000-\u001f\\]/.test(s)) return false;
+      if (s.startsWith("/")) {
+        const lower = s.toLowerCase();
+        return !lower.startsWith("//") && !lower.startsWith("/%2f") && !lower.startsWith("/%5c");
+      }
+      return isSafeHttpsAssetUrl(s);
+    },
+    { message: "Invalid asset URL." },
+  );
+
 /** Price-window wire shape: positive decimal text (domain binds semantics). */
 const priceFilterSchema = z
   .string()
@@ -126,7 +192,7 @@ export const categoryInputSchema = strictObject({
   name: nameSchema.max(120),
   slug: slugInputSchema.max(140).nullish(),
   description: z.string().max(2000).nullish(),
-  image: z.string().trim().max(500).nullish(),
+  image: catalogAssetRefSchema.nullish(),
   parentId: uuidSchema.nullish(),
   sortOrder: z.number().int().min(0).nullish(),
   isActive: z.boolean().nullish(),
@@ -135,7 +201,7 @@ export const categoryInputSchema = strictObject({
 export const brandInputSchema = strictObject({
   name: nameSchema.max(120),
   slug: slugInputSchema.max(140).nullish(),
-  logo: z.string().trim().max(500).nullish(),
+  logo: catalogAssetRefSchema.nullish(),
   isActive: z.boolean().nullish(),
 });
 
@@ -161,6 +227,19 @@ export const productPatchSchema = strictObject({
   categoryId: uuidSchema.optional(),
   brandId: uuidSchema.nullish(),
   isActive: z.boolean().optional(),
+  // GD-2 / BL-02 (owner-approved package, 2026-11-01): the sale-usage fields
+  // become patchable. productType/unit are optional-only (non-nullable
+  // columns — null is a 400); saleStepGrams is nullish (null clears the
+  // nullable column, absent leaves it). The TWO-LEGAL-STATES transition rule
+  // (chk_products_weight_rule) is enforced in the domain service against the
+  // LOCKED prior state — 422 before any write; the DB CHECK remains the
+  // final enforcer. The concurrency token is accepted in the body
+  // (`expectedUpdatedAt`) as well as the `If-Match` header (header wins);
+  // it is metadata, never a product field, and is stripped before the write.
+  productType: productTypeSchema.optional(),
+  unit: productUnitSchema.optional(),
+  saleStepGrams: z.number().int().positive().nullish(),
+  expectedUpdatedAt: z.string().trim().min(1).max(40).optional(),
 });
 
 /** Variant PATCH shape: name/isActive are optional-only (non-nullable
@@ -190,7 +269,7 @@ export const categoryPatchSchema = strictObject({
   name: nameSchema.max(120).optional(),
   slug: slugInputSchema.max(140).nullish(),
   description: z.string().max(2000).nullish(),
-  image: z.string().trim().max(500).nullish(),
+  image: catalogAssetRefSchema.nullish(),
   parentId: uuidSchema.nullish(),
   sortOrder: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
@@ -201,7 +280,7 @@ export const categoryPatchSchema = strictObject({
 export const brandPatchSchema = strictObject({
   name: nameSchema.max(120).optional(),
   slug: slugInputSchema.max(140).nullish(),
-  logo: z.string().trim().max(500).nullish(),
+  logo: catalogAssetRefSchema.nullish(),
   isActive: z.boolean().optional(),
 });
 
@@ -278,16 +357,7 @@ export const imageUrlSchema = z
   .trim()
   .min(1)
   .max(2000)
-  .refine(
-    (s) => {
-      try {
-        return new URL(s).protocol === "https:";
-      } catch {
-        return false;
-      }
-    },
-    { message: "Invalid image URL." },
-  );
+  .refine((s) => isSafeHttpsAssetUrl(s), { message: "Invalid image URL." });
 
 export const imageInputSchema = strictObject({
   url: imageUrlSchema,

@@ -1,9 +1,13 @@
 // FE-2 store footer (server): approved content only — brand + real destinations.
-// No address/phone/hours/social/legal links (all VERIFIED absent — nothing invented).
+// No address/hours/social/legal links (all VERIFIED absent — nothing invented).
 // FE-9 adds the published informational pages only; pages whose content is still
 // blocked on owner input are deliberately absent (see the Phase 09 decision register).
+// Phase-13: the owner approved ONE contact channel — the phone number in
+// src/lib/store/contact.ts — so it is shown with a tel: link. No WhatsApp, no
+// email, no address, no opening hours: none of them is approved.
 
 import Link from "next/link";
+import { StoreContactLink } from "@/components/store/contact-link";
 
 const BROWSE_LINKS = [
   { href: "/", label: "الرئيسية" },
@@ -22,6 +26,7 @@ const INFO_LINKS = [
   { href: "/cancellation", label: "سياسة الإلغاء" },
   { href: "/replacement", label: "سياسة الاستبدال" },
   { href: "/order-help", label: "مساعدة الطلب" },
+  { href: "/contact", label: "تواصل معنا" },
 ];
 
 export function StoreFooter() {
@@ -38,15 +43,20 @@ export function StoreFooter() {
           <p className="mt-1 max-w-[36ch] text-sm leading-relaxed">
             احتياجات بيتك بسهولة ووضوح، وثقة في كل خطوة.
           </p>
+          <p className="mt-3 text-sm">
+            <span className="font-semibold text-white">تواصل معنا: </span>
+            <StoreContactLink className="inline-flex min-h-[44px] min-w-[44px] items-center gap-1.5 font-semibold text-white hover:text-[color:var(--brand-orange)]" />
+          </p>
         </div>
         <nav aria-label="روابط المتجر" className="md:justify-self-end">
           <h2 className="mb-2 text-sm font-bold text-white">تصفّح</h2>
-          <ul className="grid gap-2 text-sm font-semibold">
+          <ul className="grid gap-1 text-sm font-semibold">
             {BROWSE_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  className="inline-flex min-h-[32px] items-center gap-1.5 transition-colors duration-200 hover:text-white"
+                  prefetch={false}
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center gap-1.5 transition-colors duration-200 hover:text-white"
                 >
                   {link.label}
                 </Link>
@@ -56,12 +66,13 @@ export function StoreFooter() {
         </nav>
         <nav aria-label="معلومات المتجر" className="md:justify-self-end">
           <h2 className="mb-2 text-sm font-bold text-white">معلومات</h2>
-          <ul className="grid gap-2 text-sm">
+          <ul className="grid gap-1 text-sm">
             {INFO_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  className="inline-flex min-h-[32px] items-center gap-1.5 transition-colors duration-200 hover:text-white"
+                  prefetch={false}
+                  className="inline-flex min-h-[44px] min-w-[44px] items-center gap-1.5 transition-colors duration-200 hover:text-white"
                 >
                   {link.label}
                 </Link>

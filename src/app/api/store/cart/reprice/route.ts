@@ -6,6 +6,7 @@
 // 404 (never resurrected here).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { resolveStoreOwner } from "@/lib/cart/owner";
 import { getCartFull } from "@/lib/cart/queries";
@@ -14,6 +15,10 @@ import { toCart } from "@/lib/cart/serialize";
 import { cartRepriceSchema } from "@/lib/cart/validation";
 
 export async function POST(request: Request) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   let body: unknown = {};
   try {
     const text = await request.text();

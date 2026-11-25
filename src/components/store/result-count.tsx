@@ -22,5 +22,9 @@ export function ResultCount({ initialCount }: { initialCount: number }) {
     return () => window.removeEventListener(RESULTS_APPENDED_EVENT, onAppended);
   }, []);
 
-  return <span>تم عرض {count} منتج</span>;
+  return (
+    <span role="status" aria-live="polite" aria-atomic="true">
+      تم عرض {count} منتج
+    </span>
+  );
 }

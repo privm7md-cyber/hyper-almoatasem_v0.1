@@ -7,6 +7,7 @@
 // consumed/non-guest cart → 409.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { cartMergeSchema } from "@/lib/cart/validation";
 import { GUEST_TOKEN_HEADER } from "@/lib/cart/owner";
@@ -17,6 +18,12 @@ import { requireCustomer } from "@/lib/customers/session";
 import { toCart } from "@/lib/cart/serialize";
 
 export async function POST(request: Request) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const rawToken = request.headers.get(GUEST_TOKEN_HEADER);
   const guestToken = rawToken && rawToken.trim() !== "" ? rawToken.trim() : null;
   if (!guestToken || !isGuestTokenShape(guestToken)) {

@@ -1,0 +1,3 @@
+-- (Intentionally empty.) This migration is SQL-only; all DDL lives in
+-- migration.sql. The artifact is present so the bootstrap tool's uniform
+-- (migration.sql, supplement.sql) contract stays satisfied.

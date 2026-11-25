@@ -11,6 +11,11 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { hashToken, newOpaqueToken } from "@/lib/auth/tokens";
 import {
+  assertAdminPreviewWritesAllowed,
+  isAdminReadOnlyPreviewConfigured,
+} from "@/lib/auth/admin-read-only-preview";
+import { isAdminPreviewReadRequestAllowed } from "@/lib/auth/admin-preview-request";
+import {
   PROD_SESSION_COOKIE_NAME,
   sessionCookieName,
   sessionCookieOptions,
@@ -46,6 +51,7 @@ export async function createSession(input: {
   ip?: string | null;
   userAgent?: string | null;
 }): Promise<{ token: string; record: SessionRecord }> {
+  assertAdminPreviewWritesAllowed();
   const token = newOpaqueToken();
   const tokenHash = hashToken(token);
   const rows = await prisma.$queryRaw<SessionRow[]>`
@@ -73,8 +79,9 @@ export interface ValidatedSession {
 
 /**
  * Validate a raw session token. Checks existence, revocation, expiry, and
- * touches last_seen_at. Returns null for ANY invalid state (callers treat all
- * nulls identically — no reason is leaked).
+ * touches last_seen_at except in configured development/loopback preview.
+ * Invalid preview contexts fail closed before SQL. Returns null for ANY
+ * invalid state (callers treat all nulls identically — no reason is leaked).
  */
 export async function validateSessionToken(
   rawToken: string | undefined | null,
@@ -82,6 +89,7 @@ export async function validateSessionToken(
   if (!rawToken || typeof rawToken !== "string" || rawToken.length !== 64) {
     return null;
   }
+  if (!(await isAdminPreviewReadRequestAllowed())) return null;
   const tokenHash = hashToken(rawToken);
   // Expiry is gated INSIDE the database (single clock source — the ONLY
   // truth here). No JS re-check on the decoded timestamp: Prisma 7.10
@@ -98,14 +106,19 @@ export async function validateSessionToken(
    `;
   const row = rows[0];
   if (!row) return null;
-  await prisma.$executeRaw`
-    UPDATE admin_sessions SET last_seen_at = now() WHERE id = ${row.id}::uuid
-  `;
+  // The unchanged SQL above remains authoritative; preview skips ONLY this
+  // activity telemetry, never token validation, expiry, revocation or RBAC.
+  if (!isAdminReadOnlyPreviewConfigured()) {
+    await prisma.$executeRaw`
+      UPDATE admin_sessions SET last_seen_at = now() WHERE id = ${row.id}::uuid
+    `;
+  }
   return { sessionId: row.id, userId: row.user_id };
 }
 
 /** Revoke one session (idempotent). Returns true if a live session was revoked. */
 export async function revokeSession(rawToken: string): Promise<boolean> {
+  assertAdminPreviewWritesAllowed();
   if (!rawToken || rawToken.length !== 64) return false;
   const tokenHash = hashToken(rawToken);
   const n = await prisma.$executeRaw`
@@ -120,6 +133,7 @@ export async function revokeAllSessions(
   userId: string,
   exceptSessionId?: string | null,
 ): Promise<number> {
+  assertAdminPreviewWritesAllowed();
   if (exceptSessionId) {
     return Number(
       await prisma.$executeRaw`
@@ -150,6 +164,7 @@ export async function revokeAllSessions(
  * is written is exactly the cookie that is read and cleared.
  */
 export async function setSessionCookie(rawToken: string): Promise<void> {
+  assertAdminPreviewWritesAllowed();
   const store = await cookies();
   const name = sessionCookieName();
   store.set(name, rawToken, {
@@ -160,8 +175,12 @@ export async function setSessionCookie(rawToken: string): Promise<void> {
 
 /** Clear the session cookie (always paired with server-side revocation). */
 export async function clearSessionCookie(): Promise<void> {
+  assertAdminPreviewWritesAllowed();
   const store = await cookies();
-  store.delete(sessionCookieName());
+  const name = sessionCookieName();
+  // __Host- cookies require Secure + Path=/ + no Domain even on deletion;
+  // bare store.delete(name) omits Secure so browsers ignore the delete header.
+  store.delete({ name, ...sessionCookieOptions(name) });
 }
 
 /** Read the raw session token from the request cookies (presence only). */

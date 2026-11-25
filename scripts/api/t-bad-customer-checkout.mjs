@@ -1,4 +1,4 @@
-// BA-D customer + addresses + checkout verification (real PostgreSQL, scratch-only).
+﻿// BA-D customer + addresses + checkout verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-bad-customer-checkout.mjs --db <name> --port <port>
 // Covers the BA-D shopping contract end to end through the REAL application
 // service (no test doubles on the checkout path): customer identify/create/
@@ -13,6 +13,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -29,7 +30,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -70,6 +74,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -102,7 +112,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -143,7 +153,7 @@ async function main() {
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE, ...extra}),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
@@ -287,7 +297,7 @@ async function main() {
       && (afterReDef.body?.data ?? []).filter((a) => a.isDefault === true).length === 1,
       `${reDef.status}`);
     // Concurrent default switch on two non-default addresses: statuses may be
-    // 200/200 (serialized switches) or 200/409 (UQ loser) — both legal. The
+    // 200/200 (serialized switches) or 200/409 (UQ loser) â€” both legal. The
     // invariant is exactly one default, and it is one of the two contenders.
     const a3 = await post(`/api/admin/customers/${idC1}/addresses`, { city: "Taha", phone: P_D1 }, ck);
     const a4 = await post(`/api/admin/customers/${idC1}/addresses`, { city: "Mallawi", phone: P_D1 }, ck);
@@ -511,7 +521,7 @@ async function main() {
     // ================= SESSION IDENTITY BINDING (PHASE 2 + BG-GUEST-ORDER)
     // Guest carts no longer check out on a claimed (customerId, addressId)
     // pair. No identity side at all answers 401; a guest token paired with
-    // an owned addressId answers 400 (wrong-side payload — guests use inline
+    // an owned addressId answers 400 (wrong-side payload â€” guests use inline
     // guestAddress/guestContact, covered in t-guest-orders).
     const gFb = await mkGuest([[P330, "1"]]);
     const oFb = await checkout(null, idA1, key("frozenbind"));
@@ -520,7 +530,7 @@ async function main() {
       const r = await fetch(`${baseUrl}/api/store/orders`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-guest-token": gFb.tok },
-        body: JSON.stringify({ addressId: idA1, idempotencyKey: key("frozenbind2") }),
+        body: JSON.stringify({ addressId: idA1, idempotencyKey: key("frozenbind2"), expectedDeliveryFee: FEE }),
       });
       return { status: r.status };
     })();

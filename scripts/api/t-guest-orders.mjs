@@ -1,4 +1,4 @@
-// BG-GUEST-ORDER verification (real PostgreSQL, scratch-only).
+﻿// BG-GUEST-ORDER verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-guest-orders.mjs --db <name> --port <port>
 // Covers true account-less guest orders end to end through the REAL routes
 // (no test doubles): guest creation (201 + one-time credential, NULL
@@ -14,6 +14,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -30,7 +31,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -53,7 +57,7 @@ const G = (tok, xff) => ({ "x-guest-token": tok, ...(xff ? { "x-forwarded-for": 
 const GT = (tok) => ({ "x-guest-order-token": tok, "x-forwarded-for": xff() });
 const HEX64 = /^[0-9a-f]{64}$/;
 const num = (s) => Number(s);
-// Canonical phone form stored in DB (frozen R8 ladder): "010..." → "2010"+rest.
+// Canonical phone form stored in DB (frozen R8 ladder): "010..." â†’ "2010"+rest.
 const CANON = (p) => "2010" + p.slice(3);
 // Isolated fake-IP scopes for guest traffic (real-IP buckets untouched).
 const xffState = { n: 11 };
@@ -80,6 +84,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -138,6 +148,7 @@ async function main() {
     guestContact: { firstName: "Ghaz", lastName: null },
     guestAddress: { city: "Matai", area: null, village: null, street: "St 9", buildingNumber: "7", landmark: null, phone },
     idempotencyKey: k,
+    expectedDeliveryFee: FEE,
     ...extra,
   });
   const mkGuestOrder = async (lines, phone, k, extra = {}) => {
@@ -199,13 +210,13 @@ async function main() {
     const o2 = g2.res.body?.data?.order;
     const tok2 = g2.res.body?.data?.guestOrderToken;
     // Invalid-for-this-order credentials answer 401 (never 404): right-token
-    // × wrong-order must be indistinguishable from garbage-token, otherwise
+    // أ— wrong-order must be indistinguishable from garbage-token, otherwise
     // the status would oracle order existence (SI-07). Unknown ids likewise
     // 401 for unauthenticated callers; 404 only for authed-but-foreign reads.
-    t("guest-cross-401", (await get(`/api/store/orders/${o1.id}`, GT(tok2))).status === 401, "A×B");
+    t("guest-cross-401", (await get(`/api/store/orders/${o1.id}`, GT(tok2))).status === 401, "Aأ—B");
     t("number-alone-401", (await get(`/api/store/orders/${o1.id}`)).status === 401, "no token");
     t("phone-alone-401", (await get(`/api/store/orders/${o1.id}`, { "x-guest-token": g2.cartTok })).status === 401, "cart token");
-    t("wrong-order-token-401", (await get(`/api/store/orders/${o2.id}`, GT(tok1))).status === 401, "tokenA×orderB");
+    t("wrong-order-token-401", (await get(`/api/store/orders/${o2.id}`, GT(tok1))).status === 401, "tokenAأ—orderB");
 
     // ---------- registered regression alongside ----------
     const s1 = await sess(PG1.replace(/^01096/, "01095"), "GReg");
@@ -213,7 +224,7 @@ async function main() {
     const cart = await post(`/api/store/cart`, {}, H(s1.tok));
     cartIds.add(cart.body?.data?.cart?.id);
     await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "1" }, H(s1.tok));
-    const ro = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("reg") }, H(s1.tok));
+    const ro = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("reg"), expectedDeliveryFee: FEE }, H(s1.tok));
     const roId = ro.body?.data?.order?.id;
     if (roId) orderIds.add(roId);
     t("registered-201", ro.status === 201 && !!roId, `${ro.status}`);
@@ -224,7 +235,7 @@ async function main() {
 
     // ---------- ambiguity / misuse ----------
     const gAmb = await mkGuestCart([[P330, "1"]]);
-    t("guest-with-addressId-400", (await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("amb1") }, G(gAmb, xff()))).status === 400, "guest+addressId");
+    t("guest-with-addressId-400", (await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: key("amb1"), expectedDeliveryFee: FEE }, G(gAmb, xff()))).status === 400, "guest+addressId");
     t("session-with-guest-payload-400", (await post(`/api/store/orders`, guestPayload(PG1, key("amb2")), H(s1.tok))).status === 400, "session+guest");
     await db.query(`DELETE FROM cart_items WHERE cart_id IN (SELECT id FROM carts WHERE session_id IS NOT NULL AND status='ACTIVE' AND id NOT IN (SELECT cart_id FROM orders WHERE cart_id IS NOT NULL))`).catch(() => {});
 
@@ -346,7 +357,7 @@ async function main() {
     const gRl = await mkGuestCart([[P330, "1"]]);
     t("create-over-limit-429", (await post(`/api/store/orders`, guestPayload(PG1, key("rl1")), G(gRl, "9.9.9.9"))).status === 429, "bucket");
     await db.query(`DELETE FROM guest_order_rate_limits WHERE bucket_key = 'guest-order:ip:9.9.9.9'`);
-    // NOTE: the key string is captured once — key() consumes a sequence
+    // NOTE: the key string is captured once â€” key() consumes a sequence
     // number, so re-calling it for the lookup row would miss (leak).
     const kRl2 = key("rl2");
     const rl2res = await post(`/api/store/orders`, guestPayload(PG1, kRl2), G(gRl, "9.9.9.9"));
@@ -358,7 +369,7 @@ async function main() {
     await db.query(`DELETE FROM guest_order_rate_limits WHERE bucket_key LIKE 'guest-order:%9.9.9.%'`);
     t("read-under-limit-200", (await get(`/api/store/orders/${o1.id}`, GT(tok1))).status === 200, "recovered");
 
-    // ---------- fulfillment smoke on guest order → DELIVERED ----------
+    // ---------- fulfillment smoke on guest order â†’ DELIVERED ----------
     const gF = await mkGuestOrder([[P330, "2"]], PG1, key("ful"));
     const oF = gF.res.body?.data?.order;
     const tokF = gF.res.body?.data?.guestOrderToken;
@@ -386,7 +397,7 @@ async function main() {
   } finally {
     // ---------- cleanup (mirrors t-replacements hygiene: holds released
     // per non-REPLACED line, then rows removed FK-safe; REPLACED originals
-    // hold nothing — approval already released them).
+    // hold nothing â€” approval already released them).
     try {
       const leftovers = await db.query(
         `SELECT o.id::text id, o.status s FROM orders o WHERE o.id = ANY($1::uuid[]) AND o.status NOT IN ('CANCELLED','DELIVERED')`,

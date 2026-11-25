@@ -71,6 +71,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         isActive: parsed.data.isActive ?? undefined,
       },
       auth.admin.user.id,
+      auth.admin.permissions,
+      auth.admin.roles,
     );
     if (!updated) {
       const r = fail(new ApiError("NOT_FOUND", "Role not found."));
@@ -106,7 +108,7 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    const done = await deleteRole(id, auth.admin.user.id);
+    const done = await deleteRole(id, auth.admin.user.id, auth.admin.roles);
     if (!done) {
       const r = fail(new ApiError("NOT_FOUND", "Role not found."));
       return NextResponse.json(r.body, { status: r.status });

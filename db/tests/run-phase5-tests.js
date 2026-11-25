@@ -95,13 +95,13 @@ const bad = (n, e) => { fail++; console.log('FAIL ' + n + ' :: ' + String(e && e
     // ---- matrix (effective grants) ----
     const allKeys = (await q(`SELECT key FROM permissions`)).rows.map(x => x.key);
     const seff = await eff(owner);
-    if ((seff.length === 31 && allKeys.every(k => seff.includes(k)))) ok('M1 SUPER_ADMIN effective = all 31');
+    if ((seff.length === 32 && allKeys.every(k => seff.includes(k)))) ok('M1 SUPER_ADMIN effective = all 32');
     else bad('M1 super', seff.length);
     const storeU = (await q(`INSERT INTO users (id, name, email) VALUES ($1,'Store','store@x.com') RETURNING id`, [uid()])).rows[0].id;
     await q(`INSERT INTO user_roles (user_id, role_id) VALUES ($1,'02800000-0000-7000-8000-000000000002')`, [storeU]);
     const meff = await eff(storeU);
     const banned = ['users.view', 'users.manage', 'roles.view', 'roles.manage', 'settings.view', 'settings.manage', 'audit_logs.view'];
-    if ((meff.length === 24 && banned.every(k => !meff.includes(k)) && meff.includes('products.update') && meff.includes('notifications.view'))) ok('M2 STORE_ADMIN = 24, security keys excluded');
+    if ((meff.length === 25 && banned.every(k => !meff.includes(k)) && meff.includes('products.update') && meff.includes('notifications.view'))) ok('M2 STORE_ADMIN = 25, security keys excluded');
     else bad('M2 store', meff.length);
     await q(`UPDATE roles SET is_active=FALSE WHERE id='02800000-0000-7000-8000-000000000002'`);
     if ((await eff(storeU)).length === 0) ok('M3 disabled role authorizes nothing'); else bad('M3 disabled role');

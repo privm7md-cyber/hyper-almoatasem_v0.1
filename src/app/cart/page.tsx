@@ -1,6 +1,7 @@
 // FE-5 cart page (server shell + client island; reads need client identity).
 
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { StoreShell } from "@/components/store/store-shell";
 import { CartView } from "@/components/store/cart-view";
 import { PageTitle } from "@/components/ui/container";
@@ -13,13 +14,20 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function CartPage() {
+export default async function CartPage() {
+  const cookieStore = await cookies();
+  const hasCustomer =
+    cookieStore.has("__Host-customer-session") ||
+    cookieStore.has("hyper-customer-session-dev");
+  const hasGuestCart = cookieStore.has("hyper_guest_cart");
+  const initialEmpty = !hasCustomer && !hasGuestCart;
+
   return (
     <StoreShell>
       <div className="mt-6">
         <PageTitle>السلة</PageTitle>
       </div>
-      <CartView />
+      <CartView initialEmpty={initialEmpty} />
     </StoreShell>
   );
 }

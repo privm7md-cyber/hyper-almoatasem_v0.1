@@ -195,6 +195,14 @@ paths:
           description: '{ data: { status: "ok", database: "ok" }, meta: {} }.'
         '500':
           description: Sanitized INTERNAL error (no driver text, no connection details).
+  # ---------------- infra: CSP violation intake (public, Report-Only) ----------------
+  /api/csp-report:
+    post:
+      tags: [infra]
+      summary: CSP violation report collector for Content-Security-Policy-Report-Only. Public; validates report shape, rate-limits per IP (20/min), console-logs allowlisted fields only, always 204; never writes to DB, never reflects secrets.
+      responses:
+        '204':
+          description: Accepted (or oversized/malformed; the browser never blocks on this).
   # ---------------- store: catalog (public reads) ----------------
   /api/store/catalog/brands:
     get:
@@ -219,7 +227,7 @@ paths:
       tags: [store-catalog]
       summary: List active categories.
       responses:
-        '200': { description: Category page ({ data, meta }). }
+        '200': { description: 'Category page ({ data, meta }).' }
   /api/store/catalog/categories/{id}:
     get:
       tags: [store-catalog]
@@ -244,13 +252,13 @@ paths:
   /api/store/catalog/products:
     get:
       tags: [store-catalog]
-      summary: List active products (keyset pages; filters: search/category-subtree/brand/type/price-window/inStock; OOS stays listed).
+      summary: 'List active products (keyset pages; filters: search/category-subtree/brand/type/price-window/inStock; OOS stays listed).'
       responses:
-        '200': { description: Product page ({ data, meta }). }
+        '200': { description: 'Product page ({ data, meta }).' }
   /api/store/catalog/products/{id}:
     get:
       tags: [store-catalog]
-      summary: Get one active product (detail shape: list fields + description; variants/stock/gallery via dedicated endpoints).
+      summary: 'Get one active product (detail shape: list fields + description; variants/stock/gallery via dedicated endpoints).'
       parameters:
         - $ref: '#/components/parameters/IdPath'
       responses:
@@ -498,7 +506,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/AddressIdPath'
       responses:
-        '200': { description: '{ data: { deleted: true } }'. }
+        '200': { description: '{ data: { deleted: true } }.' }
         '400': { description: Invalid id. }
         '401': { description: Missing/invalid/expired session. }
         '404': { description: Unknown address (incl. foreign). }
@@ -589,7 +597,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/GuestTokenHeaderReq'
       responses:
-        '200': { description: Merge report { mode, inserted, summed, dropped }. }
+        '200': { description: 'Merge report { mode, inserted, summed, dropped }.' }
         '401': { description: Missing/invalid/expired customer session. }
         '404': { description: Unknown guest cart. }
         '409': { description: Guest cart consumed. }
@@ -614,7 +622,7 @@ paths:
   /api/store/orders:
     post:
       tags: [store-orders]
-      summary: Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT + guest credential issuance). Session XOR guest context. Replay → 200 + meta.replay (keep-same: no token on replay).
+      summary: 'Create an order from the ACTIVE cart (one tx: reserve + snapshots + history + CHECKED_OUT + guest credential issuance). Session XOR guest context. Replay → 200 + meta.replay (keep-same: no token on replay).'
       parameters:
         - $ref: '#/components/parameters/IdempotencyKeyHeaderOpt'
         - $ref: '#/components/parameters/GuestTokenHeaderOpt'
@@ -634,13 +642,33 @@ paths:
                   description: Guest path only — inline contact (firstName/lastName), snapshot only.
                 idempotencyKey: { $ref: '#/components/schemas/IdempotencyKey' }
                 couponCode: { type: string, nullable: true }
+                expectedDeliveryFee:
+                  type: string
+                  nullable: true
+                  pattern: '^\d{1,8}(\.\d{1,2})?$'
+                  example: '20.00'
+                  description: >-
+                    REQUIRED assertion of the delivery fee the customer
+                    reviewed (the value returned by the last estimate). It is
+                    never an amount the server charges: the server always
+                    resolves the fee itself and wins. When the resolved fee
+                    differs from this value the creation is rejected with 409
+                    (details.reason = DELIVERY_FEE_CHANGED) and the customer
+                    must re-confirm the new total. A NEW order without it is a
+                    400 VALIDATION error (enforced after the idempotency
+                    lookup) — an order is never created without a reviewed
+                    price. It may be null ONLY for a same-key verification of
+                    an unresolved attempt: the server resolves that attempt
+                    before any pricing, so the assertion is never compared and
+                    no order is created from it.
+              required: [expectedDeliveryFee]
       responses:
         '201': { description: Created order (snapshots frozen). Guest creations also return guestOrderToken (raw, exactly once). }
         '200': { description: Idempotent replay (meta.replay true, meta.guestTokenIssued false). }
-        '400': { description: Conflicting idempotency keys; neither key supplied; ambiguous identity (session + guest payload, or guest token + addressId); neither guestAddress nor guestContact complete. }
+        '400': { description: Conflicting idempotency keys; neither key supplied; ambiguous identity (session + guest payload, or guest token + addressId); neither guestAddress nor guestContact complete; expectedDeliveryFee missing/malformed on a new order, or malformed on a verification. }
         '401': { description: Neither valid session nor guest cart bearer. }
         '404': { description: No ACTIVE cart / address. }
-        '409': { description: Key used with different terms; stock short; price drift (new key needed). }
+        '409': { description: Key used with different terms; stock short; price drift (new key needed); delivery fee changed since the reviewed total (details.reason = DELIVERY_FEE_CHANGED). }
         '422': { description: Empty cart, unsellable variant, coupon invalid (incl. per-customer-limited coupon on guest path). }
         '429': { description: Guest creation bucket exceeded (10/15min/IP). }
     get:
@@ -674,6 +702,23 @@ paths:
                 couponCode: { type: string, nullable: true }
       responses:
         '200': { description: Estimate (base/discount/net, integer money). }
+  /api/store/orders/checkout-session:
+    post:
+      tags: [store-orders]
+      summary: >-
+        Mint a guest checkout recovery session (residual P10-L-08). The raw
+        token is returned ONLY as an HttpOnly __Host-guest-checkout cookie —
+        never in the JSON body, never in a URL, never logged. The server
+        stores only its SHA-256 hash, bound to the guest's ACTIVE cart, with a
+        fixed 24h TTL. It proves access to the order the create transaction
+        bound it to; it authorizes NO operation on its own.
+      parameters:
+        - $ref: '#/components/parameters/GuestTokenHeaderOpt'
+      responses:
+        '200': { description: '{ data: { expiresAt, ttlHours }, meta: {} } + Set-Cookie (__Host-guest-checkout, HttpOnly).' }
+        '401': { description: Neither valid customer session nor guest cart bearer. }
+        '404': { description: No ACTIVE guest cart. }
+        '429': { description: Checkout-session bucket exceeded (20/15min/IP). }
   /api/store/orders/{id}:
     get:
       tags: [store-orders]
@@ -819,7 +864,7 @@ paths:
     get:
       tags: [admin-catalog]
       x-permission: products.view
-      summary: List products (keyset pages; filters: search/category-subtree/brand/type/price-window/inStock; active filter explicit).
+      summary: 'List products (keyset pages; filters: search/category-subtree/brand/type/price-window/inStock; active filter explicit).'
       responses: { '200': { description: Product page. } }
     post:
       tags: [admin-catalog]
@@ -851,9 +896,19 @@ paths:
     patch:
       tags: [admin-catalog]
       x-permission: products.update
-      summary: Patch product (audited).
-      parameters: [{ $ref: '#/components/parameters/IdPath' }]
-      responses: { '200': { description: Updated product. }, '404': { description: Unknown id. } }
+      summary: Patch product (audited). Since GD-2/BL-02 (owner-approved 2026-11-01) accepts productType/unit/saleStepGrams (two-legal-states transition rule) and an If-Match concurrency token (409 on stale).
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+        - name: If-Match
+          in: header
+          required: false
+          schema: { type: string }
+          description: Concurrency token = the row's updatedAt ISO string (also discoverable as the ETag). Mismatch answers 409.
+      responses:
+        '200': { description: Updated product (ETag = new updatedAt). }
+        '404': { description: Unknown id. }
+        '409': { description: Stale concurrency token (If-Match mismatch). }
+        '422': { description: Illegal sale-usage transition (chk_products_weight_rule mirror). }
   /api/admin/catalog/products/{id}/variants:
     get:
       tags: [admin-catalog]
@@ -932,7 +987,7 @@ paths:
   /api/admin/catalog/variants/{id}/price:
     patch:
       tags: [admin-catalog]
-      x-permission: products.update
+      x-permission: prices.update
       summary: Change price + history row + audit in one tx.
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       requestBody:
@@ -984,7 +1039,7 @@ paths:
       x-permission: products.delete
       summary: Hard-delete code (audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
-      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+      responses: { '200': { description: '{ data: { deleted: true } }.' } }
   # ---------------- admin: inventory (inventory.view|adjust) ----------------
   /api/admin/inventory:
     get:
@@ -1013,6 +1068,29 @@ paths:
           required: true
           schema: { $ref: '#/components/schemas/UUID' }
       responses: { '200': { description: Updated row. }, '404': { description: Unknown variant. } }
+  /api/admin/inventory/initialize:
+    post:
+      tags: [admin-inventory]
+      x-permission: inventory.adjust
+      summary: Create the inventory row for one variant (sanctioned path; audited, single-variant, 409 on duplicate; initial balance is admin-declared, never fabricated; reserved starts at 0; no retroactive movement).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productVariantId, quantity]
+              properties:
+                productVariantId: { $ref: '#/components/schemas/UUID' }
+                quantity: { $ref: '#/components/schemas/DecimalString' }
+                lowStockThreshold: { $ref: '#/components/schemas/DecimalString' }
+                reason: { type: string, maxLength: 2000 }
+      responses:
+        '201': { description: Created row + inventoryId. }
+        '400': { description: Invalid body / quantity. }
+        '404': { description: Unknown variant. }
+        '409': { description: Inventory already exists for this variant. }
+        '422': { description: Variant not sellable. }
   /api/admin/inventory/adjust:
     post:
       tags: [admin-inventory]
@@ -1083,14 +1161,14 @@ paths:
       responses: { '200': { description: Customer. }, '404': { description: Unknown id. } }
     patch:
       tags: [admin-customers]
-      x-permission: customers.view
+      x-permission: customers.manage
       summary: Limited edit (phone immutable; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: Updated customer. }, '404': { description: Unknown id. }, '409': { description: Email in use. } }
   /api/admin/customers/{id}/register:
     post:
       tags: [admin-customers]
-      x-permission: customers.view
+      x-permission: customers.manage
       summary: Staff-assisted guest→registered upgrade (hash never logged/audited; audited fact only).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       requestBody:
@@ -1116,7 +1194,7 @@ paths:
       responses: { '200': { description: Address list. } }
     post:
       tags: [admin-customers]
-      x-permission: customers.view
+      x-permission: customers.manage
       summary: Add address (default switch atomic; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '201': { description: Created address. }, '404': { description: Unknown customer. }, '409': { description: Default race lost. } }
@@ -1129,16 +1207,16 @@ paths:
       responses: { '200': { description: Address. }, '404': { description: Unknown id. } }
     patch:
       tags: [admin-customers]
-      x-permission: customers.view
+      x-permission: customers.manage
       summary: Patch address (audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: addressId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
       responses: { '200': { description: Updated address. }, '404': { description: Unknown id. } }
     delete:
       tags: [admin-customers]
-      x-permission: customers.view
+      x-permission: customers.manage
       summary: Hard-delete address (orders keep snapshots; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: addressId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
-      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+      responses: { '200': { description: '{ data: { deleted: true } }.' } }
   # ---------------- admin: orders / replacements ----------------
   /api/admin/orders:
     get:
@@ -1349,7 +1427,7 @@ paths:
       x-permission: promotions.disable
       summary: Hard-delete (RESTRICT→409 when referenced; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
-      responses: { '200': { description: '{ data: { deleted: true } }'. }, '409': { description: Referenced by history. } }
+      responses: { '200': { description: '{ data: { deleted: true } }.' }, '409': { description: Referenced by history. } }
   /api/admin/promotions/{id}/rules:
     put:
       tags: [admin-promotions]
@@ -1391,7 +1469,7 @@ paths:
       x-permission: promotions.update
       summary: Remove target (audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: targetId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
-      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+      responses: { '200': { description: '{ data: { deleted: true } }.' } }
   /api/admin/coupons:
     get:
       tags: [admin-coupons]
@@ -1421,7 +1499,7 @@ paths:
       x-permission: coupons.disable
       summary: Hard-delete (RESTRICT→409 when referenced; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
-      responses: { '200': { description: '{ data: { deleted: true } }'. }, '409': { description: Referenced by history. } }
+      responses: { '200': { description: '{ data: { deleted: true } }.' }, '409': { description: Referenced by history. } }
   /api/admin/coupons/{id}/usages:
     get:
       tags: [admin-coupons]
@@ -1492,7 +1570,7 @@ paths:
     post:
       tags: [admin-users]
       x-permission: roles.manage
-      summary: Assign role (ceiling: role effective ⊆ actor set; inactive role 409; audited).
+      summary: 'Assign role (ceiling: role effective ⊆ actor set; inactive role 409; audited).'
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       requestBody:
         required: true
@@ -1515,7 +1593,7 @@ paths:
       summary: Remove mapping (last-holder removal 409; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: roleId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
       responses:
-        '200': { description: '{ data: { removed: true } }'. }
+        '200': { description: '{ data: { removed: true } }.' }
         '404': { description: Unknown mapping. }
         '409': { description: Would leave zero active SUPER_ADMINs. }
   /api/admin/roles:
@@ -1551,7 +1629,7 @@ paths:
       x-permission: roles.manage
       summary: Delete role (SUPER_ADMIN 403; granted 409; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
-      responses: { '200': { description: '{ data: { deleted: true } }'. } }
+      responses: { '200': { description: '{ data: { deleted: true } }.' } }
   /api/admin/roles/{id}/members:
     get:
       tags: [admin-roles]
@@ -1563,7 +1641,7 @@ paths:
     post:
       tags: [admin-roles]
       x-permission: roles.manage
-      summary: Grant permission (ceiling: key ∈ actor set, else 403 atomic; audited).
+      summary: 'Grant permission (ceiling: key ∈ actor set, else 403 atomic; audited).'
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       requestBody:
         required: true
@@ -1586,7 +1664,7 @@ paths:
       summary: Revoke grant (SUPER_ADMIN 403; audited).
       parameters: [{ $ref: '#/components/parameters/IdPath' }, { name: permissionId, in: path, required: true, schema: { $ref: '#/components/schemas/UUID' } }]
       responses:
-        '200': { description: '{ data: { removed: true } }'. }
+        '200': { description: '{ data: { removed: true } }.' }
         '403': { description: SUPER_ADMIN grant protection. }
         '404': { description: Unknown mapping. }
   /api/admin/permissions:
@@ -1641,6 +1719,80 @@ paths:
         '200': { description: Updated setting. }
         '404': { description: Unknown key. }
         '422': { description: Type violation. }
+  /api/admin/delivery-zones:
+    get:
+      tags: [admin-settings]
+      x-permission: settings.view
+      summary: >-
+        List delivery-zone fee overrides (residual P10-L-02). The whole zone
+        set is returned (meta.total); the optional `active` filter narrows it
+        to ACTIVE or inactive zones. The matching key is derived server-side
+        from the zone name and is never client-supplied.
+      parameters:
+        - name: active
+          in: query
+          required: false
+          description: 'true = only ACTIVE zones, false = only inactive zones, absent = all.'
+          schema: { type: string, enum: ['true', 'false'] }
+      responses:
+        '200': { description: '{ data: [DeliveryZone], meta: { total } }.' }
+        '401': { description: Missing/invalid/expired admin session. }
+        '403': { description: Missing settings.view. }
+    post:
+      tags: [admin-settings]
+      x-permission: settings.manage
+      summary: Create a delivery-zone fee override (SUPER_ADMIN only; audited in the same transaction).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, fee]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                fee: { type: string, pattern: '^\d{1,8}(\.\d{1,2})?$', example: '25.00' }
+                isActive: { type: boolean }
+      responses:
+        '201': { description: Created delivery zone. }
+        '400': { description: Malformed body, unknown field, or invalid fee. }
+        '401': { description: Missing/invalid/expired admin session. }
+        '403': { description: Missing settings.manage. }
+        '409': { description: A zone with the same normalized name already exists. }
+        '422': { description: The name normalizes to an empty key. }
+  /api/admin/delivery-zones/{id}:
+    patch:
+      tags: [admin-settings]
+      x-permission: settings.manage
+      summary: >-
+        Update a delivery zone (SUPER_ADMIN only; compare-and-set on
+        `version`, audited in the same transaction). There is deliberately NO
+        hard delete: a zone is deactivated with isActive=false, which removes
+        it from fee resolution while keeping the fee history auditable.
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                fee: { type: string, pattern: '^\d{1,8}(\.\d{1,2})?$', example: '25.00' }
+                isActive: { type: boolean }
+                version:
+                  type: integer
+                  minimum: 1
+                  description: The row version the admin read. A stale value answers 409 instead of overwriting a concurrent change.
+      responses:
+        '200': { description: Updated delivery zone. }
+        '400': { description: Malformed body, unknown field, invalid fee, or no updatable field. }
+        '401': { description: Missing/invalid/expired admin session. }
+        '403': { description: Missing settings.manage. }
+        '404': { description: Unknown zone id. }
+        '409': { description: Stale version — the row changed since it was read. }
   /api/admin/audit-logs:
     get:
       tags: [admin-audit]
@@ -1655,8 +1807,13 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdPath' }]
       responses: { '200': { description: Audit row. }, '404': { description: Unknown id. } }
   /api/admin/session:
+    # Session/transport routes: no permission key by design. Identity-only —
+    # POST is the unauthenticated login entry (rate-limited + swept + audited),
+    # GET/DELETE require a valid session (401 otherwise). `none` documents that
+    # deliberate absence; it is NOT a permission name.
     post:
       tags: [admin-session]
+      x-permission: none
       summary: Login (same-origin enforced; rate buckets + lockout; generic 401; sets HttpOnly cookie; 201 + admin identity).
       requestBody:
         required: true
@@ -1675,12 +1832,14 @@ paths:
         '403': { description: Cross-origin credential submission. }
     get:
       tags: [admin-session]
+      x-permission: none
       summary: Inspect current session (identity + roles + effective permissions).
       responses:
-        '200': { description: '{ data: { admin, roles, permissions } }'. }
+        '200': { description: '{ data: { admin, roles, permissions } }.' }
         '401': { description: No/invalid/expired/revoked session. }
     delete:
       tags: [admin-session]
+      x-permission: none
       summary: Logout (revoke server-side + clear cookie; idempotent).
       responses:
-        '200': { description: '{ data: { revoked: true } }'. }
+        '200': { description: '{ data: { revoked: true } }.' }

@@ -9,6 +9,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppError, apiRequest } from "@/lib/frontend/api-client";
 import { safeReturnTo } from "@/lib/frontend/return-to";
+import { clearGuestCartToken, readGuestCartToken } from "@/components/store/guest-cart-token";
+import { notifyCartCount } from "@/components/store/cart-badge";
 import { Field, TextInput } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 
@@ -17,13 +19,18 @@ export function LoginForm() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ phone?: string; password?: string }>({});
   const [pending, setPending] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (pending) return;
     setError(null);
-    if (phone.trim() === "" || password === "") {
+    const nextErrors: { phone?: string; password?: string } = {};
+    if (phone.trim() === "") nextErrors.phone = "أدخل رقم الهاتف.";
+    if (password === "") nextErrors.password = "أدخل كلمة المرور.";
+    setFieldErrors(nextErrors);
+    if (nextErrors.phone || nextErrors.password) {
       setError("أدخل رقم الهاتف وكلمة المرور.");
       return;
     }
@@ -33,6 +40,33 @@ export function LoginForm() {
         method: "POST",
         body: { phone: phone.trim(), password },
       });
+      // GAP-01 remediation: automatically merge guest cart if a guest cart token exists.
+      const guestToken = readGuestCartToken();
+      if (guestToken) {
+        try {
+          const merged = await apiRequest<{ cart?: { lines?: unknown[] } }>("/api/store/cart/merge", {
+            method: "POST",
+            headers: { "x-guest-token": guestToken },
+          });
+          if (Array.isArray(merged?.data?.cart?.lines)) {
+            notifyCartCount(merged.data.cart.lines.length);
+          }
+        } catch {
+          // Non-fatal: login still succeeds even if guest cart was already empty/expired.
+        } finally {
+          clearGuestCartToken();
+        }
+      } else {
+        // Sync customer's existing cart count to badge
+        try {
+          const res = await apiRequest<{ cart?: { lines?: unknown[] } }>("/api/store/cart");
+          if (Array.isArray(res?.data?.cart?.lines)) {
+            notifyCartCount(res.data.cart.lines.length);
+          }
+        } catch {
+          notifyCartCount(0);
+        }
+      }
       const next = safeReturnTo(new URLSearchParams(window.location.search).get("next"));
       router.push(next);
       router.refresh();
@@ -43,12 +77,14 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-[420px] gap-3" noValidate={false}>
-      <Field label="رقم الهاتف" error={undefined}>
+    <form onSubmit={(e) => void submit(e)} className="grid max-w-[420px] gap-3" noValidate>
+      <Field label="رقم الهاتف" required error={fieldErrors.phone}>
         {({ inputId, describedBy }) => (
           <TextInput
             inputId={inputId}
             describedBy={describedBy}
+            invalid={Boolean(fieldErrors.phone)}
+            required
             inputMode="tel"
             autoComplete="username"
             value={phone}
@@ -56,11 +92,13 @@ export function LoginForm() {
           />
         )}
       </Field>
-      <Field label="كلمة المرور" error={undefined}>
+      <Field label="كلمة المرور" required error={fieldErrors.password}>
         {({ inputId, describedBy }) => (
           <TextInput
             inputId={inputId}
             describedBy={describedBy}
+            invalid={Boolean(fieldErrors.password)}
+            required
             type="password"
             autoComplete="current-password"
             value={password}

@@ -1,13 +1,18 @@
 // FE-9 About (server): only facts the project proves about itself.
-// Sources: store_settings (store.name), the approved brand promise and
-// direction, the catalogue contract (categories / piece vs weight), the
-// guest-checkout contract, and the owner-approved delivery-area fact (FP-11-5 D34).
+// Sources: the approved brand promise and direction, the catalogue contract
+// (categories / piece vs weight), the guest-checkout contract, and the
+// owner-approved delivery-area fact (FP-11-5 D34).
+// The store NAME is not read from `store_settings` here: the Arabic identity
+// on this page is the owner-approved one, and publishing the stored name
+// instead is an owner decision (ADM-10 settings audit).
 
 import type { Metadata } from "next";
+import { canonicalMetadata } from "@/lib/seo/canonical";
 import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/info-page";
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
+  ...canonicalMetadata("/about"),
   title: "من نحن",
   description: "ما يقدّمه هايبر المعتصم: كتالوج منتجات بالقطعة وبالوزن، وأسعار وإتاحة من الكتالوج، وطلب كضيف دون إنشاء حساب.",
 };

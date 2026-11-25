@@ -24,15 +24,21 @@ import { prisma } from "@/lib/db";
 import { ApiError, businessRule, conflict } from "@/lib/api/errors";
 import {
   allocate,
+  COUPON_COMBINATION_POLICY,
   divRoundHalfAway,
   evaluateLines,
   evaluateOrderLayer,
   matchLine,
   parseScaled,
+  winningOfferSet,
   type EvalLine,
   type EvalPromo,
   type LineCtx,
 } from "@/lib/promotions/engine";
+import {
+  evaluateCouponEligibility,
+  type CouponConditionCode,
+} from "@/lib/promotions/coupon-eligibility";
 import {
   inSubtree,
   countActiveUsages,
@@ -41,6 +47,8 @@ import {
   loadEffectivePromotions,
 } from "@/lib/promotions/queries";
 import { normalizeCouponCode } from "@/lib/promotions/writes";
+import { resolveDeliveryQuote } from "@/lib/orders/delivery-fee";
+import type { DeliveryLocality } from "@/lib/orders/delivery-zone";
 
 export type { LineCtx };
 
@@ -148,7 +156,12 @@ export interface EffectivePromoRow {
   targets: Array<{ tt: string; tid: string }>;
 }
 
-function toEvalPromo(
+/**
+ * The single conversion from a stored offer into the engine's evaluation
+ * shape. Exported so the admin price preview (read-only) feeds the engine the
+ * EXACT same object checkout feeds it — there is no second discount logic.
+ */
+export function toEvalPromo(
   r: EffectivePromoRow,
   sub: (lineCid: string, targetCid: string) => boolean,
 ): EvalPromo & { name: string } {
@@ -261,8 +274,12 @@ export async function applyPromotions(
       unitPriceC: l.unitPriceC,
     }));
     const live = all.filter((p) => !dropped.has(p.id));
-    const ev = evaluateLines(evalLines, live);
-    const ord = evaluateOrderLayer(evalLines, live);
+    // OWNER POLICY (one winner): only the highest-priority eligible offer
+    // may reach the evaluator, so an order never stacks two offers. The same
+    // selector backs the admin price preview — the two cannot disagree.
+    const offered = winningOfferSet(evalLines, live);
+    const ev = evaluateLines(evalLines, offered);
+    const ord = evaluateOrderLayer(evalLines, offered);
     const limited = new Map<string, NamedPromo>();
     for (const r of ev.rows) {
       if (r.amountC > 0 && usageLimitOf(all, r.promo.id) !== null) limited.set(r.promo.id, r.promo as NamedPromo);
@@ -306,7 +323,21 @@ export async function applyPromotions(
 
   let couponApp: CouponAppResult | null = null;
   if (input.couponCode !== null && input.couponCode.trim() !== "") {
-    couponApp = await applyCoupon(tx, input.couponCode, evalLines, input.customerId, sub);
+    // OWNER POLICY (coupon combination): a coupon never sits on top of the
+    // winning offer. The automatic layers tell us which lines they already
+    // discounted; the coupon is refused when they overlap.
+    const autoDiscountedLines = new Set<number>(
+      lineRows.filter((row) => row.amountC > 0).map((row) => row.itemIdx),
+    );
+    const autoOrderDiscount = orderRows.some((row) => row.amountC > 0);
+    couponApp = await applyCoupon(
+      tx,
+      input.couponCode,
+      evalLines,
+      input.customerId,
+      sub,
+      { autoDiscountedLines, autoOrderDiscount },
+    );
   }
 
   const freeLines = await materializeFreeLines(tx, lineRows, evalLines, consumed);
@@ -403,6 +434,18 @@ export interface EstimateResult {
   discountTotal: string;
   deliveryFee: string;
   total: string;
+  /**
+   * D-7: the explicit serviceability state of the delivery address. The
+   * storefront shows it, and the order-create path re-resolves the same state
+   * inside the transaction — preview and commit can never disagree.
+   */
+  deliveryEligibility: {
+    status: "ZONE_MATCHED" | "UNCONFIGURED" | "UNMATCHED" | "MARKAZ_MATCHED" | "SUPPORTED_OUTSIDE" | "UNSUPPORTED";
+    reason: string;
+    zoneId: string | null;
+    zoneName: string | null;
+    serviceable: boolean;
+  };
 }
 
 /**
@@ -415,6 +458,12 @@ export async function estimateOnly(input: {
   lines: EstimateLineInput[];
   couponCode: string | null;
   customerId: string | null;
+  /**
+   * Address context for the zone override. Absent/null → base fee. The
+   * committed order resolves against the same table, so preview and create
+   * agree; a change in between is rejected via expectedDeliveryFee (409).
+   */
+  deliveryAddress?: DeliveryLocality | null;
 }): Promise<EstimateResult> {
   const built: CheckoutLineInput[] = [];
   for (const l of input.lines) {
@@ -474,8 +523,12 @@ export async function estimateOnly(input: {
     netC: l.grossC,
     unitPriceC: l.unitPriceC,
   }));
-  const ev = evaluateLines(evalLines, all);
-  const ord = evaluateOrderLayer(evalLines, all);
+  // OWNER POLICY (one winner) — the storefront estimate uses the SAME
+  // selector as the checkout, so the price the customer sees is the price the
+  // order is charged.
+  const offered = winningOfferSet(evalLines, all);
+  const ev = evaluateLines(evalLines, offered);
+  const ord = evaluateOrderLayer(evalLines, offered);
   const perLine = new Map<string, Array<{ promoId: string; promoName: string; amount: string }>>();
   const pushLine = (key: string, promoId: string, promoName: string, amountC: number) => {
     const arr = perLine.get(key) ?? [];
@@ -511,56 +564,88 @@ export async function estimateOnly(input: {
     }
     const cp = await findCouponForApply(code);
     if (!cp) throw new ApiError("NOT_FOUND", "Coupon not found.", null);
-    if (!cp.own_ok || !cp.parent_ok) {
-      coupon = { code, applicable: false, reason: "Coupon is not currently valid.", amount: "0.00" };
-    } else {
-      const grossAllC = evalLines.reduce((s, l) => s + l.grossC, 0);
-      const minC = cp.minimum_order_amount === null ? null : parseScaled(cp.minimum_order_amount, 2);
-      if (minC !== null && grossAllC < minC) {
-        coupon = { code, applicable: false, reason: "Coupon minimum order amount not reached.", amount: "0.00" };
-      } else if (cp.per_customer_limit !== null && input.customerId === null) {
-        coupon = { code, applicable: false, reason: "Customer required.", amount: "0.00" };
-      } else {
-        let limited = false;
-        if (cp.per_customer_limit !== null && input.customerId !== null) {
-          const used = Number(
+    // The customer's active usage count (a read).
+    const customerActiveUsages =
+      cp.per_customer_limit !== null && input.customerId !== null
+        ? Number(
             (
               await prisma.$queryRaw<Array<{ n: string }>>`
                 SELECT COUNT(*)::text AS n FROM coupon_usages u JOIN orders o ON o.id = u.order_id
                  WHERE u.coupon_id = ${cp.id}::uuid AND u.customer_id = ${input.customerId}::uuid
                    AND o.status <> 'CANCELLED'`
             )[0].n,
-          );
-          limited = used >= cp.per_customer_limit;
-        }
-        if (limited) {
-          coupon = { code, applicable: false, reason: "Coupon per-customer limit reached.", amount: "0.00" };
-        } else if (cp.promo_type !== "PERCENTAGE" && cp.promo_type !== "FIXED_AMOUNT") {
-          coupon = { code, applicable: false, reason: "Coupon promotion type is not supported.", amount: "0.00" };
-        } else {
-          const targets = (
-            await prisma.$queryRaw<Array<{ tt: string; tid: string }>>`
-              SELECT target_type AS tt, target_id::text AS tid FROM promotion_targets WHERE promotion_id = ${cp.promotion_id}::uuid`
-          ).map((tg) => ({
-            tt: tg.tt as "VARIANT" | "PRODUCT" | "BRAND" | "CATEGORY",
-            tid: tg.tid,
-          }));
-          const probe = { targets, inSubtree: sub } as import("@/lib/promotions/engine").EvalPromo;
-          const elig = evalLines
-            .map((l, i) => i)
-            .filter((i) => targets.length === 0 || matchLine(evalLines[i].ctx, probe) > 0);
-          const baseC = elig.reduce((s, i) => s + evalLines[i].netC, 0);
-          let amountC =
-            cp.promo_type === "PERCENTAGE"
-              ? divRoundHalfAway(baseC * parseScaled(cp.pdp as string, 2), 10000)
-              : Math.min(parseScaled(cp.pda as string, 2), baseC);
-          if (cp.promo_max !== null) amountC = Math.min(amountC, parseScaled(cp.promo_max, 2));
-          coupon =
-            amountC <= 0 || baseC <= 0
-              ? { code, applicable: false, reason: "Coupon grants no discount.", amount: "0.00" }
-              : { code, applicable: true, reason: null, amount: centsText(amountC) };
-        }
-      }
+          )
+        : null;
+    // The offer's target lines (a read).
+    const targets = (
+      await prisma.$queryRaw<Array<{ tt: string; tid: string }>>`
+        SELECT target_type AS tt, target_id::text AS tid FROM promotion_targets WHERE promotion_id = ${cp.promotion_id}::uuid`
+    ).map((tg) => ({
+      tt: tg.tt as "VARIANT" | "PRODUCT" | "BRAND" | "CATEGORY",
+      tid: tg.tid,
+    }));
+    const probe = { targets, inSubtree: sub } as import("@/lib/promotions/engine").EvalPromo;
+    const elig = evalLines
+      .map((l, i) => i)
+      .filter((i) => targets.length === 0 || matchLine(evalLines[i].ctx, probe) > 0);
+    // ONE rule set (the same evaluator the checkout and the admin preview
+    // use): the estimate and the checkout can never disagree about whether a
+    // coupon works.
+    const evaluation = evaluateCouponEligibility({
+      coupon: {
+        id: cp.id,
+        promotion_id: cp.promotion_id,
+        promo_type: cp.promo_type,
+        promo_scope: cp.promo_scope,
+        pdp: cp.pdp,
+        pda: cp.pda,
+        promo_max: cp.promo_max,
+        usage_limit: cp.usage_limit,
+        used_count: cp.used_count,
+        per_customer_limit: cp.per_customer_limit,
+        minimum_order_amount: cp.minimum_order_amount,
+        own_ok: cp.own_ok,
+        parent_ok: cp.parent_ok,
+      },
+      grossTotalC: evalLines.reduce((s, l) => s + l.grossC, 0),
+      eligibleGrossC: elig.reduce((s, i) => s + evalLines[i].grossC, 0),
+      eligibleLineIndexes: elig,
+      customerId: input.customerId,
+      customerActiveUsages,
+      autoDiscountedLines: ev.rows.filter((r) => r.amountC > 0).map((r) => r.itemIdx),
+      autoOrderDiscount: ord.rows.some((r) => r.amountC > 0),
+      mode: "preview",
+      basketProvided: true,
+    });
+    // The estimate keeps its own reason strings (the storefront maps every
+    // non-empty reason to one Arabic message).
+    const ESTIMATE_REASONS: Partial<Record<CouponConditionCode, string>> = {
+      VALIDITY: "Coupon is not currently valid.",
+      MINIMUM: "Coupon minimum order amount not reached.",
+      USAGE_LIMIT: "Coupon usage limit reached.",
+      REQUIRES_CUSTOMER: "Customer required.",
+      PER_CUSTOMER_LIMIT: "Coupon per-customer limit reached.",
+      PROMO_TYPE: "Coupon promotion type is not supported.",
+      COMBINATION: COUPON_COMBINATION_POLICY.refusalKey,
+      ELIGIBLE_LINES: "Coupon has no eligible lines.",
+      NO_DISCOUNT: "Coupon grants no discount.",
+    };
+    const blocked = evaluation.conditions.find((c) => !c.satisfied);
+    if (!evaluation.applicable && blocked) {
+      coupon = {
+        code,
+        applicable: false,
+        reason: ESTIMATE_REASONS[blocked.code] ?? blocked.messageEn,
+        amount: "0.00",
+      };
+    } else {
+      const amountC = evaluation.amountC ?? 0;
+      coupon = {
+        code,
+        applicable: true,
+        reason: null,
+        amount: centsText(amountC),
+      };
     }
   }
   // Prospective cross-variant free lines (read-only: no reserve, no rows).
@@ -598,11 +683,9 @@ export async function estimateOnly(input: {
       discount: centsText(amountC),
     });
   }
-  const feeRows = await prisma.$queryRaw<Array<{ v: string }>>`
-    SELECT value_text AS v FROM store_settings WHERE key = 'delivery.default_fee'`;
-  const feeRaw = feeRows.length === 0 ? null : feeRows[0].v;
-  if (feeRaw === null || !/^\d+(\.\d{1,2})?$/.test(feeRaw)) throw new Error("Delivery fee misconfigured.");
-  const feeC = parseScaled(feeRaw, 2);
+  const quote = await resolveDeliveryQuote(prisma, input.deliveryAddress ?? null);
+  const feeResolution = quote.fee;
+  const feeC = feeResolution.cents;
   const subtotalC =
     evalLines.reduce((s, l) => s + l.grossC, 0) + freeProspects.reduce((s, f) => s + parseScaled(f.gross, 2), 0);
   const discC =
@@ -624,6 +707,13 @@ export async function estimateOnly(input: {
     discountTotal: centsText(discC),
     deliveryFee: centsText(feeC),
     total: centsText(subtotalC - discC + feeC),
+    deliveryEligibility: {
+      status: quote.eligibility.status,
+      reason: quote.eligibility.reason,
+      zoneId: quote.eligibility.zoneId,
+      zoneName: quote.eligibility.zoneName,
+      serviceable: quote.eligibility.serviceable,
+    },
   };
 }
 
@@ -760,6 +850,7 @@ async function applyCoupon(
   lines: EvalLine[],
   customerId: string | null,
   sub: (lineCid: string, targetCid: string) => boolean,
+  auto: { autoDiscountedLines: ReadonlySet<number>; autoOrderDiscount: boolean },
 ): Promise<CouponAppResult | null> {
   let code: string;
   try {
@@ -767,15 +858,67 @@ async function applyCoupon(
   } catch {
     throw businessRule("Invalid coupon code.", null);
   }
-  const cp = await findCouponForApply(code);
+  const cp = await findCouponForApply(code, tx);
   if (!cp) throw new ApiError("NOT_FOUND", "Coupon not found.", null);
-  if (!cp.own_ok || !cp.parent_ok) {
-    throw businessRule("Coupon is not currently valid.", null);
-  }
-  const grossAllC = lines.reduce((s, l) => s + l.grossC, 0);
-  if (cp.minimum_order_amount !== null && grossAllC < parseScaled(cp.minimum_order_amount, 2)) {
-    throw businessRule("Coupon minimum order amount not reached.", null);
-  }
+
+  // The offer's target lines (a READ — the promotion row is locked further
+  // down, and a writer always locks it before changing its targets).
+  const parentTargets = (
+    await tx.$queryRaw<Array<{ tt: string; tid: string }>>`
+        SELECT target_type AS tt, target_id::text AS tid
+          FROM promotion_targets WHERE promotion_id = ${cp.promotion_id}::uuid`
+  ).map((tg) => ({ tt: tg.tt as "VARIANT" | "PRODUCT" | "BRAND" | "CATEGORY", tid: tg.tid }));
+  const probe = { targets: parentTargets, inSubtree: sub } as EvalPromo;
+  const keys = lines.map((_, i) => i);
+  const elig = keys.filter((i) => parentTargets.length === 0 || matchLine(lines[i].ctx, probe) > 0);
+
+  // The customer's active usage count (a READ of `coupon_usages`; the counter
+  // bump below touches `coupons.used_count`, never the usage rows).
+  const customerActiveUsages =
+    cp.per_customer_limit !== null && customerId !== null
+      ? await countActiveUsages(tx, cp.id, customerId)
+      : null;
+
+  // ONE rule set (shared with the admin preview): every coupon rule is
+  // evaluated here, and the write path throws the message of the failing
+  // rule at the EXACT point the original code did.
+  const evaluation = evaluateCouponEligibility({
+    coupon: {
+      id: cp.id,
+      promotion_id: cp.promotion_id,
+      promo_type: cp.promo_type,
+      promo_scope: cp.promo_scope,
+      pdp: cp.pdp,
+      pda: cp.pda,
+      promo_max: cp.promo_max,
+      usage_limit: cp.usage_limit,
+      used_count: cp.used_count,
+      per_customer_limit: cp.per_customer_limit,
+      minimum_order_amount: cp.minimum_order_amount,
+      own_ok: cp.own_ok,
+      parent_ok: cp.parent_ok,
+    },
+    grossTotalC: lines.reduce((s, l) => s + l.grossC, 0),
+    eligibleGrossC: elig.reduce((s, i) => s + lines[i].grossC, 0),
+    eligibleLineIndexes: elig,
+    customerId,
+    customerActiveUsages,
+    autoDiscountedLines: auto.autoDiscountedLines,
+    autoOrderDiscount: auto.autoOrderDiscount,
+    mode: "write",
+  });
+  const failed = (conditionCode: CouponConditionCode) =>
+    evaluation.conditions.find((c) => c.code === conditionCode && !c.satisfied);
+
+  // 1) The window/flag validity and the parent offer's state.
+  const validity = failed("VALIDITY");
+  if (validity) throw businessRule(validity.messageEn, null);
+  // 2) The minimum order amount.
+  const minimum = failed("MINIMUM");
+  if (minimum) throw businessRule(minimum.messageEn, null);
+
+  // 3) The atomic usage bump — the real usage gate (the evaluator leaves the
+  //    limit to it in write mode).
   await tx.$queryRaw`SELECT 1 FROM coupons WHERE id = ${cp.id}::uuid FOR UPDATE`;
   const bumped = await tx.$queryRaw<Array<{ one: number }>>`
     UPDATE coupons SET used_count = used_count + 1 WHERE id = ${cp.id}::uuid
@@ -784,18 +927,13 @@ async function applyCoupon(
   if (bumped.length === 0) {
     throw conflict("Coupon usage limit reached.", { code });
   }
-  if (cp.per_customer_limit !== null) {
-    // Guests own no customer identity: per-customer-limited coupons cannot
-    // be evaluated for them (BGGO-D004) — same meaning as the estimate
-    // path's "Customer required." inapplicability, enforced here as 422.
-    if (customerId === null) {
-      throw businessRule("Coupon requires a customer account.", null);
-    }
-    const used = await countActiveUsages(tx, cp.id, customerId);
-    if (used >= cp.per_customer_limit) {
-      throw businessRule("Coupon per-customer limit reached.", null);
-    }
-  }
+  // 4) The per-customer limit (guests own no customer identity).
+  const requiresCustomer = failed("REQUIRES_CUSTOMER");
+  if (requiresCustomer) throw businessRule(requiresCustomer.messageEn, null);
+  const perCustomer = failed("PER_CUSTOMER_LIMIT");
+  if (perCustomer) throw businessRule(perCustomer.messageEn, null);
+
+  // 5) The parent promotion's own limit.
   await tx.$queryRaw`SELECT 1 FROM promotions WHERE id = ${cp.promotion_id}::uuid FOR UPDATE`;
   const pbumped = await tx.$queryRaw<Array<{ one: number }>>`
     UPDATE promotions SET used_count = used_count + 1 WHERE id = ${cp.promotion_id}::uuid
@@ -804,30 +942,24 @@ async function applyCoupon(
   if (pbumped.length === 0) {
     throw conflict("Coupon promotion limit reached.", { code });
   }
-  if (cp.promo_type !== "PERCENTAGE" && cp.promo_type !== "FIXED_AMOUNT") {
-    throw businessRule("Coupon promotion type is not supported.", null);
+
+  // 6) The remaining rules, in their original order.
+  const promoType = failed("PROMO_TYPE");
+  if (promoType) throw businessRule(promoType.messageEn, null);
+  const combination = failed("COMBINATION");
+  if (combination) {
+    throw businessRule(combination.messageEn, {
+      reason: COUPON_COMBINATION_POLICY.refusalKey,
+      conflictingLines: evaluation.conflictingLines,
+    });
   }
-  const parentTargets =
-    (
-      await tx.$queryRaw<Array<{ tt: string; tid: string }>>`
-        SELECT target_type AS tt, target_id::text AS tid
-          FROM promotion_targets WHERE promotion_id = ${cp.promotion_id}::uuid`
-    ).map((tg) => ({ tt: tg.tt as "VARIANT" | "PRODUCT" | "BRAND" | "CATEGORY", tid: tg.tid }));
-  const probe = { targets: parentTargets, inSubtree: sub } as EvalPromo;
-  const keys = lines.map((_, i) => i);
-  const elig = keys.filter((i) => parentTargets.length === 0 || matchLine(lines[i].ctx, probe) > 0);
-  const baseC = elig.reduce((s, i) => s + lines[i].netC, 0);
-  if (baseC <= 0) {
-    throw businessRule("Coupon has no eligible lines.", null);
-  }
-  let amountC =
-    cp.promo_type === "PERCENTAGE"
-      ? divRoundHalfAway(baseC * parseScaled(cp.pdp as string, 2), 10000)
-      : Math.min(parseScaled(cp.pda as string, 2), baseC);
-  if (cp.promo_max !== null) amountC = Math.min(amountC, parseScaled(cp.promo_max, 2));
-  if (amountC <= 0) {
-    throw businessRule("Coupon grants no discount.", null);
-  }
+  const eligibleLines = failed("ELIGIBLE_LINES");
+  if (eligibleLines) throw businessRule(eligibleLines.messageEn, null);
+  const noDiscount = failed("NO_DISCOUNT");
+  if (noDiscount) throw businessRule(noDiscount.messageEn, null);
+
+  const baseC = evaluation.baseC ?? 0;
+  const amountC = evaluation.amountC ?? 0;
   return {
     promoId: cp.promotion_id,
     promoName: cp.promo_name,

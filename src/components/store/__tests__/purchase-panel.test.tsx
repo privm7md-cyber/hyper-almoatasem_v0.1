@@ -40,7 +40,7 @@ function productWith(variants: typeof PIECE_VARIANT[], type: "PIECE" | "WEIGHT")
     slug: "s",
     description: null,
     brandName: null,
-    categoryName: "قسم",
+    category: { id: "c", name: "قسم", slug: "c", parentId: null },
     productType: type,
     saleStepGrams: type === "WEIGHT" ? 250 : null,
     gallery: [],
@@ -200,5 +200,54 @@ describe("purchase-panel", () => {
     expect(screen.getByRole("button", { name: "غير متاح للبيع بالوزن" })).toBeDisabled();
     expect(screen.queryByText(/ج\.م \/ كجم/)).not.toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("P1208-D02: initializes customer ACTIVE cart once and retries session-side when authenticated customer has no active cart (404 Active cart not found)", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        if (url === "/api/store/cart/items" && calls.filter((c) => c.url === url).length === 1) {
+          return Promise.resolve(
+            jsonResponse(
+              { error: { code: "NOT_FOUND", message: "Active cart not found.", details: null } },
+              404,
+            ),
+          );
+        }
+        if (url === "/api/store/cart") {
+          // Authenticated customer cart creation returns { cart } with NO guestToken
+          return Promise.resolve(jsonResponse({ data: { cart: { lines: [] } }, meta: {} }, 201));
+        }
+        return Promise.resolve(jsonResponse({ data: { cart: { lines: [{ productVariantId: PIECE_VARIANT.id, quantity: "1" }] } }, meta: {} }, 200));
+      }),
+    );
+    renderPanel(productWith([PIECE_VARIANT], "PIECE"));
+    fireEvent.click(screen.getByRole("button", { name: "أضف إلى السلة" }));
+    await waitFor(() => expect(calls.filter((c) => c.url === "/api/store/cart/items")).toHaveLength(2));
+    expect(calls.filter((c) => c.url === "/api/store/cart")).toHaveLength(1);
+    expect(window.localStorage.getItem("hyper_cart_guest_token")).toBeNull();
+    expect(await screen.findByText("تمت الإضافة إلى السلة.")).toBeInTheDocument();
+  });
+
+  it("P1208-D02: surfaces NOT_FOUND without minting when variant itself is missing", async () => {
+    const calls: { url: string }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        calls.push({ url });
+        return Promise.resolve(
+          jsonResponse(
+            { error: { code: "NOT_FOUND", message: "Variant not found.", details: null } },
+            404,
+          ),
+        );
+      }),
+    );
+    renderPanel(productWith([PIECE_VARIANT], "PIECE"));
+    fireEvent.click(screen.getByRole("button", { name: "أضف إلى السلة" }));
+    expect(await screen.findByText(/تعذّر العثور على السلة أو الـVariant/)).toBeInTheDocument();
+    expect(calls.filter((c) => c.url === "/api/store/cart")).toHaveLength(0);
   });
 });

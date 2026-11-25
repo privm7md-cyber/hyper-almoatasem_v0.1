@@ -1,9 +1,9 @@
-// BA-C closure — time-contract verification (real PostgreSQL, scratch-only).
+﻿// BA-C closure â€” time-contract verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-time-contract.mjs --db <scratch>
 //
 // Proves the session-timezone root cause and the central fix:
 //   BEFORE  a client built exactly like src/lib/db.ts was before the fix
-//          (no UTC pin) — reproduces the shift on a non-UTC session.
+//          (no UTC pin) â€” reproduces the shift on a non-UTC session.
 //   AFTER   the same client built through the app's withUtcSession() pin,
 //          under FOUR session time zones and FOUR process time zones.
 // Also asserts the business time gates stay SQL-authoritative: promotion
@@ -21,7 +21,10 @@ const dbFlag = args.indexOf("--db");
 const dbName = dbFlag === -1 ? null : args[dbFlag + 1];
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",

@@ -14,6 +14,8 @@
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
+import { resolveClientIp } from "@/lib/api/client-ip";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
 import { customerLoginSchema } from "@/lib/customers/validation";
 import { authenticateCustomer } from "@/lib/customers/auth";
 import {
@@ -37,12 +39,16 @@ function cookieAttrs(maxAge: number): string {
 }
 
 function clientIp(request: Request): string | null {
-  const forwarded = request.headers.get("x-forwarded-for");
-  const first = forwarded?.split(",")[0]?.trim();
-  return first && first !== "" ? first : null;
+  return resolveClientIp(request.headers).ip;
 }
 
 export async function POST(request: Request) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   let body: unknown;
   try {
     body = await request.json();
@@ -88,6 +94,12 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const token = readCustomerToken(request);
   if (token) await revokeCustomerSession(token);
   const res = NextResponse.json(ok({ loggedOut: true }).body, { status: 200 });

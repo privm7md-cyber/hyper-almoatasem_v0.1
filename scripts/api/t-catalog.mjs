@@ -2,7 +2,7 @@
 // Usage: node scripts/api/t-catalog.mjs --db <name> --port <port>
 // Covers: storefront reads, validation, 404s, barcode 2010106 resolution,
 // admin CRUD + permission matrix (anon/store/owner/roleless/inactive),
-// duplicates→409, weight-rule 422, price+history tx, primary switch.
+// duplicatesâ†’409, weight-rule 422, price+history tx, primary switch.
 // Prints JSON (never passwords, hashes, tokens, or connection strings).
 import crypto from "node:crypto";
 import { extractSessionCookie } from "./_session-cookie.mjs";
@@ -25,7 +25,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -190,7 +193,7 @@ async function main() {
     const badWeight = await post("/api/admin/catalog/products", { name: "Bad W", categoryId: catCreate.body.data.id, productType: "WEIGHT", unit: "PIECE" }, store.cookie);
     t("admin-weight-rule-422", badWeight.status === 422);
     // L3 Direction A: LITER/ML are not product sale units (boundary 400-class,
-    // like every other malformed enum input — not the domain 422).
+    // like every other malformed enum input â€” not the domain 422).
     const literUnit = await post("/api/admin/catalog/products", { name: "Bad L", categoryId: catCreate.body.data.id, productType: "PIECE", unit: "LITER" }, store.cookie);
     t("admin-liter-unit-400", literUnit.status === 400);
     const mlUnit = await post("/api/admin/catalog/products", { name: "Bad M", categoryId: catCreate.body.data.id, productType: "WEIGHT", unit: "ML", saleStepGrams: 250 }, store.cookie);
@@ -249,14 +252,26 @@ async function main() {
     // ---------- owner full pass + inactive user ----------
     const ownerList = await get("/api/admin/catalog/brands?limit=5", owner.cookie);
     t("owner-admin-list-200", ownerList.status === 200);
-    const inactiveId = crypto.randomUUID();
+    // Third-Agent re-runnability fix: audit residue (frozen rule — audit rows
+    // are never deleted) keeps a FK to this fixture user, so the old
+    // unconditional INSERT + finally-DELETE loop left the user behind and the
+    // NEXT run of this suite crashed on users_email_key before any assertion.
+    // The fixture is now create-if-absent and reused when it already exists;
+    // the tested behaviour (401 for an inactive login) is unchanged either way.
     const inactiveHash = await argon2.hash("Cat-Test-Off-Pass-0004!", { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
-    await db.query(`INSERT INTO users (id, name, email, phone, password_hash, is_active) VALUES ($1,'Cat Off','off-cat-test@example.com','201133300023',$2,FALSE)`, [inactiveId, inactiveHash]);
+    let inactiveId = crypto.randomUUID();
+    const ins = await db.query(`INSERT INTO users (id, name, email, phone, password_hash, is_active) VALUES ($1,'Cat Off','off-cat-test@example.com','201133300023',$2,FALSE) ON CONFLICT (email) DO NOTHING RETURNING id`, [inactiveId, inactiveHash]);
+    if (ins.rows.length) {
+      inactiveId = ins.rows[0].id;
+    } else {
+      const row = await db.query(`SELECT id FROM users WHERE email = $1`, ["off-cat-test@example.com"]);
+      inactiveId = row.rows[0].id;
+    }
     track("users", inactiveId);
     const inactiveLogin = await loginAs("off-cat-test@example.com", "anything-0000!");
     t("inactive-login-401", inactiveLogin.status === 401);
   } finally {
-    // Hygiene: remove scratch-only rows (codes → variants → products → brands → categories → users).
+    // Hygiene: remove scratch-only rows (codes â†’ variants â†’ products â†’ brands â†’ categories â†’ users).
     try {
       for (const id of createdIds.codes) await db.query(`DELETE FROM product_codes WHERE id = $1`, [id]).catch(() => {});
       for (const id of createdIds.variants) {
@@ -267,6 +282,9 @@ async function main() {
       for (const id of createdIds.brands) await db.query(`DELETE FROM brands WHERE id = $1`, [id]).catch(() => {});
       for (const id of createdIds.categories) await db.query(`DELETE FROM categories WHERE id = $1`, [id]).catch(() => {});
       for (const id of createdIds.users) {
+        // Only cleanup fixture users created THIS run: audit residue is
+        // frozen (never delete pre-existing users or their audit rows).
+        if (!inactiveCreated || id !== inactiveId) continue;
         await db.query(`DELETE FROM audit_logs WHERE user_id = $1`, [id]).catch(() => {});
         await db.query(`DELETE FROM admin_sessions WHERE user_id = $1`, [id]).catch(() => {});
         await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [id]).catch(() => {});

@@ -27,7 +27,9 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
   const [items, setItems] = useState<ViewerAddress[]>(initial);
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ city?: string; phone?: string }>({});
   const [pending, setPending] = useState(false);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   function set<K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -47,7 +49,11 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
     e.preventDefault();
     if (pending) return;
     setError(null);
-    if (form.city.trim() === "" || form.phone.trim() === "") {
+    const nextErrors: { city?: string; phone?: string } = {};
+    if (form.city.trim() === "") nextErrors.city = "المدينة مطلوبة.";
+    if (form.phone.trim() === "") nextErrors.phone = "رقم الهاتف مطلوب.";
+    setFieldErrors(nextErrors);
+    if (nextErrors.city || nextErrors.phone) {
       setError("المدينة ورقم الهاتف مطلوبان.");
       return;
     }
@@ -77,7 +83,9 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
   }
 
   async function setDefault(id: string) {
+    if (busyIds.has(id)) return;
     setError(null);
+    setBusyIds((s) => new Set(s).add(id));
     try {
       await apiRequest(`/api/store/customers/addresses/${id}`, {
         method: "PATCH",
@@ -86,16 +94,30 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
       await reload();
     } catch (err) {
       setError(err instanceof AppError ? err.message : "تعذّر تعيين الافتراضي.");
+    } finally {
+      setBusyIds((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
     }
   }
 
   async function remove(id: string) {
+    if (busyIds.has(id)) return;
     setError(null);
+    setBusyIds((s) => new Set(s).add(id));
     try {
       await apiRequest(`/api/store/customers/addresses/${id}`, { method: "DELETE" });
       await reload();
     } catch (err) {
       setError(err instanceof AppError ? err.message : "تعذّر حذف العنوان.");
+    } finally {
+      setBusyIds((s) => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
     }
   }
 
@@ -121,11 +143,11 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
               </p>
               <div className="mt-2 flex gap-2">
                 {!a.isDefault ? (
-                  <Button variant="secondary" size="sm" onClick={() => void setDefault(a.id)}>
+                  <Button variant="secondary" size="sm" disabled={busyIds.has(a.id)} onClick={() => void setDefault(a.id)}>
                     تعيين افتراضي
                   </Button>
                 ) : null}
-                <Button variant="secondary" size="sm" onClick={() => void remove(a.id)}>
+                <Button variant="secondary" size="sm" disabled={busyIds.has(a.id)} onClick={() => void remove(a.id)}>
                   حذف
                 </Button>
               </div>
@@ -138,17 +160,17 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
           {error}
         </p>
       ) : null}
-      <form onSubmit={(e) => void create(e)} className="grid max-w-[480px] gap-3 rounded-card border border-line bg-white p-4">
+      <form onSubmit={(e) => void create(e)} className="grid max-w-[480px] gap-3 rounded-card border border-line bg-white p-4" noValidate>
         <p className="font-bold">عنوان جديد</p>
         <div className="grid gap-3 md:grid-cols-2">
-          <Field label="المدينة">
+          <Field label="المدينة" required error={fieldErrors.city}>
             {({ inputId, describedBy }) => (
-              <TextInput inputId={inputId} describedBy={describedBy} value={form.city} onChange={(e) => set("city", e.target.value)} />
+              <TextInput inputId={inputId} describedBy={describedBy} invalid={Boolean(fieldErrors.city)} required value={form.city} onChange={(e) => set("city", e.target.value)} />
             )}
           </Field>
-          <Field label="الهاتف">
+          <Field label="الهاتف" required error={fieldErrors.phone}>
             {({ inputId, describedBy }) => (
-              <TextInput inputId={inputId} describedBy={describedBy} inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+              <TextInput inputId={inputId} describedBy={describedBy} invalid={Boolean(fieldErrors.phone)} required inputMode="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
             )}
           </Field>
           <Field label="تسمية (اختياري)">
@@ -182,12 +204,12 @@ export function AddressBook({ initial }: { initial: ViewerAddress[] }) {
             )}
           </Field>
         </div>
-        <label className="flex items-center gap-2 text-sm font-semibold">
+        <label className="flex min-h-[44px] items-center gap-2.5 text-sm font-semibold">
           <input
             type="checkbox"
             checked={form.isDefault}
             onChange={(e) => set("isDefault", e.target.checked)}
-            className="h-5 w-5"
+            className="h-6 w-6 shrink-0 accent-brand"
           />
           تعيين كافتراضي
         </label>

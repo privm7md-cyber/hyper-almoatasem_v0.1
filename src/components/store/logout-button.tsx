@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { apiRequest } from "@/lib/frontend/api-client";
 import { Button } from "@/components/ui/button";
+import { notifyCartCount } from "@/components/store/cart-badge";
+import { resetCartStore } from "@/lib/frontend/cart-lines-store";
 
 export function LogoutButton() {
   const router = useRouter();
@@ -19,7 +21,9 @@ export function LogoutButton() {
     } catch {
       // Logout is best-effort client-side; the session cookie is server-cleared on success.
     } finally {
-      // Guest-cart bearer intentionally preserved (separate lifecycle; server scoping decides).
+      // Clear customer cart cache and in-memory lines on logout so no stale count survives
+      notifyCartCount(0);
+      resetCartStore();
       router.push("/");
       router.refresh();
     }

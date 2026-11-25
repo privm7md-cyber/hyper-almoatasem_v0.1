@@ -1,0 +1,539 @@
+{
+  "label": "after",
+  "tree": "D:\\Hyper_el-moatasem",
+  "builtAtSeconds": "39.8",
+  "routes": [
+    {
+      "route": "/_not-found",
+      "kind": "static",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /about"
+    },
+    {
+      "route": "/account",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /account/addresses"
+    },
+    {
+      "route": "/admin",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/audit-logs"
+    },
+    {
+      "route": "/admin/audit-logs/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/coupons"
+    },
+    {
+      "route": "/admin/coupons/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/customers"
+    },
+    {
+      "route": "/admin/customers/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/delivery-zones"
+    },
+    {
+      "route": "/admin/inventory",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/login"
+    },
+    {
+      "route": "/admin/orders",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/orders/[id]"
+    },
+    {
+      "route": "/admin/permissions",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/products"
+    },
+    {
+      "route": "/admin/products/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/products/new"
+    },
+    {
+      "route": "/admin/promotions",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/promotions/[id]"
+    },
+    {
+      "route": "/admin/roles",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/roles/[id]"
+    },
+    {
+      "route": "/admin/settings",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/taxonomy"
+    },
+    {
+      "route": "/admin/users",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /admin/users/[id]"
+    },
+    {
+      "route": "/api/admin/audit-logs",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/audit-logs/[id]"
+    },
+    {
+      "route": "/api/admin/catalog/brands",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/catalog/brands/[id]"
+    },
+    {
+      "route": "/api/admin/catalog/categories",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/catalog/categories/[id]"
+    },
+    {
+      "route": "/api/admin/catalog/codes",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/catalog/codes/[id]"
+    },
+    {
+      "route": "/api/admin/catalog/images/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/catalog/products"
+    },
+    {
+      "route": "/api/admin/catalog/products/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/catalog/products/[id]/images"
+    },
+    {
+      "route": "/api/admin/catalog/products/[id]/variants",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/catalog/variants/[id]"
+    },
+    {
+      "route": "/api/admin/catalog/variants/[id]/price",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/coupons"
+    },
+    {
+      "route": "/api/admin/coupons/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/coupons/[id]/usages"
+    },
+    {
+      "route": "/api/admin/customers",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/customers/[id]"
+    },
+    {
+      "route": "/api/admin/customers/[id]/addresses",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/customers/[id]/addresses/[addressId]"
+    },
+    {
+      "route": "/api/admin/customers/[id]/register",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/delivery-zones"
+    },
+    {
+      "route": "/api/admin/delivery-zones/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/inventory"
+    },
+    {
+      "route": "/api/admin/inventory/[variantId]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/inventory/adjust"
+    },
+    {
+      "route": "/api/admin/inventory/commit",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/inventory/initialize"
+    },
+    {
+      "route": "/api/admin/inventory/movements",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/inventory/movements/[id]"
+    },
+    {
+      "route": "/api/admin/inventory/release",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/inventory/reserve"
+    },
+    {
+      "route": "/api/admin/orders",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/orders/[id]"
+    },
+    {
+      "route": "/api/admin/orders/[id]/cancel",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/orders/[id]/credential/revoke"
+    },
+    {
+      "route": "/api/admin/orders/[id]/credential/rotate",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/orders/[id]/deliver"
+    },
+    {
+      "route": "/api/admin/orders/[id]/dispatch",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/orders/[id]/items/[itemId]/pick"
+    },
+    {
+      "route": "/api/admin/orders/[id]/items/[itemId]/replacements",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/orders/[id]/items/[itemId]/unavailable"
+    },
+    {
+      "route": "/api/admin/orders/[id]/prepare",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/orders/[id]/ready"
+    },
+    {
+      "route": "/api/admin/orders/[id]/replacements",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/permissions"
+    },
+    {
+      "route": "/api/admin/permissions/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/promotions"
+    },
+    {
+      "route": "/api/admin/promotions/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/promotions/[id]/buy-get"
+    },
+    {
+      "route": "/api/admin/promotions/[id]/rules",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/promotions/[id]/targets"
+    },
+    {
+      "route": "/api/admin/promotions/[id]/targets/[targetId]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/replacements/[id]/auto-accept"
+    },
+    {
+      "route": "/api/admin/replacements/[id]/withdraw",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/roles"
+    },
+    {
+      "route": "/api/admin/roles/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/roles/[id]/grants"
+    },
+    {
+      "route": "/api/admin/roles/[id]/grants/[permissionId]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/roles/[id]/members"
+    },
+    {
+      "route": "/api/admin/session",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/settings"
+    },
+    {
+      "route": "/api/admin/settings/[key]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/users"
+    },
+    {
+      "route": "/api/admin/users/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/users/[id]/password"
+    },
+    {
+      "route": "/api/admin/users/[id]/roles",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/admin/users/[id]/roles/[roleId]"
+    },
+    {
+      "route": "/api/health",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/cart"
+    },
+    {
+      "route": "/api/store/cart/items",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/cart/items/[variantId]"
+    },
+    {
+      "route": "/api/store/cart/merge",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/cart/reprice"
+    },
+    {
+      "route": "/api/store/catalog/brands",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/catalog/brands/[id]"
+    },
+    {
+      "route": "/api/store/catalog/categories",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/catalog/categories/[id]"
+    },
+    {
+      "route": "/api/store/catalog/codes/lookup",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/catalog/products"
+    },
+    {
+      "route": "/api/store/catalog/products/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/catalog/products/[id]/images"
+    },
+    {
+      "route": "/api/store/catalog/products/[id]/variants",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/catalog/search"
+    },
+    {
+      "route": "/api/store/catalog/variants/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/customers/addresses"
+    },
+    {
+      "route": "/api/store/customers/addresses/[addressId]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/customers/identify"
+    },
+    {
+      "route": "/api/store/customers/password",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/customers/register"
+    },
+    {
+      "route": "/api/store/customers/session",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/inventory/products/[id]"
+    },
+    {
+      "route": "/api/store/inventory/variants/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/orders"
+    },
+    {
+      "route": "/api/store/orders/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/orders/[id]/cancel"
+    },
+    {
+      "route": "/api/store/orders/[id]/replacements",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/orders/[id]/replacements/[replacementId]/decide"
+    },
+    {
+      "route": "/api/store/orders/checkout-session",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /api/store/orders/estimate"
+    },
+    {
+      "route": "/brand/[id]/[slug]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /brands"
+    },
+    {
+      "route": "/c/[id]/[slug]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /cancellation"
+    },
+    {
+      "route": "/cart",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /categories"
+    },
+    {
+      "route": "/checkout",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /contact"
+    },
+    {
+      "route": "/delivery",
+      "kind": "static",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /faq"
+    },
+    {
+      "route": "/login",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /opengraph-image"
+    },
+    {
+      "route": "/order-confirmation/[id]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /order-help"
+    },
+    {
+      "route": "/orders",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /orders/[id]"
+    },
+    {
+      "route": "/p/[id]/[slug]",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ƒ /register"
+    },
+    {
+      "route": "/replacement",
+      "kind": "static",
+      "size": null,
+      "firstLoad": null,
+      "extra": "├ ○ /robots.txt"
+    },
+    {
+      "route": "/search",
+      "kind": "dynamic",
+      "size": null,
+      "firstLoad": null,
+      "extra": "└ ○ /sitemap.xml                                                        1h      1y"
+    }
+  ]
+}

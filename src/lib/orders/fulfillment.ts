@@ -42,7 +42,7 @@ import { auditInTx } from "@/lib/api/audit";
 import { orderLockIds } from "@/lib/api/concurrency";
 import { canTransition } from "@/lib/orders/state-machine";
 import { newUuidV7 } from "@/lib/orders/writes";
-import { envelopeAllows, qtyToThousandths } from "@/lib/inventory/quantities";
+import { boundedThousandths, envelopeAllows, qtyToThousandths } from "@/lib/inventory/quantities";
 import {
   formatPiastres,
   lineTotalPiastres,
@@ -87,8 +87,8 @@ export type AdvanceTarget = (typeof ADVANCE_TARGETS)[number];
 
 /**
  * Guarded status advance (CONFIRMED→PREPARING, READY_FOR_DELIVERY→
- * OUT_FOR_DELIVERY, OUT_FOR_DELIVERY→DELIVERED). Illegal/repeat/backward →
- * 409. History + status + audit commit atomically.
+ * OUT_FOR_DELIVERY, OUT_FOR_DELIVERY→DELIVERED). Exact current target replays;
+ * illegal/backward → 409. History + status + audit commit atomically.
  */
 export async function advanceOrder(args: {
   orderId: string;
@@ -104,6 +104,7 @@ export async function advanceOrder(args: {
         SELECT id::text AS id, status FROM orders WHERE id = ${args.orderId}::uuid FOR UPDATE`;
       if (rows.length === 0) throw new ApiError("NOT_FOUND", "Order not found.", null);
       const from = rows[0].status;
+      if (from === args.to) return args.orderId;
       if (!canTransition(from, args.to)) {
         throw conflict(`Order cannot move from ${from} to ${args.to}.`, { from, to: args.to });
       }
@@ -144,7 +145,8 @@ interface PickLineRow {
  * write actual + final_total + FULFILLED/PARTIALLY_FULFILLED, commit stock
  * (quantity -= actual, reserved -= requested, R3 predicate) + SALE(-actual)
  * movement, one tx. Envelope breach → 422 (nothing written); stock-short →
- * 409 (re-cut or mark unavailable). Repeat pick on a decided line → 409.
+ * 409 (re-cut or mark unavailable). Same actual on a picked line replays only
+ * while PREPARING; different actual or another resolved state → 409.
  */
 export async function pickOrderLine(args: {
   orderId: string;
@@ -152,6 +154,12 @@ export async function pickOrderLine(args: {
   actualQuantity: string;
   actorId: string;
 }): Promise<string> {
+  let actualThousandths: number;
+  try {
+    actualThousandths = boundedThousandths(args.actualQuantity);
+  } catch {
+    throw new ApiError("VALIDATION", "Invalid picked quantity.", null);
+  }
   try {
     return await prisma.$transaction(async (tx) => {
       const orders = await tx.$queryRaw<Array<{ id: string; status: string }>>`
@@ -169,6 +177,10 @@ export async function pickOrderLine(args: {
           FROM order_items WHERE id = ${args.itemId}::uuid AND order_id = ${args.orderId}::uuid FOR UPDATE`;
       if (lines.length === 0) throw new ApiError("NOT_FOUND", "Order line not found.", null);
       const line = lines[0];
+      if ((line.item_status === "FULFILLED" || line.item_status === "PARTIALLY_FULFILLED") &&
+          line.actual_quantity !== null && qtyToThousandths(line.actual_quantity) === actualThousandths) {
+        return args.itemId;
+      }
       if (line.item_status !== "PENDING") {
         throw conflict("Order line is already resolved.", { itemStatus: line.item_status });
       }
@@ -267,6 +279,7 @@ export async function markLineUnavailable(args: {
           FROM order_items WHERE id = ${args.itemId}::uuid AND order_id = ${args.orderId}::uuid FOR UPDATE`;
       if (lines.length === 0) throw new ApiError("NOT_FOUND", "Order line not found.", null);
       const line = lines[0];
+      if (line.item_status === "UNAVAILABLE") return args.itemId;
       if (line.item_status !== "PENDING") {
         throw conflict("Order line is already resolved.", { itemStatus: line.item_status });
       }
@@ -312,6 +325,7 @@ export async function finishPreparation(args: { orderId: string; actorId: string
       const orders = await tx.$queryRaw<Array<{ id: string; status: string }>>`
         SELECT id::text AS id, status FROM orders WHERE id = ${args.orderId}::uuid FOR UPDATE`;
       if (orders.length === 0) throw new ApiError("NOT_FOUND", "Order not found.", null);
+      if (orders[0].status === "READY_FOR_DELIVERY") return args.orderId;
       if (orders[0].status !== "PREPARING") {
         throw conflict(`Order cannot be readied from ${orders[0].status}.`, { status: orders[0].status });
       }

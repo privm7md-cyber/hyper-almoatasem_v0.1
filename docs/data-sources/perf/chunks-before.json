@@ -1,0 +1,161 @@
+{
+  "label": "before",
+  "distDir": "D:/perf-baseline/.next",
+  "chunkCount": 43,
+  "totalBytes": 1116580,
+  "totalKB": 1090.4,
+  "iconModules": 97,
+  "byTag": {},
+  "largest": [
+    {
+      "file": "static/chunks/3sg07wnn969xq.js",
+      "bytes": 234406,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/0wmkdhjapc4sz.js",
+      "bytes": 129574,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/0cz1d0mv5g_q7.js",
+      "bytes": 112594,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/3g8sssk-9l367.js",
+      "bytes": 36855,
+      "tags": [],
+      "iconModules": 8
+    },
+    {
+      "file": "static/chunks/26dy4r27ggbj1.js",
+      "bytes": 35465,
+      "tags": [],
+      "iconModules": 7
+    },
+    {
+      "file": "static/chunks/2rv5wru2egtf-.js",
+      "bytes": 34580,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/3u4-n-5i3hh20.js",
+      "bytes": 32065,
+      "tags": [],
+      "iconModules": 7
+    },
+    {
+      "file": "static/chunks/1j5hmi4gqbd61.js",
+      "bytes": 30708,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/2alx9qeltc29t.js",
+      "bytes": 29587,
+      "tags": [],
+      "iconModules": 6
+    },
+    {
+      "file": "static/chunks/2opg2fy634ir-.js",
+      "bytes": 28755,
+      "tags": [],
+      "iconModules": 7
+    },
+    {
+      "file": "static/chunks/2lf6jdj1jqra8.js",
+      "bytes": 26244,
+      "tags": [],
+      "iconModules": 7
+    },
+    {
+      "file": "static/chunks/1odh99t9-z_1f.js",
+      "bytes": 24915,
+      "tags": [],
+      "iconModules": 6
+    },
+    {
+      "file": "static/chunks/045odvq1sr5hh.js",
+      "bytes": 24498,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/0foepp_ois_f8.js",
+      "bytes": 24088,
+      "tags": [],
+      "iconModules": 6
+    },
+    {
+      "file": "static/chunks/0k5sqq2wr5_ai.js",
+      "bytes": 21611,
+      "tags": [],
+      "iconModules": 6
+    },
+    {
+      "file": "static/chunks/44jr2rwbjg_fu.js",
+      "bytes": 21504,
+      "tags": [],
+      "iconModules": 6
+    },
+    {
+      "file": "static/chunks/2p2ywposykko2.js",
+      "bytes": 20706,
+      "tags": [],
+      "iconModules": 7
+    },
+    {
+      "file": "static/chunks/2ki1hckxehwu6.js",
+      "bytes": 18341,
+      "tags": [],
+      "iconModules": 6
+    },
+    {
+      "file": "static/chunks/3ddwc2huyr7px.js",
+      "bytes": 18102,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/11lodc9tw-osj.js",
+      "bytes": 17994,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/3fntmmi971322.js",
+      "bytes": 14377,
+      "tags": [],
+      "iconModules": 0
+    },
+    {
+      "file": "static/chunks/06-ag6zgvcjx0.js",
+      "bytes": 13333,
+      "tags": [],
+      "iconModules": 1
+    },
+    {
+      "file": "static/chunks/08xlorrg0aprx.js",
+      "bytes": 12008,
+      "tags": [],
+      "iconModules": 1
+    },
+    {
+      "file": "static/chunks/2onp611cc-xxt.js",
+      "bytes": 11814,
+      "tags": [],
+      "iconModules": 1
+    },
+    {
+      "file": "static/chunks/1f5m50ojg-14n.js",
+      "bytes": 11233,
+      "tags": [],
+      "iconModules": 1
+    }
+  ]
+}

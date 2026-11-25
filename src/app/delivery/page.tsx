@@ -5,10 +5,12 @@
 // No coverage list, no time window, no minimum order, no free-delivery claim.
 
 import type { Metadata } from "next";
+import { canonicalMetadata } from "@/lib/seo/canonical";
 import { InfoList, InfoNote, InfoPage, InfoSection } from "@/components/store/info-page";
 import { StoreShell } from "@/components/store/store-shell";
 
 export const metadata: Metadata = {
+  ...canonicalMetadata("/delivery"),
   title: "سياسة التوصيل",
   description: "نطاق التوصيل، ورسوم التوصيل كما تُحتسب في المتجر، وما الذي يُنشأ به الطلب.",
 };

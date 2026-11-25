@@ -45,7 +45,7 @@ test.beforeAll(async () => {
   const owner = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
   if (!owner) throw new Error("PHASE10_E2E_SETUP: owner login failed");
   // the seeded business-operator role, assigned as-is
-  const roles = await api<Array<{ id: string; name: string }>>(owner, "GET", "/api/admin/roles?limit=100");
+  const roles = await api<Array<{ id: string; name: string }>>(owner, "GET", "/api/admin/roles?limit=100&search=STORE_ADMIN");
   const storeRole = (roles.data ?? []).find((r) => r.name === "STORE_ADMIN");
   if (!storeRole) throw new Error("PHASE10_E2E_SETUP: STORE_ADMIN role not found");
   const storeEmail = `p10e2e-store-${stamp}@example.com`;
@@ -84,31 +84,40 @@ test.describe("Phase-10 admin panel (browser)", () => {
   test("read-only role: read pages work, every write control is hidden", async ({ page }) => {
     await login(page, identities["VIEWER"].email, PROBE_PASSWORD);
 
-    // Sidebar shows only the domains this role may read.
-    const nav = page.getByRole("navigation", { name: "أقسام الإدارة" });
+    // Sidebar shows only the domains this role may read under the Phase-11 semantic landmark.
+    const nav = page.getByRole("navigation", { name: "التنقل الرئيسي" });
     await expect(nav.getByRole("link", { name: "الطلبات" })).toBeVisible();
-    await expect(nav.getByRole("link", { name: "المنتجات" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "كل المنتجات" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "المخزون" })).toBeVisible();
-    // Platform-security sections are hidden (roles.view / settings.view absent).
+    // Platform-security sections are hidden (roles.view / settings.view / audit_logs.view absent).
     await expect(nav.getByRole("link", { name: "المستخدمون" })).toHaveCount(0);
-    await expect(nav.getByRole("link", { name: "الإعدادات" })).toHaveCount(0);
-    await expect(nav.getByRole("link", { name: "سجل التدقيق" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "إعدادات المتجر" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "سجل التغييرات" })).toHaveCount(0);
 
-    // Inventory: the write forms are gone, and the missing key is named.
+    // Inventory: the write forms are replaced by Arabic PermissionGate notes (no raw technical key leaked).
     await page.goto(`${BASE}/admin/inventory`);
-    await expect(page.getByText("تعديل يدوي (inventory.adjust)")).toBeVisible();
-    await expect(page.getByRole("button", { name: "حفظ التعديل" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "حفظ الحد" })).toHaveCount(0);
-    await expect(page.getByText("inventory.adjust").first()).toBeVisible();
+    await expect(page.getByText(/إضافة كمية للمخزون — غير متاح لحسابك/).first()).toBeVisible();
+    await expect(page.getByText(/تعديل كميات المخزون/).first()).toBeVisible();
+    await expect(page.getByText("inventory.adjust")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "سجّل الإضافة" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "سجّل التسوية" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "سجّل حد التنبيه" })).toHaveCount(0);
 
-    // Catalog: no create control.
+    // Catalog: no create link or form control; human-readable notice is shown instead.
     await page.goto(`${BASE}/admin/products`);
-    await expect(page.getByRole("button", { name: "إنشاء المنتج" })).toHaveCount(0);
-    await expect(page.getByText("products.create").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "منتج جديد" })).toHaveCount(0);
+    await expect(page.getByText(/إضافة منتج جديد محتاج صلاحية إضافية/).first()).toBeVisible();
+    await expect(page.getByText("products.create")).toHaveCount(0);
 
-    // A platform-security page is refused server-side (not merely hidden).
-    const res = await page.goto(`${BASE}/admin/settings`);
-    expect(res?.status()).toBe(403);
+    // A platform-security page is refused server-side (streaming SSR renders the 403 boundary and the API returns 403).
+    await page.goto(`${BASE}/admin/settings`);
+    await expect(page.getByRole("heading", { name: /403 — غير مصرح/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "إعدادات المتجر" })).toHaveCount(0);
+    const settingsApiStatus = await page.evaluate(async () => {
+      const r = await fetch("/api/admin/settings");
+      return r.status;
+    });
+    expect(settingsApiStatus).toBe(403);
   });
 
   test("read-only role: a direct API call to a forbidden write is rejected", async ({ page }) => {
@@ -134,92 +143,115 @@ test.describe("Phase-10 admin panel (browser)", () => {
     await login(page, identities["STORE"].email, PROBE_PASSWORD);
 
     await page.goto(`${BASE}/admin/inventory`);
-    await expect(page.getByRole("button", { name: "حفظ التعديل" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "حفظ الحد" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "سجّل الإضافة" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "سجّل التسوية" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "سجّل حد التنبيه" })).toBeVisible();
 
-    // Platform-security pages stay refused for STORE_ADMIN.
-    const settingsRes = await page.goto(`${BASE}/admin/settings`);
-    expect(settingsRes?.status()).toBe(403);
+    // Platform-security pages stay refused for STORE_ADMIN (403 boundary + API 403).
+    await page.goto(`${BASE}/admin/settings`);
+    await expect(page.getByRole("heading", { name: /403 — غير مصرح/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "إعدادات المتجر" })).toHaveCount(0);
+    const storeSettingsApiStatus = await page.evaluate(async () => {
+      const r = await fetch("/api/admin/settings");
+      return r.status;
+    });
+    expect(storeSettingsApiStatus).toBe(403);
 
-    // Real mutation: create a product through the UI and watch the API call.
+    // Real mutation: navigate via "منتج جديد" to /admin/products/new and create a product + first shape.
+    const productName = `phase10-ui-${stamp}`;
     await page.goto(`${BASE}/admin/products`);
-    await page.getByLabel(/اسم المنتج/).fill(`phase10-ui-${stamp}`);
+    await page.getByRole("link", { name: "منتج جديد" }).first().click();
+    await page.waitForURL(/\/admin\/products\/new/);
+
+    await page.getByLabel(/اسم المنتج/).fill(productName);
     await page.getByLabel(/التصنيف/).selectOption({ index: 1 });
+    await page.getByLabel(/اسم الشكل/).fill(`عبوة ${stamp}`);
+    await page.getByLabel(/سعر البيع/).fill("29.50");
+
     const [response] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/api/admin/catalog/products") && r.request().method() === "POST",
       ),
-      page.getByRole("button", { name: "إنشاء المنتج" }).click(),
+      page.getByRole("button", { name: "احفظ المنتج" }).click(),
     ]);
     expect(response.status()).toBe(201);
+    await page.waitForURL(/\/admin\/products\/[0-9a-f-]+/);
+    await expect(page.getByRole("heading", { name: productName })).toBeVisible();
 
-    // The server-rendered list must show the new product AFTER the refresh
-    // (this is the operator-visible result of the action).
-    await expect(page.getByText(`phase10-ui-${stamp}`).first()).toBeVisible();
+    // Verify server-rendered search lists the newly created product cleanly.
+    await page.goto(`${BASE}/admin/products?search=${encodeURIComponent(productName)}`);
+    await expect(page.getByText(productName).first()).toBeVisible();
   });
 
   test("store admin: taxonomy page creates a category and refreshes the list", async ({ page }) => {
     await login(page, identities["STORE"].email, PROBE_PASSWORD);
+    const catName = `phase10-ui-cat-${stamp}`;
     await page.goto(`${BASE}/admin/taxonomy`);
-    await page.getByLabel(/اسم التصنيف/).first().fill(`phase10-ui-cat-${stamp}`);
+    await page.getByLabel(/اسم التصنيف/).first().fill(catName);
     const [response] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/api/admin/catalog/categories") && r.request().method() === "POST",
       ),
-      page.getByRole("button", { name: "إنشاء التصنيف" }).click(),
+      page.getByRole("button", { name: "أضف التصنيف" }).click(),
     ]);
     expect(response.status()).toBe(201);
-    await expect(page.getByText(`phase10-ui-cat-${stamp}`).first()).toBeVisible();
+    await expect(page.getByText("تم إنشاء التصنيف.")).toBeVisible();
+
+    // Verify persisted category appears in the server-rendered catalogue filter.
+    await page.goto(`${BASE}/admin/taxonomy?q=${encodeURIComponent(catName)}`);
+    await expect(page.getByText(catName).first()).toBeVisible();
   });
 
-  test("owner: settings editor saves and the value survives a reload", async ({ page }) => {
+  test("owner: settings editor saves editable delivery fee across reloads and blocks frozen store.name", async ({ page }) => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto(`${BASE}/admin/settings`);
-    const row = page.locator("li", { hasText: "store.name" }).first();
-    const input = row.getByRole("textbox").first();
-    const original = await input.inputValue();
-    const next = `Hyper Al-Moatasem P10 ${stamp}`;
-    await input.fill(next);
+
+    // Frozen keys (store.name) remain explicitly marked read-only and blocked server-side (403).
+    const frozenRow = page.locator("tr", { hasText: "اسم المتجر" }).first();
+    await expect(frozenRow).toContainText("لأ — للعرض فقط");
+    const frozenPatchStatus = await page.evaluate(async () => {
+      const r = await fetch("/api/admin/settings/store.name", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ value: "Tamper" }),
+      });
+      return r.status;
+    });
+    expect(frozenPatchStatus).toBe(403);
+
+    // Editable active key (delivery.default_fee) persists via SettingEditForm and restores cleanly.
+    const feeInput = page.locator('input[type="number"]').first();
+    const original = await feeInput.inputValue();
+    const next = original === "45" ? "50" : "45";
+    await feeInput.fill(next);
     const [response] = await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes("/api/admin/settings/") && r.request().method() === "PATCH",
+        (r) => r.url().includes("/api/admin/settings/delivery.default_fee") && r.request().method() === "PATCH",
       ),
-      row.getByRole("button", { name: /حفظ/ }).click(),
+      page.getByRole("button", { name: "احفظ" }).first().click(),
     ]);
     expect(response.status()).toBe(200);
 
     await page.reload();
-    const after = await page
-      .locator("li", { hasText: "store.name" })
-      .first()
-      .getByRole("textbox")
-      .first()
-      .inputValue();
-    expect(after).toBe(next);
+    expect(await page.locator('input[type="number"]').first().inputValue()).toBe(next);
 
     // Revert to the original value so the shared fixture stays unchanged.
-    const reverted = page.locator("li", { hasText: "store.name" }).first();
-    await reverted.getByRole("textbox").first().fill(original);
-    await Promise.all([
+    await page.locator('input[type="number"]').first().fill(original);
+    const [revertRes] = await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes("/api/admin/settings/") && r.request().method() === "PATCH",
+        (r) => r.url().includes("/api/admin/settings/delivery.default_fee") && r.request().method() === "PATCH",
       ),
-      reverted.getByRole("button", { name: /حفظ/ }).click(),
+      page.getByRole("button", { name: "احفظ" }).first().click(),
     ]);
+    expect(revertRes.status()).toBe(200);
     await page.reload();
-    const restored = await page
-      .locator("li", { hasText: "store.name" })
-      .first()
-      .getByRole("textbox")
-      .first()
-      .inputValue();
-    expect(restored).toBe(original);
+    expect(await page.locator('input[type="number"]').first().inputValue()).toBe(original);
   });
 
   test("owner: audit log is read-only in the UI and offers no mutation control", async ({ page }) => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto(`${BASE}/admin/audit-logs`);
-    await expect(page.getByText("سجل التدقيق").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "سجل التغييرات" })).toBeVisible();
     // Nothing on the page points at an audit-log mutation endpoint.
     const auditRefs = await page.evaluate(() =>
       Array.from(document.querySelectorAll("a,button,form")).filter((el) =>
@@ -243,17 +275,30 @@ test.describe("Phase-10 admin panel (browser)", () => {
   test("owner: roles page exposes the permission registry and the grants manager", async ({ page }) => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto(`${BASE}/admin/roles`);
-    await page.getByRole("link", { name: /P10E2E_VIEWER_/ }).first().click();
-    await expect(page.getByText("الصلاحيات (roles.manage)")).toBeVisible();
-    await expect(page.getByRole("button", { name: "منح" })).toBeVisible();
+    const searchTerm = `P10E2E_VIEWER_${stamp}`;
+    await page.getByLabel(/بحث باسم الدور/).fill(searchTerm);
+    await Promise.all([
+      page.waitForURL((url) => url.pathname === "/admin/roles" && url.searchParams.get("search") === searchTerm),
+      page.getByRole("button", { name: "بحث", exact: true }).click(),
+    ]);
+    // Ascii machine-style role names intentionally display as "دور مخصص" under Phase-11 Arabic terminology.
+    await expect(page.getByText("1 دور في الصفحة دي").first()).toBeVisible();
+    await page.locator('tbody a[href^="/admin/roles/"]').first().click();
+    await expect(page).toHaveURL(/\/admin\/roles\/[^/]+$/);
+    await expect(page.getByText("الصلاحيات اللي في الدور").first()).toBeVisible();
+    await expect(page.getByText("إضافة وسحب الصلاحيات").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "امنح الصلاحية" })).toBeVisible();
   });
 
   test("owner: the permissions registry page is reachable from the sidebar", async ({ page }) => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
-    const nav = page.getByRole("navigation", { name: "أقسام الإدارة" });
-    await expect(nav.getByRole("link", { name: "سجل الصلاحيات" })).toBeVisible();
-    await nav.getByRole("link", { name: "سجل الصلاحيات" }).click();
+    const nav = page.getByRole("navigation", { name: "التنقل الرئيسي" });
+    await expect(nav.getByRole("link", { name: "صلاحيات المستخدمين" })).toBeVisible();
+    await nav.getByRole("link", { name: "صلاحيات المستخدمين" }).click();
     await expect(page).toHaveURL(/\/admin\/permissions/);
+    // Permissions registry shows the localized Arabic group/label and its technical key badge.
+    await expect(page.getByText("إدارة المنتجات").first()).toBeVisible();
+    await expect(page.getByText("عرض المنتجات").first()).toBeVisible();
     await expect(page.getByText("products.view").first()).toBeVisible();
   });
 });

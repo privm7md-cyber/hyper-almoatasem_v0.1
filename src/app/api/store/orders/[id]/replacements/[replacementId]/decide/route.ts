@@ -8,6 +8,7 @@
 // (never silent replays). Expired credential → 410 Gone.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { uuidSchema } from "@/lib/api/validation";
 import { decideInputSchema } from "@/lib/replacements/validation";
@@ -21,6 +22,10 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ id: string; replacementId: string }> },
 ) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const { id: orderId, replacementId } = await context.params;
   if (!uuidSchema.safeParse(orderId).success || !uuidSchema.safeParse(replacementId).success) {
     const r = fail(new ApiError("VALIDATION", "Invalid replacement id."));
@@ -56,6 +61,7 @@ export async function POST(
         outcome: parsed.data.action,
         deciderType: "CUSTOMER",
         deciderId: me.customerId,
+        alternativeIndex: parsed.data.alternativeIndex ?? null,
       });
     } else {
       // Guest separation: the order must be a guest order (credential rows
@@ -71,6 +77,7 @@ export async function POST(
         outcome: parsed.data.action,
         deciderType: "GUEST",
         deciderId: null,
+        alternativeIndex: parsed.data.alternativeIndex ?? null,
       });
     }
     const full = await getReplacement(replacementId);

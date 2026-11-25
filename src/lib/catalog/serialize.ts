@@ -134,13 +134,24 @@ export function toVariant(v: ProductVariant): VariantShape {
   };
 }
 
-/** Admin-only extension: internal cost basis. Never sent on storefront shapes. */
-export interface AdminVariantShape extends VariantShape {
-  costPrice: string | null;
+export interface AdminVariantShape extends Omit<VariantShape, "price" | "compareAtPrice"> {
+  price?: string;
+  compareAtPrice?: string | null;
+  costPrice?: string | null;
 }
 
-export function toAdminVariant(v: ProductVariant): AdminVariantShape {
-  return { ...toVariant(v), costPrice: dec(v.costPrice) };
+export function toAdminVariant(v: ProductVariant, permissions: readonly string[]): AdminVariantShape {
+  return {
+    id: v.id,
+    productId: v.productId,
+    name: v.name,
+    sizeValue: dec(v.sizeValue),
+    sizeUnit: v.sizeUnit,
+    isActive: v.isActive,
+    ...(permissions.includes("prices.view")
+      ? { price: decReq(v.price), compareAtPrice: dec(v.compareAtPrice), costPrice: dec(v.costPrice) }
+      : {}),
+  };
 }
 
 export interface CodeResolution {

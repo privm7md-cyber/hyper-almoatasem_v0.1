@@ -12,6 +12,86 @@
 // Money = integer piastres, quantities = integer thousandths (WEIGHT) or
 // packs-thousandths (PIECE). divRoundHalfAway is exact long division —
 // no floating point anywhere (matches PG round half-away).
+//
+// OWNER POLICY — one winner (12 Nov 2026, final): when more than one offer
+// is eligible for the same line or the same order, ONLY the highest-priority
+// eligible offer applies. A lower-priority offer never adds a second
+// discount on top of the winner. The policy lives HERE — the single engine
+// used by checkout AND by the admin price preview — so the two can never
+// disagree, and the interface never computes a price of its own.
+// The tie-break is fixed and documented (not array order, not an unstable
+// query): priority DESC -> specificity DESC -> created_at ASC -> id ASC.
+
+/**
+ * The evaluation policy. `singleWinner` is the owner's approved rule; it is
+ * a named constant (not a silent default) so the behaviour is greppable and
+ * testable.
+ */
+export const PROMOTION_POLICY = {
+  /** Only the highest-priority eligible offer applies per line / per order. */
+  singleWinner: true,
+} as const;
+
+/**
+ * COUPON COMBINATION POLICY (owner decision, 12 Nov 2026 — LOCKED).
+ *
+ * `EXPLICIT_ENGINE_PERMISSION_ONLY`: a coupon may sit on the same lines as
+ * an automatic offer ONLY if this engine says so explicitly, with defined and
+ * tested conditions. The engine says: NO.
+ *
+ *   • A coupon never COMPETES with the automatic winner — coupon-gated
+ *     promotions are excluded from the automatic offer set, so the coupon's
+ *     own offer never enters the priority race.
+ *   • A coupon never COMBINES with the winning offer: if an automatic offer
+ *     already discounts any of the coupon's eligible lines (or an
+ *     order-level automatic offer applies), the coupon is refused. One
+ *     offer per line, whichever instrument carries it.
+ *   • When the coupon does apply, its base is the GROSS of its eligible
+ *     lines — it never reads a discounted net.
+ *
+ * The condition is checked by ONE helper (`couponCombinationAllowed`) that
+ * both the checkout and the storefront estimate call, so the price the
+ * customer sees and the price the order is charged can never disagree.
+ */
+export const COUPON_COMBINATION_POLICY = {
+  /** A coupon never competes with the automatic winner. */
+  couponCompetesWithAutomaticOffers: false,
+  /** There is no permission to combine a coupon with the winning offer. */
+  combinesWithAutomaticWinner: false,
+  /** The coupon's base when it applies. */
+  couponBase: "GROSS",
+  /** Stable reason key (the storefront maps it to Arabic). */
+  refusalKey: "COUPON_COMBINATION_NOT_ALLOWED",
+} as const;
+
+export interface CouponCombinationCheck {
+  /** True when the coupon may be applied on its own. */
+  allowed: boolean;
+  /** The lines where an automatic offer already applies. */
+  conflictingLines: number[];
+}
+
+/**
+ * The single rule that decides whether a coupon may be combined with the
+ * automatic winner. Both the checkout and the storefront estimate call it.
+ */
+export function couponCombinationAllowed(params: {
+  /** Line indexes an automatic offer already discounted. */
+  autoDiscountedLines: ReadonlySet<number>;
+  /** True when an order-level automatic offer applies. */
+  autoOrderDiscount: boolean;
+  /** The coupon's eligible line indexes. */
+  couponEligibleLines: readonly number[];
+}): CouponCombinationCheck {
+  const conflictingLines = params.couponEligibleLines.filter((index) =>
+    params.autoDiscountedLines.has(index),
+  );
+  // The coupon is allowed when NO automatic offer touches its lines. When one
+  // does, the combination is refused (the winner keeps the line) — that IS
+  // the policy: `combinesWithAutomaticWinner: false`.
+  const allowed = !params.autoOrderDiscount && conflictingLines.length === 0;
+  return { allowed, conflictingLines };
+}
 
 /** Exact N/D rounded half away from zero (all inputs non-negative here). */
 export function divRoundHalfAway(n: number, d: number): number {
@@ -129,6 +209,12 @@ export interface LineApp {
  * candidates in priority DESC → specificity DESC → created ASC (+ id),
  * stacking gate (first wins unless incoming stackable AND all accepted
  * stackable), sequential compounding on running nets.
+ *
+ * The evaluator keeps its stacking capability (the frozen Phase-4 doubles pin
+ * it). The OWNER one-winner policy is enforced one level above, in
+ * `selectWinningOffer`, which the checkout AND the admin preview both call —
+ * so a real order never stacks two offers, and the preview cannot disagree
+ * with the checkout.
  */
 export function evaluateLines(lines: EvalLine[], promos: EvalPromo[]): { rows: LineApp[] } {
   const out: LineApp[] = [];
@@ -291,4 +377,128 @@ export function allocate(totalC: number, items: Array<{ id: string; netC: number
   const order = [...work].sort((a, b) => b.rem - a.rem || (a.id < b.id ? -1 : 1));
   for (let k = 0; k < dust; k++) order[k % order.length].amountC += 1;
   return work.map((x) => ({ id: x.id, amountC: x.amountC }));
+}
+
+/* --------------------------------------------------- owner policy: winner */
+
+/** Why an offer did not qualify (stable keys — the UI maps them to Arabic). */
+export type IneligibleReason =
+  | "no_match"
+  | "minimum_quantity"
+  | "minimum_amount"
+  | "zero_base";
+
+export interface PromoCandidate {
+  promo: EvalPromo;
+  /** Which layer would apply it. */
+  layer: "LINE" | "ORDER";
+  /** Best target specificity that matched (0 = matched everything / nothing). */
+  spec: number;
+  /** Eligible under the engine's own thresholds. */
+  eligible: boolean;
+  /** Set when NOT eligible. */
+  reason: IneligibleReason | null;
+}
+
+/**
+ * Classify one offer against the lines, using the SAME thresholds the
+ * evaluator uses (eligible lines, minimum quantity, minimum amount). The
+ * rules live here so the selector and the evaluator can never disagree.
+ */
+function classifyCandidate(lines: EvalLine[], p: EvalPromo): PromoCandidate {
+  if (p.scope === "LINE") {
+    const matching = lines.filter((l) => matchLine(l.ctx, p) > 0);
+    if (matching.length === 0) {
+      return { promo: p, layer: "LINE", spec: 0, eligible: false, reason: "no_match" };
+    }
+    const spec = matching.reduce((best, l) => Math.max(best, matchLine(l.ctx, p)), 0);
+    const sumQ = matching.reduce(
+      (s, l) => s + (l.ctx.pt === "WEIGHT" ? weightMg(l.ctx, l.qtyT) : l.qtyT),
+      0,
+    );
+    const sumG = matching.reduce((s, l) => s + l.grossC, 0);
+    if (p.minimumQuantityT !== null && sumQ < minQtyThousandths(p, lines)) {
+      return { promo: p, layer: "LINE", spec, eligible: false, reason: "minimum_quantity" };
+    }
+    if (p.minimumAmountC !== null && sumG < p.minimumAmountC) {
+      return { promo: p, layer: "LINE", spec, eligible: false, reason: "minimum_amount" };
+    }
+    return { promo: p, layer: "LINE", spec, eligible: true, reason: null };
+  }
+  // ORDER layer: eligible lines are the matching ones (all lines when the
+  // offer has no targets); the threshold is on their GROSS (pre-discount),
+  // exactly as the evaluator measures it.
+  const elig = lines
+    .map((_, i) => i)
+    .filter((i) => p.targets.length === 0 || matchLine(lines[i].ctx, p) > 0);
+  if (elig.length === 0) {
+    return { promo: p, layer: "ORDER", spec: 0, eligible: false, reason: "no_match" };
+  }
+  const spec =
+    p.targets.length === 0
+      ? 0
+      : elig.reduce((best, i) => Math.max(best, matchLine(lines[i].ctx, p)), 0);
+  const eligGrossC = elig.reduce((s, i) => s + lines[i].grossC, 0);
+  if (p.minimumAmountC !== null && eligGrossC < p.minimumAmountC) {
+    return { promo: p, layer: "ORDER", spec, eligible: false, reason: "minimum_amount" };
+  }
+  if (eligGrossC <= 0) {
+    return { promo: p, layer: "ORDER", spec, eligible: false, reason: "zero_base" };
+  }
+  return { promo: p, layer: "ORDER", spec, eligible: true, reason: null };
+}
+
+/**
+ * The FIXED winner order (never array order, never an unstable query):
+ * priority DESC -> specificity DESC -> created_at ASC -> id ASC.
+ */
+export function comparePromoCandidates(a: PromoCandidate, b: PromoCandidate): number {
+  return (
+    b.promo.priority - a.promo.priority ||
+    b.spec - a.spec ||
+    (a.promo.createdAt < b.promo.createdAt
+      ? -1
+      : a.promo.createdAt > b.promo.createdAt
+        ? 1
+        : a.promo.id < b.promo.id
+          ? -1
+          : 1)
+  );
+}
+
+/** Every offer, classified and ranked in the fixed winner order. */
+export function rankPromoCandidates(lines: EvalLine[], promos: EvalPromo[]): PromoCandidate[] {
+  return promos.map((p) => classifyCandidate(lines, p)).sort(comparePromoCandidates);
+}
+
+export interface WinnerSelection {
+  /** The single eligible offer that wins (null when nothing qualifies). */
+  winner: PromoCandidate | null;
+  /** Every candidate in the fixed order (winner first when eligible). */
+  candidates: PromoCandidate[];
+}
+
+/**
+ * OWNER POLICY (12 Nov 2026, final): exactly ONE offer applies. When more
+ * than one offer is eligible for the same lines, the highest-priority one
+ * wins (fixed tie-break, see `comparePromoCandidates`); a lower-priority
+ * offer never adds a second discount.
+ *
+ * This is the only place the rule lives, and BOTH the checkout and the admin
+ * price preview call it — so the preview cannot disagree with the checkout,
+ * and the interface never computes a price of its own.
+ */
+export function selectWinningOffer(lines: EvalLine[], promos: EvalPromo[]): WinnerSelection {
+  const candidates = rankPromoCandidates(lines, promos);
+  if (!PROMOTION_POLICY.singleWinner) {
+    return { winner: candidates.find((c) => c.eligible) ?? null, candidates };
+  }
+  const winner = candidates.find((c) => c.eligible) ?? null;
+  return { winner, candidates };
+}
+
+/** The winning offer only — the set the evaluator may see. */
+export function winningOfferSet(lines: EvalLine[], promos: EvalPromo[]): EvalPromo[] {
+  const { winner } = selectWinningOffer(lines, promos);
+  return winner ? [winner.promo] : [];
 }

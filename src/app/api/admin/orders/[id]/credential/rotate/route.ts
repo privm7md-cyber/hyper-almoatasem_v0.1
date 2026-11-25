@@ -1,12 +1,12 @@
 // Admin guest-credential rotation (staff recovery path, BG-Guest-Order).
 // Permission: orders.update. Atomically revokes the live credential and
-// issues a fresh one + audit row, one tx. The new RAW token is returned
-// exactly once in this response (for handoff through a verified channel);
-// it is never persisted raw and never logged. Unknown order or no live
-// credential → 404 (indistinguishable).
+// issues a fresh one + audit row, one tx. Admin responses never expose the
+// raw token. No admin UI offers rotation without an approved secure delivery
+// workflow. Unknown order or no live credential → 404 (indistinguishable).
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { auditInTx } from "@/lib/api/audit";
 import { checkPermission } from "@/lib/auth/rbac";
@@ -14,7 +14,11 @@ import { uuidSchema } from "@/lib/api/validation";
 import { getOrderFull } from "@/lib/orders/queries";
 import { rotateGuestOrderCredential } from "@/lib/orders/guest-access";
 
-export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("orders.update");
   if (auth.ok === false) {
     const r = fail(
@@ -36,8 +40,8 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       const r = fail(new ApiError("NOT_FOUND", "Order not found."));
       return NextResponse.json(r.body, { status: r.status });
     }
-    const token = await prisma.$transaction(async (tx) => {
-      const out = await rotateGuestOrderCredential(tx, orderId);
+    await prisma.$transaction(async (tx) => {
+      await rotateGuestOrderCredential(tx, orderId);
       await auditInTx(tx, {
         action: "orders.credential_rotate",
         userId: auth.admin.user.id,
@@ -46,9 +50,8 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
         oldValues: null,
         newValues: { credential: "rotated" },
       });
-      return out.token;
     });
-    const r = ok({ guestOrderToken: token });
+    const r = ok({ credential: "rotated" });
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {
     const r = fail(error);

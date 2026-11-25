@@ -9,6 +9,7 @@ import { fail, ok } from "@/lib/api/respond";
 import { denyUnless } from "@/lib/api/route-auth";
 import { checkPermission } from "@/lib/auth/rbac";
 import { settingPatchSchema } from "@/lib/admin/validation";
+import { settingValueRule } from "@/lib/admin/settings-registry";
 import { getSetting } from "@/lib/admin/queries";
 import { patchSetting } from "@/lib/admin/writes";
 import { toSetting } from "@/lib/admin/serialize";
@@ -66,6 +67,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ key: 
   const parsed = settingPatchSchema.safeParse(body);
   if (!parsed.success) {
     const r = fail(new ApiError("VALIDATION", "Invalid setting."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  // ADM-10: the registry is the allow-list. A key that is not registered (or
+  // that the registry marks read-only / secret) must not be writable through
+  // the API — the screen's "read only" state must be enforced on the server,
+  // not only hidden in the UI.
+  const rule = settingValueRule(parsedKey.data);
+  if (!rule) {
+    const r = fail(new ApiError("FORBIDDEN", "This setting is read-only."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  if (rule.pattern && !rule.pattern.test(parsed.data.value)) {
+    const r = fail(new ApiError("VALIDATION", "The value is outside the allowed range."));
     return NextResponse.json(r.body, { status: r.status });
   }
   try {

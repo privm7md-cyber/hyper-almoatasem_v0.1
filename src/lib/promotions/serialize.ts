@@ -13,6 +13,8 @@ import type {
   PromotionTarget,
 } from "@prisma/client";
 import { dec, decReq, iso } from "@/lib/api/serialize";
+import { couponStatusLabel, type CouponStatusValue } from "@/lib/promotions/coupon-status";
+import type { AdminCouponRow } from "@/lib/promotions/admin-coupon-queries";
 
 export interface TargetShape {
   id: string;
@@ -123,6 +125,66 @@ export interface CouponShape {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The admin view of a coupon: the real status and the real usage money. */
+export interface AdminCouponShape extends CouponShape {
+  /** The computed status (never just the `is_active` flag). */
+  status: CouponStatusValue;
+  statusLabel: string;
+  /** The offer the code rides on. */
+  offer: {
+    id: string;
+    name: string;
+    type: string;
+    scope: string;
+    status: string;
+    percent: string | null;
+    amount: string | null;
+    maximumDiscount: string | null;
+  };
+  /** The usage facts (counted from `coupon_usages`, not from a counter). */
+  usage: {
+    rows: number;
+    totalDiscount: string;
+    distinctCustomers: number;
+    lastUsedAt: string | null;
+  };
+}
+
+export function toAdminCoupon(row: AdminCouponRow): AdminCouponShape {
+  return {
+    id: row.id,
+    promotionId: row.promotion_id,
+    code: row.code,
+    usageLimit: row.usage_limit,
+    usedCount: row.used_count,
+    perCustomerLimit: row.per_customer_limit,
+    minimumOrderAmount: row.minimum_order_amount,
+    startAt: row.start_at ? row.start_at.toISOString() : null,
+    endAt: row.end_at ? row.end_at.toISOString() : null,
+    isActive: row.is_active,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    status: row.status,
+    statusLabel: couponStatusLabel(row.status),
+    offer: {
+      id: row.promotion_id,
+      name: row.promo_name,
+      type: row.promo_type,
+      scope: row.promo_scope,
+      status: row.promo_status,
+      percent: row.pdp,
+      amount: row.pda,
+      maximumDiscount: row.promo_max,
+    },
+    usage: {
+      rows: row.usage_rows,
+      totalDiscount: row.total_discount,
+      distinctCustomers: row.distinct_customers,
+      lastUsedAt: row.last_used_at ? row.last_used_at.toISOString() : null,
+    },
+  };
 }
 
 export function toCoupon(c: Coupon): CouponShape {

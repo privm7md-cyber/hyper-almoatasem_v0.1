@@ -27,7 +27,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -114,12 +117,12 @@ async function main() {
   const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || "");
   const custCount = async (phone) =>
     Number((await q(`SELECT count(*)::int AS n FROM customers WHERE phone = $1`, [phone]))[0].n);
-  const inactiveId = crypto.randomUUID();
+  let inactiveId = crypto.randomUUID();
   let idA = null;
 
   try {
     // ---------- public identify: create + lookup + equivalence ----------
-    const c1 = await post(`/api/store/customers/identify`, { phone: P_A, firstName: "ضيف" });
+    const c1 = await post(`/api/store/customers/identify`, { phone: P_A, firstName: "ط¶ظٹظپ" });
     t("identify-new-201", c1.status === 201 && isUuid(c1.body.data.id) && c1.body.data.phone === CANON(P_A)
       && c1.body.data.isRegistered === false && c1.body.data.email === null);
     idA = c1.body.data.id;
@@ -168,15 +171,24 @@ async function main() {
     t("store-list-200", storeList.status === 200 && Array.isArray(storeList.body.data));
     const ownerList = await get(`/api/admin/customers?limit=5`, owner.cookie);
     t("owner-list-200", ownerList.status === 200);
+    // Third-Agent re-runnability fix: audit-residue FK keeps this fixture user
+    // alive between runs; create-if-absent and reuse the existing row id. Only
+    // cleanup what this run created (inactiveCreated).
     const inactiveHash = await argon2.hash("Ba4-Test-Off-Pass-0001!", { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
-    await db.query(`INSERT INTO users (id, name, email, phone, password_hash, is_active) VALUES ($1,'BA4 Off','off-ba4-test@example.com','201133300041',$2,FALSE)`, [inactiveId, inactiveHash]);
+    const ins = await db.query(`INSERT INTO users (id, name, email, phone, password_hash, is_active) VALUES ($1,'BA4 Off','off-ba4-test@example.com','201133300041',$2,FALSE) ON CONFLICT (email) DO NOTHING RETURNING id`, [inactiveId, inactiveHash]);
+    if (ins.rows.length) {
+      inactiveId = ins.rows[0].id;
+    } else {
+      const row = await db.query(`SELECT id FROM users WHERE email = $1`, ["off-ba4-test@example.com"]);
+      inactiveId = row.rows[0].id;
+    }
     const inactiveLogin = await loginAs("off-ba4-test@example.com", "anything-0000!");
     t("inactive-login-401", inactiveLogin.status === 401);
 
     // ---------- admin list/search/filters ----------
     const hasA = await get(`/api/admin/customers?search=${CANON(P_A)}&limit=20`, store.cookie);
     t("admin-search-phone", hasA.status === 200 && hasA.body.data.some((c) => c.id === idA));
-    const byName = await get(`/api/admin/customers?search=${encodeURIComponent("ضيف")}&limit=20`, store.cookie);
+    const byName = await get(`/api/admin/customers?search=${encodeURIComponent("ط¶ظٹظپ")}&limit=20`, store.cookie);
     t("admin-search-arabic-name", byName.status === 200 && byName.body.data.some((c) => c.id === idA));
     const unreg = await get(`/api/admin/customers?registered=false&limit=50`, store.cookie);
     t("admin-filter-unregistered", unreg.status === 200 && unreg.body.data.every((c) => c.isRegistered === false));
@@ -206,8 +218,8 @@ async function main() {
     t("patch-duplicate-email-409", dupEm.status === 409 && dupEm.body.error.code === "CONFLICT");
     const clrEm = await patch(`/api/admin/customers/${idPatch}`, { email: null }, store.cookie);
     t("patch-clear-email-200", clrEm.status === 200 && clrEm.body.data.email === null);
-    const nm = await patch(`/api/admin/customers/${idPatch}`, { firstName: "محدث", lastName: "Test", autoAcceptReplacements: true }, store.cookie);
-    t("patch-names-200", nm.status === 200 && nm.body.data.firstName === "محدث" && nm.body.data.autoAcceptReplacements === true);
+    const nm = await patch(`/api/admin/customers/${idPatch}`, { firstName: "ظ…ط­ط¯ط«", lastName: "Test", autoAcceptReplacements: true }, store.cookie);
+    t("patch-names-200", nm.status === 200 && nm.body.data.firstName === "ظ…ط­ط¯ط«" && nm.body.data.autoAcceptReplacements === true);
     const badEm = await patch(`/api/admin/customers/${idPatch}`, { email: "not-an-email" }, store.cookie);
     t("patch-bad-email-400", badEm.status === 400);
     const deact = await patch(`/api/admin/customers/${idPatch}`, { isActive: false }, store.cookie);
@@ -242,11 +254,11 @@ async function main() {
     const idAd1 = ad1.body.data.id;
     const idAd2 = ad2.body.data.id;
     const a1 = await post(`/api/admin/customers/${idAd1}/addresses`, {
-      label: "home", city: "القاهرة", area: "مدينة نصر", street: "شارع عباس العقاد",
-      buildingNumber: "12", landmark: "بجوار سيتي سنتر", phone: P_AD1, isDefault: true,
+      label: "home", city: "ط§ظ„ظ‚ط§ظ‡ط±ط©", area: "ظ…ط¯ظٹظ†ط© ظ†طµط±", street: "ط´ط§ط±ط¹ ط¹ط¨ط§ط³ ط§ظ„ط¹ظ‚ط§ط¯",
+      buildingNumber: "12", landmark: "ط¨ط¬ظˆط§ط± ط³ظٹطھظٹ ط³ظ†طھط±", phone: P_AD1, isDefault: true,
     }, store.cookie);
     t("address-create-201", a1.status === 201 && isUuid(a1.body.data.id) && a1.body.data.isDefault === true
-      && a1.body.data.phone === CANON(P_AD1) && a1.body.data.city === "القاهرة");
+      && a1.body.data.phone === CANON(P_AD1) && a1.body.data.city === "ط§ظ„ظ‚ط§ظ‡ط±ط©");
     const aId1 = a1.body.data.id;
     const a2 = await post(`/api/admin/customers/${idAd1}/addresses`, {
       city: "Giza", phone: "02-23456789",
@@ -290,7 +302,7 @@ async function main() {
     const ownerDetail = await get(`/api/admin/customers/${idA}`, owner.cookie);
     t("owner-detail-200", ownerDetail.status === 200 && ownerDetail.body.data.customer.phone === CANON(P_A));
   } finally {
-    // Hygiene: remove BA-4-only rows (addresses → customers → users).
+    // Hygiene: remove BA-4-only rows (addresses â†’ customers â†’ users).
     try {
       const phones = [P_A, P_B, P_UP, P_PATCH, P_AD1, P_AD2].map(CANON);
         for (const ph of phones) {
@@ -303,10 +315,12 @@ async function main() {
       for (const ph of phones) {
         await db.query(`DELETE FROM customers WHERE phone = $1`, [ph]).catch(() => {});
       }
-      await db.query(`DELETE FROM audit_logs WHERE user_id = $1`, [inactiveId]).catch(() => {});
-      await db.query(`DELETE FROM admin_sessions WHERE user_id = $1`, [inactiveId]).catch(() => {});
-      await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [inactiveId]).catch(() => {});
-      await db.query(`DELETE FROM users WHERE id = $1`, [inactiveId]).catch(() => {});
+      if (inactiveCreated) {
+        await db.query(`DELETE FROM audit_logs WHERE user_id = $1`, [inactiveId]).catch(() => {});
+        await db.query(`DELETE FROM admin_sessions WHERE user_id = $1`, [inactiveId]).catch(() => {});
+        await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [inactiveId]).catch(() => {});
+        await db.query(`DELETE FROM users WHERE id = $1`, [inactiveId]).catch(() => {});
+      }
       for (const email of [OWNER_EMAIL, STORE_EMAIL, BARE_EMAIL]) {
         await db.query(`DELETE FROM admin_sessions WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [email]).catch(() => {});
       }

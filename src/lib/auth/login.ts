@@ -17,6 +17,8 @@ import {
 import { SESSION_TTL_HOURS } from "@/lib/auth/session";
 import { writeAuthAudit } from "@/lib/auth/audit";
 import { hashToken, newOpaqueToken } from "@/lib/auth/tokens";
+import { assertAdminPreviewWritesAllowed } from "@/lib/auth/admin-read-only-preview";
+import { notifyAccountLocked } from "@/lib/admin/notification-events";
 import {
   ACCOUNT_BUCKET_LIMIT,
   IP_BUCKET_LIMIT,
@@ -68,6 +70,7 @@ export async function changePassword(
   auditIp?: string | null,
   auditUserAgent?: string | null,
 ): Promise<void> {
+  assertAdminPreviewWritesAllowed();
   const policyError = checkPasswordPolicy(newPassword);
   if (policyError) throw new Error(policyError);
   const passwordHash = await hashPassword(newPassword);
@@ -125,6 +128,7 @@ export async function authenticateAdmin(
   rawPassword: string,
   ctx: LoginContext = {},
 ): Promise<LoginSuccess | LoginFailure> {
+  assertAdminPreviewWritesAllowed();
   const fail = (): LoginFailure => ({ ok: false, error: GENERIC_LOGIN_ERROR });
 
   const parsed = LoginInput.safeParse({ email: rawEmail, password: rawPassword });
@@ -214,6 +218,13 @@ export async function authenticateAdmin(
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     }).catch(() => {});
+    // ADM-11: notify the owners on the transition into a lockout (not on every
+    // further failure inside the same window). Best-effort: the audit row above
+    // is the authoritative record, and a notification outage must not change
+    // the login outcome or leak it.
+    if (nowLocked && !locked) {
+      await notifyAccountLocked({ userId: user.id, userName: user.name }).catch(() => {});
+    }
     return fail();
   }
 
@@ -237,6 +248,11 @@ export async function authenticateAdmin(
         ${ctx.userAgent ?? null}::text
       )
     `;
+    // Opportunistic TTL cleanup of expired admin sessions (GAP-05).
+    await tx.$executeRaw`
+      DELETE FROM admin_sessions
+       WHERE expires_at < now() - interval '1 day'
+    `.catch(() => {});
     await writeAuthAuditTx(tx, {
       action: "auth.login_success",
       userId: user.id,

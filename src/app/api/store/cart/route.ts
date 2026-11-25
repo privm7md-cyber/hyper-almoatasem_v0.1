@@ -6,6 +6,7 @@
 // No inventory touched (draft only).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
 import { created, fail, ok } from "@/lib/api/respond";
 import { getCartFull } from "@/lib/cart/queries";
 import { createGuestCart, getOrCreateCart, requireActiveCart } from "@/lib/cart/writes";
@@ -14,6 +15,7 @@ import { toCart } from "@/lib/cart/serialize";
 
 export async function POST(request: Request) {
   try {
+    assertSameOriginOrThrow(request);
     const owner = await resolveStoreOwner(request);
     // Fresh guest: neither side — the server mints the bearer token.
     if (!owner) {

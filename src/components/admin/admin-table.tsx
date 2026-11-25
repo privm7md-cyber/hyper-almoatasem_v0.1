@@ -1,5 +1,10 @@
-// FE-10 shared admin presentational primitives (server): table + section head.
-// Mutations live in admin-mutate.tsx (client islands). No data fetching here.
+// ADMIN PRESENTATIONAL PRIMITIVES (server): table + section shell.
+//
+// These two stay as the shared building blocks every admin page composes, but
+// they now render inside the admin design system (warm bone surface, hairline
+// borders, sticky table header, a real caption for screen readers).
+//
+// Mutations live in the client islands. Nothing here fetches data.
 
 import React from "react";
 
@@ -13,25 +18,23 @@ export function AdminTable({
   caption: string;
 }) {
   return (
-    <div className="overflow-x-auto rounded-card border border-line bg-white">
-      <table className="w-full text-sm">
+    <div className="adm-table-scroll">
+      <table className="adm-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-line bg-purple-surface">
-            {headers.map((h) => (
-              <th key={h} scope="col" className="whitespace-nowrap px-3 py-2 text-start font-bold">
-                {h}
+          <tr>
+            {headers.map((header) => (
+              <th key={header} scope="col">
+                {header}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((cells, i) => (
-            <tr key={i} className="border-b border-line last:border-0">
-              {cells.map((c, j) => (
-                <td key={j} className="whitespace-nowrap px-3 py-2">
-                  {c}
-                </td>
+          {rows.map((cells, rowIndex) => (
+            <tr key={rowIndex}>
+              {cells.map((cell, cellIndex) => (
+                <td key={cellIndex}>{cell}</td>
               ))}
             </tr>
           ))}
@@ -43,15 +46,23 @@ export function AdminTable({
 
 export function AdminSection({
   title,
+  sub,
   children,
 }: {
   title: string;
+  /** One line explaining what the operator can do inside this section. */
+  sub?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section aria-label={title} className="grid gap-3">
-      <h2 className="text-lg font-bold">{title}</h2>
-      {children}
+    <section className="adm-panel" aria-label={title}>
+      <div className="adm-panel-head">
+        <div className="adm-panel-title">
+          {title}
+          {sub ? <span className="adm-panel-sub">{sub}</span> : null}
+        </div>
+      </div>
+      <div className="adm-panel-body">{children}</div>
     </section>
   );
 }

@@ -81,21 +81,21 @@ beforeEach(() => {
 describe("enrichCards (homepage shelf mapping)", () => {
   it("no inventory rows → stock is unknown (never oos)", async () => {
     productHasInventoryRowsMock.mockResolvedValue(false);
-    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 1, inStockVariants: 0, isInStock: false });
+    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 1, knownSellableBalances: 0, inStockVariants: 0, isInStock: false });
     const [card] = await enrichCards([ROW] as never);
     expect(card.stock).toBe("unknown");
   });
 
   it("inventory rows + in-stock view → in", async () => {
     productHasInventoryRowsMock.mockResolvedValue(true);
-    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 2, inStockVariants: 1, isInStock: true });
+    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 2, knownSellableBalances: 1, inStockVariants: 1, isInStock: true });
     const [card] = await enrichCards([ROW] as never);
     expect(card.stock).toBe("in");
   });
 
   it("inventory rows + out-of-stock view → oos", async () => {
     productHasInventoryRowsMock.mockResolvedValue(true);
-    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 1, inStockVariants: 0, isInStock: false });
+    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 1, knownSellableBalances: 1, inStockVariants: 0, isInStock: false });
     const [card] = await enrichCards([ROW] as never);
     expect(card.stock).toBe("oos");
   });
@@ -127,10 +127,32 @@ describe("enrichCards (homepage shelf mapping)", () => {
     expect(withImage.image).toBe("/shop/gallery-b.jpg");
   });
 
-  it("a failed images read degrades to no image and never fails the card", async () => {
+  it("a failed images read exposes unavailable image data and never fails the card", async () => {
     listImagesMock.mockRejectedValue(new Error("images read failed"));
     const [card] = await enrichCards([ROW] as never);
     expect(card.image).toBeNull();
+    expect(card.imageUnavailable).toBe(true);
+  });
+
+  it("denied enrichment skips single-row price and inventory reads, not just their output", async () => {
+    const [card] = await enrichCards([ROW], { withPrices: false, withInventory: false });
+    expect(card).toMatchObject({ price: null, compareAt: null, sizeValue: null, sizeUnit: null, stock: "unknown", pricesUnavailable: true });
+    expect(listVariantsByProductMock).not.toHaveBeenCalled();
+    expect(productHasInventoryRowsMock).not.toHaveBeenCalled();
+    expect(getProductStockStatusMock).not.toHaveBeenCalled();
+    expect(listImagesMock).toHaveBeenCalledWith(ROW.id);
+  });
+
+  it("price and inventory projections are independent in the single-row fallback", async () => {
+    const [pricesOnly] = await enrichCards([ROW], { withInventory: false });
+    expect(pricesOnly.price).toBe("15.5"); expect(pricesOnly.stock).toBe("unknown");
+    expect(getProductStockStatusMock).not.toHaveBeenCalled();
+    listVariantsByProductMock.mockClear();
+    productHasInventoryRowsMock.mockResolvedValue(true);
+    getProductStockStatusMock.mockResolvedValue({ productId: ROW.id, sellableVariants: 1, knownSellableBalances: 1, inStockVariants: 1, isInStock: true });
+    const [stockOnly] = await enrichCards([ROW], { withPrices: false });
+    expect(stockOnly.price).toBeNull(); expect(stockOnly.stock).toBe("in");
+    expect(listVariantsByProductMock).not.toHaveBeenCalled();
   });
 
   it("variant wiring: price + compareAt + size pass through; no variant → price null", async () => {
@@ -164,6 +186,18 @@ describe("getHomeCategorySections (real tree, no fabricated parents)", () => {
     expect(sections.subs[0].children.map((c) => c.id)).toEqual(["s-b1"]);
     expect(sections.subs[1].parent.id).toBe("m-a");
     expect(sections.subs.find((s) => s.parent.id === "m-missing")).toBeUndefined(); // orphan never faked
+  });
+
+  it("CTR-1: approved sortOrder wins over name order (mains and sub groups)", async () => {
+    const bakery = { id: "o-a", name: "بقالة", slug: "o-a", description: null, image: null, parentId: null, isActive: true, sortOrder: 30, ...date };
+    const kids = { id: "o-b", name: "أطفال", slug: "o-b", description: null, image: null, parentId: null, isActive: true, sortOrder: 10, ...date };
+    const milk = { id: "o-c", name: "حليب", slug: "o-c", description: null, image: null, parentId: "o-b", isActive: true, sortOrder: 11, ...date };
+    listCategoriesMock.mockResolvedValue({ rows: [bakery, kids, milk] as never, nextCursor: null });
+    const sections = await getHomeCategorySections();
+    // sortOrder 10 < 30 → أطفال (10) precedes بقالة (30) despite name order.
+    expect(sections.mains.map((m) => m.id)).toEqual(["o-b", "o-a"]);
+    expect(sections.subs.map((s) => s.parent.id)).toEqual(["o-b"]);
+    expect(sections.subs[0].children.map((c) => c.id)).toEqual(["o-c"]);
   });
 
   it("zero categories flows through as empty (page then shows the honest empty state)", async () => {

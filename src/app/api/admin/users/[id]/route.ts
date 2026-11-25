@@ -71,6 +71,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         isActive: parsed.data.isActive ?? undefined,
       },
       auth.admin.user.id,
+      auth.admin.permissions,
+      auth.admin.roles,
     );
     if (!updated) {
       const r = fail(new ApiError("NOT_FOUND", "User not found."));

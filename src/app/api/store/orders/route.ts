@@ -15,11 +15,15 @@
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
+import { clientIpBucketKey } from "@/lib/api/client-ip";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
 import { idempotencyKeySchema } from "@/lib/api/validation";
 import { orderCreateSchema, orderListQuerySchema } from "@/lib/orders/validation";
 import { getOrderFull, listCustomerOrders } from "@/lib/orders/queries";
-import { createOrder } from "@/lib/orders/writes";
+import { createOrder, IDEMPOTENCY_KEY_HEADER } from "@/lib/orders/writes";
 import { toOrder, toOrderListItem } from "@/lib/orders/serialize";
+import { guestReplayRecoveryAvailable } from "@/lib/orders/guest-access";
+import { presentedGuestCheckoutSessionHash } from "@/lib/orders/guest-checkout-session";
 import { resolveStoreOwner } from "@/lib/cart/owner";
 import { requireCustomer } from "@/lib/customers/session";
 import {
@@ -28,10 +32,13 @@ import {
   guestOrderCreateBucket,
 } from "@/lib/auth/rate-limit";
 
-/** Canonical idempotency header name (BA-A contract). */
-export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
-
 export async function POST(request: Request) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const rawHeaderKey = request.headers.get(IDEMPOTENCY_KEY_HEADER);
   const headerKey = rawHeaderKey && rawHeaderKey.trim() !== "" ? rawHeaderKey.trim() : null;
   if (headerKey !== null && !idempotencyKeySchema.safeParse(headerKey).success) {
@@ -82,7 +89,7 @@ export async function POST(request: Request) {
     if (owner.kind === "guest") {
       // Anonymous creation surface: fail-closed IP bucket first (BGGO-D009).
       const gate = await checkAndRecordRateLimit(
-        guestOrderCreateBucket(request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null),
+        guestOrderCreateBucket(clientIpBucketKey(request.headers)),
         GUEST_ORDER_CREATE_BUCKET_LIMIT,
         undefined,
         "guest_order_rate_limits",
@@ -117,6 +124,11 @@ export async function POST(request: Request) {
           : null,
       idempotencyKey,
       couponCode: parsed.data.couponCode ?? null,
+      expectedDeliveryFee: parsed.data.expectedDeliveryFee ?? null,
+    // D-7: the reviewed coverage state, asserted (never trusted) by the server.
+    expectedDeliveryEligibility: parsed.data.expectedDeliveryEligibility ?? null,
+      guestCheckoutSessionHash:
+        owner.kind === "guest" ? presentedGuestCheckoutSessionHash(request) : null,
     });
     const full = await getOrderFull(out.orderId);
     if (!full) {
@@ -124,7 +136,17 @@ export async function POST(request: Request) {
       return NextResponse.json(r.body, { status: r.status });
     }
     if (out.replay) {
-      const r = ok({ order: toOrder(full) }, { replay: true, guestTokenIssued: false });
+      // `recoveryAvailable` is the server's truth: a valid per-order credential
+      // or a live checkout session bound to THIS order exists. It is never a
+      // secret and never implies a new credential was issued.
+      const recoveryAvailable =
+        owner.kind === "guest"
+          ? await guestReplayRecoveryAvailable(request, out.orderId)
+          : true;
+      const r = ok(
+        { order: toOrder(full) },
+        { replay: true, guestTokenIssued: false, recoveryAvailable },
+      );
       return NextResponse.json(r.body, { status: r.status });
     }
     const r =

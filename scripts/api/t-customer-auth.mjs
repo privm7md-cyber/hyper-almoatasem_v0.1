@@ -1,8 +1,8 @@
-// PHASE 2.5 customer authentication verification (real PostgreSQL, scratch-only).
+﻿// PHASE 2.5 customer authentication verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-customer-auth.mjs --db <name> --port <port>
 // Covers through the REAL routes (no test doubles): registration (valid,
 // duplicate, invalid phone, weak password, unknown/injected fields),
-// login (correct, wrong password, unknown phone, inactive, locked — all
+// login (correct, wrong password, unknown phone, inactive, locked â€” all
 // uniform 401), session lifecycle (valid/invalid/expired/revoked/forged),
 // logout invalidation (+ double logout), password change (correct/wrong
 // current, weak new, old password dead, old sessions revoked), session
@@ -29,7 +29,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -174,7 +177,7 @@ async function main() {
     const pwBack = await jcall("PATCH", `/api/store/customers/password`, { currentPassword: PW2, newPassword: PW }, H(tokNew));
     t("password-restore-200", pwBack.status === 200, `${pwBack.status}`);
 
-    // ---------- LOCKOUT (dedicated account; 5 wrong → locked, uniform 401) ----------
+    // ---------- LOCKOUT (dedicated account; 5 wrong â†’ locked, uniform 401) ----------
     const regL = await post(`/api/store/customers/register`, { phone: P_L, firstName: "LockMe", password: PW });
     t("lockout-setup-201", regL.status === 201, `${regL.status}`);
     let lockOk = true;

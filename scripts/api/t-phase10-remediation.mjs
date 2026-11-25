@@ -1,4 +1,4 @@
-// Phase-10 remediation suite (scratch-only, needs a built server pointed at DB).
+﻿// Phase-10 remediation suite (scratch-only, needs a built server pointed at DB).
 // Usage: node scripts/api/t-phase10-remediation.mjs --db <name> --port <port>
 //
 // Covers the six closed defects end-to-end against the LIVE API (not the UI):
@@ -56,7 +56,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -122,7 +125,7 @@ async function main() {
   const del = (path, cookie, extra) => call(cookie, "DELETE", path, undefined, extra);
 
   // The session cookie name depends on the environment (production __Host- vs
-  // the local-development cookie) — read whatever the server actually issued
+  // the local-development cookie) â€” read whatever the server actually issued
   // and send it back under the SAME name.
   const loginAs = async (email, password) => {
     const r = await fetch(`${baseUrl}/api/admin/session`, {
@@ -210,7 +213,7 @@ async function main() {
     const variantId = varRes.body?.data?.id;
     if (variantId) variantIds.add(variantId);
 
-    // A customer row (no admin create route exists — inserted with the same
+    // A customer row (no admin create route exists â€” inserted with the same
     // constraints the table enforces, and removed in cleanup).
     const cust = await q(
       `INSERT INTO customers (id, first_name, phone, is_registered, is_active)

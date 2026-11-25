@@ -1,0 +1,73 @@
+// Admin inventory creation (BL-05 — closes E-48's mechanism gap): the ONLY
+// sanctioned way an inventory row comes to exist. Permission: inventory.adjust
+// (the stock-write family key — no new permission row needed). Creation is
+// single-variant per request; duplicates answer 409 (deltas go through
+// /api/admin/inventory/adjust afterwards); the initial balance is a real
+// admin-declared number, never a fabricated default.
+import { NextResponse } from "next/server";
+import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
+import { created, fail } from "@/lib/api/respond";
+import { checkPermission } from "@/lib/auth/rbac";
+import { initializeInputSchema } from "@/lib/inventory/validation";
+import { createInventoryRow } from "@/lib/inventory/service";
+import { getInventory } from "@/lib/inventory/queries";
+import { toInventory } from "@/lib/inventory/serialize";
+
+export async function POST(request: Request) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  const auth = await checkPermission("inventory.adjust");
+  if (auth.ok === false) {
+    const r = fail(
+      new ApiError(
+        auth.code === "UNAUTHENTICATED" ? "UNAUTHENTICATED" : "FORBIDDEN",
+        auth.code === "UNAUTHENTICATED" ? "Authentication required." : "Forbidden.",
+      ),
+    );
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    const r = fail(new ApiError("VALIDATION", "Invalid request body."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  const parsed = initializeInputSchema.safeParse(body);
+  if (!parsed.success) {
+    const r = fail(new ApiError("VALIDATION", "Invalid inventory initialization."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  try {
+    const out = await createInventoryRow({
+      variantId: parsed.data.productVariantId,
+      quantity: parsed.data.quantity,
+      lowStockThreshold: parsed.data.lowStockThreshold ?? null,
+      reason: parsed.data.reason ?? null,
+      actorId: auth.admin.user.id,
+    });
+    const row = await getInventory(parsed.data.productVariantId);
+    if (!row) {
+      const r = fail(new ApiError("NOT_FOUND", "Inventory not found."));
+      return NextResponse.json(r.body, { status: r.status });
+    }
+    const r = created({
+      inventory: toInventory({
+        productVariantId: row.productVariantId,
+        quantity: row.quantity,
+        reservedQuantity: row.reservedQuantity,
+        availableQuantity: row.availableQuantity,
+        lowStockThreshold: row.lowStockThreshold,
+        updatedAt: row.updatedAt,
+      }),
+      inventoryId: out.inventoryId,
+    });
+    return NextResponse.json(r.body, { status: r.status });
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
+}

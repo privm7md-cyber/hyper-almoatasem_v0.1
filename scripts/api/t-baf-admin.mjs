@@ -1,4 +1,4 @@
-// BA-F admin application verification (real PostgreSQL, scratch-only).
+﻿// BA-F admin application verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-baf-admin.mjs --db <name> --port <port>
 // Covers the admin application end to end through the REAL routes (no test
 // doubles on the admin path): role members listing, coupon usage reporting,
@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -25,7 +26,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -66,6 +70,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -125,14 +135,14 @@ async function main() {
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers: { "content-type": "application/json", ...(sessTok ? H(sessTok) : {}) },
-      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE, ...extra}),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -283,7 +293,9 @@ async function main() {
     const fFuture = await get(`/api/admin/orders?limit=20&dateFrom=${encodeURIComponent(futureIso)}`, ck);
     t("date-from-future-empty", fFuture.status === 200 && (fFuture.body?.data ?? []).length === 0,
       `${fFuture.status}`);
-    const fPast = await get(`/api/admin/orders?limit=20&dateTo=${encodeURIComponent(pastIso)}`, ck);
+    // Owner Decision Execution: isolate to this test's customer so pre-existing
+    // orders from earlier runs do not break the "empty" precondition.
+    const fPast = await get(`/api/admin/orders?limit=20&dateTo=${encodeURIComponent(pastIso)}&customerId=${idCF1}`, ck);
     t("date-to-past-empty", fPast.status === 200 && (fPast.body?.data ?? []).length === 0,
       `${fPast.status}`);
     const fWide = await get(`/api/admin/orders?limit=100&dateFrom=${encodeURIComponent(pastIso)}&dateTo=${encodeURIComponent(futureIso)}&customerId=${idCF1}`, ck);

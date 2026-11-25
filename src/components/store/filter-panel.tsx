@@ -92,7 +92,7 @@ export function FilterPanel({
   return (
     <form
       aria-label="خيارات التصفية والترتيب"
-      className="rounded-card border border-line bg-white p-3"
+      className="rounded-card border border-line bg-white p-4 shadow-xs"
       onSubmit={(e) => {
         e.preventDefault();
         // D25: reject a reversed price range instead of silently emptying results.
@@ -200,7 +200,7 @@ export function FilterPanel({
                 type="checkbox"
                 checked={query.inStock === true}
                 onChange={(e) => push("inStock", e.target.checked ? "true" : null)}
-                className="h-5 w-5"
+                className="h-6 w-6 shrink-0 accent-brand"
               />
               متوفر فقط
             </label>
@@ -210,7 +210,7 @@ export function FilterPanel({
                 التوفر غير محدد حاليًا — لا تتوفر بيانات مخزون لتطبيق هذه التصفية.
               </p>
               <label className="flex min-h-[44px] items-center gap-2 opacity-60">
-                <input type="checkbox" disabled className="h-5 w-5" />
+                <input type="checkbox" disabled className="h-6 w-6 shrink-0" />
                 متوفر فقط (غير متاح حاليًا)
               </label>
             </>

@@ -53,6 +53,7 @@ describe("store shell", () => {
       // whose content is still blocked on owner input are deliberately absent.
       // Phase-11: the browse column also links the real catalogue / account
       // destinations (every one of them is an existing route).
+      // Phase-13: the owner-approved contact number is shown as a tel: link.
       expect([
         "/",
         "/search",
@@ -67,6 +68,8 @@ describe("store shell", () => {
         "/cancellation",
         "/replacement",
         "/order-help",
+        "/contact",
+        "tel:+201000316676",
       ]).toContain(href);
     }
     expect(screen.getByText(/احتياجات بيتك/)).toBeInTheDocument();
@@ -98,6 +101,7 @@ describe("store shell", () => {
     fireEvent.change(input, { target: { value: "x" } });
     fireEvent.submit(screen.getByRole("search"));
     expect(push).not.toHaveBeenCalled();
+    expect(screen.getByText("اكتب حرفين على الأقل للبحث")).toBeInTheDocument();
     fireEvent.change(input, { target: { value: "أرز" } });
     fireEvent.submit(screen.getByRole("search"));
     expect(push).toHaveBeenCalledWith(expect.stringMatching(/^\/search\?q=/));

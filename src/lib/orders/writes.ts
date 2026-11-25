@@ -14,11 +14,11 @@
 // (never continue a poisoned transaction — BA-5 lesson).
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ApiError, businessRule, conflict } from "@/lib/api/errors";
 import { auditInTx } from "@/lib/api/audit";
 import { orderLockIds } from "@/lib/api/concurrency";
+import { thousandthsText } from "@/lib/inventory/quantities";
 import { formatOrderNumber } from "@/lib/orders/state-machine";
 import { findOrderByCart, findOrderByIdempotencyKey } from "@/lib/orders/queries";
 import {
@@ -30,6 +30,11 @@ import {
 import type { CartOwner } from "@/lib/cart/queries";
 import { applyPromotions, persistPromoRows } from "@/lib/promotions/checkout";
 import { issueGuestOrderCredential } from "@/lib/orders/guest-access";
+import { resolveDeliveryQuote } from "@/lib/orders/delivery-fee";
+import { bindGuestCheckoutSessionToOrder } from "@/lib/orders/guest-checkout-session";
+import { notifyOrderCreated } from "@/lib/admin/notification-events";
+
+export const IDEMPOTENCY_KEY_HEADER = "idempotency-key";
 
 /** RFC 9562 UUIDv7 (frozen app-ID strategy; local copy — previous BA
  * modules are not modified for reuse). */
@@ -99,6 +104,33 @@ export interface CreateOrderArgs {
   idempotencyKey: string;
   /** Optional coupon code (normalized + validated server-side; absent = autos only). */
   couponCode?: string | null;
+  /**
+   * Estimate-confirmation value (NUMERIC(10,2) text): the fee the customer
+   * reviewed in the storefront estimate. REQUIRED for a NEW order — the server
+   * MUST charge exactly this fee or reject with 409, so a fee change between
+   * preview and create is never applied silently. The server value is still
+   * authoritative; this field only asserts what the customer reviewed.
+   *
+   * Nullable ONLY for a same-key verification of an unresolved attempt: the
+   * idempotency lookup runs BEFORE this check, so such a request is answered
+   * from the existing attempt (no price is ever charged from it).
+   */
+  expectedDeliveryFee: string | null;
+  /**
+   * D-7: the delivery-eligibility state the customer saw in the storefront
+   * estimate ("ZONE_MATCHED" | "UNCONFIGURED" | "UNMATCHED"). Optional: it
+   * asserts what was reviewed so a coverage change between preview and commit
+   * is rejected (409) instead of silently changing the decision. The server
+   * always re-resolves the state inside the transaction.
+   */
+  expectedDeliveryEligibility?: string | null;
+  /**
+   * Optional SHA-256 hash of the pre-established guest checkout recovery
+   * session. Bound to the created order inside the same transaction when it
+   * belongs to this cart; an explicitly presented but unusable session fails
+   * closed (401) instead of silently losing the recovery path.
+   */
+  guestCheckoutSessionHash?: string | null;
 }
 
 export interface CreateOrderResult {
@@ -155,15 +187,6 @@ function assertOrderLineShape(
     throw businessRule("Weight quantity violates the sale step.", null);
   }
   return { unit: sizeUnit };
-}
-
-async function readDeliveryFeeCents(tx: Prisma.TransactionClient): Promise<number> {
-  const rows = await tx.$queryRaw<Array<{ v: string }>>`
-    SELECT value_text AS v FROM store_settings WHERE key = 'delivery.default_fee'`;
-  const raw = rows.length === 0 ? null : rows[0].v;
-  // Fail-closed server misconfiguration (never client-supplied, never silent 0).
-  if (raw === null || !/^\d+(\.\d{1,2})?$/.test(raw)) throw new Error("Delivery fee misconfigured.");
-  return priceToPiastres(raw);
 }
 
 /**
@@ -396,7 +419,7 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
       const boughtT = new Map<string, number>();
       for (const p of priced) {
         // p.quantity is NUMERIC(12,3) text; parse via thousandths.
-        const t = Math.round(Number(p.quantity) * 1000);
+        const t = qtyToThousandths(p.quantity);
         boughtT.set(p.variantId, (boughtT.get(p.variantId) ?? 0) + t);
       }
       const variantIds = orderLockIds([...boughtT.keys()]);
@@ -404,18 +427,63 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${vid}::uuid FOR UPDATE`;
       }
       for (const vid of variantIds) {
-        const qty = ((boughtT.get(vid) as number) / 1000).toFixed(3);
-        const bumped = await tx.$queryRaw<Array<{ one: number }>>`
+        const qty = thousandthsText(boughtT.get(vid) as number);
+        // OWNER (owner-approved stockless ordering): the inventory row is
+        // optional. The orderable-product gate above (active + not deleted)
+        // is the ONLY availability gate; unknown/zero stock never blocks an
+        // order. The conditional bump is kept for variants that DO have an
+        // inventory row (future-proofing); no reservation is invented.
+        await tx.$queryRaw`
           UPDATE inventory SET reserved_quantity = reserved_quantity + ${qty}::numeric
            WHERE product_variant_id = ${vid}::uuid
-             AND (quantity - reserved_quantity) >= ${qty}::numeric
-          RETURNING 1 AS one`;
-        if (bumped.length === 0) {
-          throw conflict("Insufficient availability.", { productVariantId: vid });
-        }
+             AND (quantity - reserved_quantity) >= ${qty}::numeric`;
       }
 
-      const feeCents = await readDeliveryFeeCents(tx);
+      // Single fee authority (default setting OR matched active zone). A
+      // client-supplied amount is NEVER read; `expectedDeliveryFee` only
+      // asserts what the customer reviewed. A change between preview and
+      // create rejects with 409 so the total can never change silently.
+      //
+      // D2: the reviewed fee is REQUIRED for a NEW order — the last gate
+      // before the insert. It sits AFTER the idempotency lookup (outside this
+      // tx) so a same-key verification of an unresolved attempt is still
+      // answered from that attempt, and AFTER every other business check so
+      // a rejection keeps its own reason (price drift, stock, variant…).
+      const quote = await resolveDeliveryQuote(tx, address);
+      const feeResolution = quote.fee;
+      const feeCents = feeResolution.cents;
+      // D-7: the serviceability decision is taken from the SAME read as the
+      // fee, inside the same transaction, so the committed order and the
+      // reviewed preview can never disagree. Under the approved "reject"
+      // policy an address outside every configured zone is refused with a
+      // business rule (not a validation error and not a silent acceptance).
+      if (!quote.eligibility.serviceable) {
+        throw businessRule("Address is outside the store's delivery areas.", {
+          deliveryEligibility: quote.eligibility.status,
+        });
+      }
+      if (
+        args.expectedDeliveryEligibility != null &&
+        args.expectedDeliveryEligibility !== quote.eligibility.status
+      ) {
+        throw conflict("Delivery coverage changed since the order was reviewed.", {
+          reason: "DELIVERY_ELIGIBILITY_CHANGED",
+          currentDeliveryEligibility: quote.eligibility.status,
+        });
+      }
+      if (args.expectedDeliveryFee == null) {
+        throw new ApiError(
+          "VALIDATION",
+          "expectedDeliveryFee is required: review the delivery fee before ordering.",
+          null,
+        );
+      }
+      if (priceToPiastres(args.expectedDeliveryFee) !== feeCents) {
+        throw conflict("Delivery fee changed since the order was reviewed.", {
+          reason: "DELIVERY_FEE_CHANGED",
+          currentDeliveryFee: feeResolution.fee,
+        });
+      }
       // Free-line gross joins the merchandise subtotal (its discount row
       // offsets it inside discount_total — net merchandise unaffected; the
       // frozen discount≤subtotal CHECK requires the gross to be counted).
@@ -483,7 +551,7 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
             ${f.productName}, ${f.variantName}, ${f.brandName},
             ${f.code}, ${f.codeType}, ${f.unit},
             ${f.productType}, ${f.saleStep}, ${f.unitPriceText}::numeric,
-            ${(f.qtyT / 1000).toFixed(3)}::numeric, ${formatPiastres(f.estimatedC)}::numeric,
+            ${thousandthsText(f.qtyT)}::numeric, ${formatPiastres(f.estimatedC)}::numeric,
             ${formatPiastres(f.amountC)}::numeric)`;
       }
       await persistPromoRows(tx, {
@@ -503,6 +571,23 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         VALUES (${newUuidV7()}::uuid, ${orderId}::uuid, 'NEW', 'CONFIRMED', ${historyActor}, ${args.customerId}::uuid)`;
       await tx.$executeRaw`UPDATE orders SET status = 'CONFIRMED' WHERE id = ${orderId}::uuid`;
       await tx.$executeRaw`UPDATE carts SET status = 'CHECKED_OUT' WHERE id = ${subjectHint.id}::uuid`;
+      // Bind the pre-established recovery session to the order it just helped
+      // create — INSIDE this tx, so a committed order always carries the
+      // recovery path the client was promised. An explicitly presented but
+      // unusable session (unknown/expired/revoked/foreign cart/already bound)
+      // fails closed: the order must not commit with a silently dead recovery
+      // path. The client can mint a fresh session and retry the same key.
+      if (args.guestCheckoutSessionHash) {
+        const bound = await bindGuestCheckoutSessionToOrder(
+          tx,
+          args.guestCheckoutSessionHash,
+          orderId,
+          subjectHint.id,
+        );
+        if (!bound) {
+          throw new ApiError("UNAUTHENTICATED", "Guest checkout session is no longer valid.", null);
+        }
+      }
       // Guest credential issuance (same tx — no order without credential, no
       // credential without order). Raw token returned once (BGGO-D002).
       const guestToken =
@@ -511,6 +596,10 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
     });
     // Keep-same on replay (BGGO-D011): replays carry no token — the client
     // retains the first-issued credential. No rotation, no invalidation race.
+    // ADM-11: the owners are told about the order that just committed. The
+    // notice is best-effort and idempotent per order — a failed notice never
+    // fails the order, and a replay never raises it twice.
+    await notifyOrderCreated({ orderId: out.orderId }).catch(() => 0);
     return { orderId: out.orderId, replay: false, guestToken: out.guestToken };
   } catch (error) {
     if (error instanceof CartConsumedError) {
@@ -532,12 +621,14 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
   }
 }
 
-export interface CancelOrderArgs {
+export type CancelOrderArgs = {
   orderId: string;
-  actorType: "CUSTOMER" | "STAFF" | "GUEST";
   /** Guest cancels carry NULL (no customer row exists). */
   actorId: string | null;
-}
+} & (
+  | { actorType: "STAFF"; reason?: string }
+  | { actorType: "CUSTOMER" | "GUEST"; reason?: never }
+);
 
 /**
  * Cancel an unpicked order (NEW|CONFIRMED|PREPARING — the frozen machine
@@ -547,12 +638,32 @@ export interface CancelOrderArgs {
  * lines (actuals set) belong to fulfillment-gated cancel — 409 here.
  */
 export async function cancelOrder(args: CancelOrderArgs): Promise<string> {
+  const reason = args.actorType === "STAFF" ? args.reason?.trim() : undefined;
   try {
     return await prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
         SELECT id::text AS id, status FROM orders WHERE id = ${args.orderId}::uuid FOR UPDATE`;
       if (rows.length === 0) throw new ApiError("NOT_FOUND", "Order not found.", null);
       const status = rows[0].status;
+      if (status === "CANCELLED" && args.actorType === "STAFF" && args.actorId && reason) {
+        // The locked order serializes retries. Legacy/no-reason cancellations
+        // cannot replay: only the original staff actor and exact recorded terms.
+        const history = await tx.$queryRaw<Array<{ actor_type: string; actor_id: string | null; note: string | null }>>`
+          SELECT h.actor_type, h.actor_id::text AS actor_id, h.note
+          FROM order_status_history h
+          WHERE h.order_id = ${args.orderId}::uuid AND h.new_status = 'CANCELLED'
+            AND EXISTS (
+              SELECT 1 FROM audit_logs a
+              WHERE a.entity_id = h.order_id AND a.entity_type = 'orders'
+                AND a.action = 'orders.cancel' AND a.actor_type = 'ADMIN'
+                AND a.user_id = h.actor_id AND a.new_values ? 'reason'
+            )
+          ORDER BY h.created_at DESC, h.id DESC LIMIT 1`;
+        const original = history[0];
+        if (original?.actor_type === "STAFF" && original.actor_id === args.actorId && original.note === reason) {
+          return args.orderId;
+        }
+      }
       if (status === "CANCELLED" || status === "DELIVERED") {
         throw conflict(`Order cannot be cancelled from ${status}.`, { status });
       }
@@ -603,7 +714,7 @@ export async function cancelOrder(args: CancelOrderArgs): Promise<string> {
       await tx.$executeRaw`
         INSERT INTO order_status_history (id, order_id, old_status, new_status, actor_type, actor_id, note)
         VALUES (${newUuidV7()}::uuid, ${args.orderId}::uuid, ${status}, 'CANCELLED',
-          ${args.actorType}, ${args.actorId}::uuid, 'cancelled before picking')`;
+          ${args.actorType}, ${args.actorId}::uuid, ${reason || "cancelled before picking"})`;
       await tx.$executeRaw`UPDATE orders SET status = 'CANCELLED' WHERE id = ${args.orderId}::uuid`;
       // PRE-BA-11 decision #2: staff cancels pair an audit row in this same
       // tx (customer self-service cancels stay unaudited — not admin
@@ -615,7 +726,7 @@ export async function cancelOrder(args: CancelOrderArgs): Promise<string> {
           entityType: "orders",
           entityId: args.orderId,
           oldValues: { status },
-          newValues: { status: "CANCELLED" },
+          newValues: { status: "CANCELLED", ...(reason ? { reason } : {}) },
         });
       }
       return args.orderId;

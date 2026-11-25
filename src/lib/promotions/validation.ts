@@ -141,8 +141,30 @@ export const estimateInputSchema = z
       .min(1)
       .max(100),
     couponCode: couponCodeSchema.nullish(),
+    /**
+     * Registered path: owned address id, resolved server-side (never a fee
+     * claim). Guest path: explicit locality fields, compared against the
+     * admin-managed zone keys. Both absent → base fee. Both present → 400.
+     */
+    addressId: uuidSchema.nullish(),
+    deliveryAddress: z
+      .object({
+        city: z.string().trim().min(1).max(80),
+        area: z.string().trim().min(1).max(80).nullish(),
+        village: z.string().trim().min(1).max(80).nullish(),
+      })
+      .strict()
+      .nullish(),
   })
-  .strict();
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.addressId != null && v.deliveryAddress != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Exactly one of addressId / deliveryAddress is allowed.",
+      });
+    }
+  });
 
 export type PromotionInput = z.infer<typeof promotionInputSchema>;
 export type CouponInput = z.infer<typeof couponInputSchema>;

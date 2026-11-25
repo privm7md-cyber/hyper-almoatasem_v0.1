@@ -5,6 +5,7 @@
 // SUPER_ADMIN-row protection, grant semantics, and audit pairing live in
 // domain code (writes.ts). Never z.coerce.* here.
 import { z } from "zod";
+import { deliveryScopeSchema } from "@/lib/orders/delivery-scope";
 import { uuidSchema, paginationSchema } from "../api/validation";
 
 const nameSchema = (max: number) => z.string().trim().min(1).max(max);
@@ -111,6 +112,40 @@ export const settingPatchSchema = z
     value: z.string().max(4000),
   })
   .strict();
+
+/** Delivery-zone fee: identical wire shape to the checkout/estimate contract
+ * (non-negative, ≤2 decimals, NUMERIC(10,2) bound). */
+const deliveryFeeTextSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,8}(\.\d{1,2})?$/, { message: "Invalid delivery fee." });
+
+export const deliveryZoneCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    fee: deliveryFeeTextSchema,
+    isActive: z.boolean().nullish(),
+    scope: deliveryScopeSchema.optional(),
+  })
+  .strict();
+
+/** PATCH is compare-and-set: `version` is the row version the admin read. */
+export const deliveryZonePatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).nullish(),
+    fee: deliveryFeeTextSchema.nullish(),
+    isActive: z.boolean().nullish(),
+    version: z.number().int().positive(),
+    scope: deliveryScopeSchema.optional(),
+  })
+  .strict()
+  .refine((v) => v.name != null || v.fee != null || v.isActive != null || v.scope != null, {
+    message: "At least one field is required.",
+  });
+
+export const deliveryZoneListQuerySchema = paginationSchema.extend({
+  active: z.enum(["true", "false"]).nullish(),
+});
 
 export const auditListQuerySchema = paginationSchema.extend({
   userId: uuidSchema.nullish(),

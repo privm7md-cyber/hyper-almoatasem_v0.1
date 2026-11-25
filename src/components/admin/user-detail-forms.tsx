@@ -1,23 +1,25 @@
-// FE-10F user forms island ("use client"): patch fields + password provisioning +
-// role attach/detach. Every op re-verified server-side (users.manage); self-escalation
-// and last-SUPER_ADMIN guards live in domain code, surfaced here as messages.
+// USER DETAIL ISLANDS ("use client").
+//
+// Three jobs on one account page: edit the identity, set the secret, and
+// attach or detach a role. Every operation is re-checked on the server
+// (self-deactivation and last-owner guards live in the domain code) and the
+// outcome is reported in Arabic, never with the server's English wording.
+//
+// Role names never reach the screen: the machine name stays in the value and
+// the Arabic label is what the operator reads.
 
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
+import { X } from "lucide-react";
+import { apiRequest } from "@/lib/frontend/api-client";
+import { adminErrorMessage } from "@/lib/admin/errors";
+import { roleLabel } from "@/lib/admin/terminology";
+import { AdminButton, AdminChoices, AdminField, AdminInput, AdminSelect } from "@/components/admin/ui/controls";
 
-function Note({ text }: { text: string | null }) {
-  if (!text) return null;
-  return (
-    <p role="alert" className="text-sm text-secondary">
-      {text}
-    </p>
-  );
-}
+/** The store's password floor — the server refuses anything shorter. */
+const PASSWORD_MIN = 12;
 
 export function UserPatchForm({
   id,
@@ -33,99 +35,210 @@ export function UserPatchForm({
   isActive: boolean;
 }) {
   const router = useRouter();
-  const { notify } = useToast();
   const [nextName, setNextName] = useState(name);
+  const [nextEmail, setNextEmail] = useState(email);
+  const [nextPhone, setNextPhone] = useState(phone ?? "");
   const [nextActive, setNextActive] = useState(isActive);
-  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [pending, setPending] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     if (pending) return;
-    setNote(null);
-    if (nextName.trim() === "") {
-      setNote("الاسم مطلوب.");
+    setError(null);
+    setSaved(false);
+
+    const trimmedName = nextName.trim();
+    const trimmedEmail = nextEmail.trim();
+    const trimmedPhone = nextPhone.trim();
+    if (trimmedName === "") {
+      setError("اسم الحساب مطلوب.");
       return;
     }
+    if (!trimmedEmail.includes("@")) {
+      setError("البريد الإلكتروني شكله مش مظبوط.");
+      return;
+    }
+    if (trimmedPhone !== "" && !/^[0-9]{8,15}$/.test(trimmedPhone)) {
+      setError("التليفون لازم يكون من 8 لـ 15 رقم.");
+      return;
+    }
+
     setPending(true);
     try {
       await apiRequest(`/api/admin/users/${id}`, {
         method: "PATCH",
-        body: { name: nextName.trim(), isActive: nextActive },
+        body: {
+          name: trimmedName,
+          email: trimmedEmail,
+          phone: trimmedPhone === "" ? null : trimmedPhone,
+          isActive: nextActive,
+        },
       });
-      notify("success", "تم حفظ المستخدم.");
+      setSaved(true);
       router.refresh();
-    } catch (error) {
-      setNote(displayFailure(error, "تعذّر الحفظ."));
+    } catch (failure) {
+      setError(
+        (failure as { code?: string } | null)?.code === "CONFLICT"
+          ? "البريد الإلكتروني ده مستخدم في حساب تاني. جرّب بريد تاني."
+          : adminErrorMessage(failure, "تعذّر حفظ بيانات الحساب. جرّب تاني."),
+      );
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-[480px] gap-3">
-      <p className="text-sm text-secondary">
-        <bdi>{email}</bdi>
-        {phone ? (
-          <>
-            {" · "}<bdi>{phone}</bdi>
-          </>
-        ) : null}
-      </p>
-      <label className="grid gap-1 text-sm font-semibold">
-        الاسم
-        <input value={nextName} onChange={(e) => setNextName(e.target.value)} maxLength={120} className="min-h-[44px] rounded-control border border-line bg-white px-2" />
-      </label>
-      <label className="flex items-center gap-2 text-sm font-semibold">
-        <input type="checkbox" checked={nextActive} onChange={(e) => setNextActive(e.target.checked)} className="h-5 w-5" />
-        نشط
-      </label>
-      <Note text={note} />
-      <Button type="submit" loading={pending}>
-        حفظ المستخدم
-      </Button>
+    <form className="adm-form" noValidate onSubmit={(event) => void submit(event)}>
+      <div className="adm-form-grid">
+        <AdminField label="اسم الحساب" required>
+          {({ inputId, describedBy }) => (
+            <AdminInput
+              inputId={inputId}
+              describedBy={describedBy}
+              value={nextName}
+              onChange={(event) => setNextName(event.target.value)}
+              maxLength={120}
+              autoComplete="off"
+            />
+          )}
+        </AdminField>
+        <AdminField label="البريد الإلكتروني" required hint="ده اللي الحساب بيسجّل بيه الدخول.">
+          {({ inputId, describedBy }) => (
+            <AdminInput
+              inputId={inputId}
+              describedBy={describedBy}
+              type="email"
+              dir="ltr"
+              value={nextEmail}
+              onChange={(event) => setNextEmail(event.target.value)}
+              maxLength={160}
+              autoComplete="off"
+            />
+          )}
+        </AdminField>
+      </div>
+
+      <AdminField label="التليفون" optional hint="من 8 لـ 15 رقم. سيبه فاضي تمسح التليفون من الحساب.">
+        {({ inputId, describedBy }) => (
+          <AdminInput
+            inputId={inputId}
+            describedBy={describedBy}
+            type="tel"
+            inputMode="numeric"
+            dir="ltr"
+            value={nextPhone}
+            onChange={(event) => setNextPhone(event.target.value)}
+            maxLength={15}
+            autoComplete="off"
+          />
+        )}
+      </AdminField>
+
+      <div className="adm-field">
+        <span className="adm-label">حالة الحساب</span>
+        <AdminChoices
+          name="user-active"
+          value={nextActive ? "yes" : "no"}
+          onChange={(value) => setNextActive(value === "yes")}
+          options={[
+            { value: "yes", title: "مفعّل", hint: "الحساب يقدر يدخل لوحة الإدارة." },
+            {
+              value: "no",
+              title: "موقوف",
+              hint: "الحساب مش هيقدر يدخل، وتاريخه بيفضل محفوظ.",
+            },
+          ]}
+        />
+      </div>
+
+      {error ? (
+        <p className="adm-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {saved && !error ? (
+        <p className="adm-note adm-note--accent">بيانات الحساب اتحفظت.</p>
+      ) : null}
+
+      <div className="adm-btn-row">
+        <AdminButton type="submit" loading={pending}>
+          حفظ بيانات الحساب
+        </AdminButton>
+      </div>
     </form>
   );
 }
 
 export function UserPasswordForm({ id }: { id: string }) {
   const router = useRouter();
-  const { notify } = useToast();
   const [password, setPassword] = useState("");
-  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [pending, setPending] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     if (pending) return;
-    setNote(null);
-    if (password.length < 1) {
-      setNote("أدخل كلمة المرور الجديدة.");
+    setError(null);
+    setSaved(false);
+
+    if (password.length < PASSWORD_MIN) {
+      setError(`كلمة السر لازم تكون ${PASSWORD_MIN} حرف على الأقل.`);
       return;
     }
+
     setPending(true);
     try {
-      await apiRequest(`/api/admin/users/${id}/password`, { method: "POST", body: { password } });
-      notify("success", "تم تعيين كلمة المرور.");
-      router.refresh();
+      await apiRequest(`/api/admin/users/${id}/password`, {
+        method: "POST",
+        body: { password },
+      });
+      setSaved(true);
       setPassword("");
-    } catch (error) {
-      setNote(displayFailure(error, "تعذّر التعيين."));
+      router.refresh();
+    } catch (failure) {
+      setError(adminErrorMessage(failure, "تعذّر ضبط كلمة المرور. جرّب تاني."));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-[420px] gap-3">
-      <label className="grid gap-1 text-sm font-semibold">
-        كلمة مرور جديدة (تُدار وتُدقق على الخادم)
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" className="min-h-[44px] rounded-control border border-line bg-white px-2" />
-      </label>
-      <Note text={note} />
-      <Button type="submit" loading={pending} variant="secondary">
-        تعيين كلمة المرور
-      </Button>
+    <form className="adm-form" noValidate onSubmit={(event) => void submit(event)}>
+      <AdminField
+        label="كلمة مرور جديدة"
+        required
+        hint={`المتجر بيخزن كلمة السر مشفّرة ومش بيقدر يرجّعها. ${PASSWORD_MIN} حرف على الأقل.`}
+      >
+        {({ inputId, describedBy }) => (
+          <AdminInput
+            inputId={inputId}
+            describedBy={describedBy}
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            maxLength={128}
+          />
+        )}
+      </AdminField>
+
+      {error ? (
+        <p className="adm-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {saved && !error ? (
+        <p className="adm-note adm-note--accent">كلمة المرور اتحدّدت.</p>
+      ) : null}
+
+      <div className="adm-btn-row">
+        <AdminButton type="submit" loading={pending} variant="secondary">
+          ضبط كلمة المرور
+        </AdminButton>
+      </div>
     </form>
   );
 }
@@ -136,86 +249,118 @@ export function UserRolesManager({
   allRoles,
 }: {
   userId: string;
+  /** Role names (machine keys) already held by the account. */
   assigned: string[];
+  /** Every role in the store: id + machine name. */
   allRoles: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const { notify } = useToast();
   const [roleId, setRoleId] = useState("");
-  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  async function attach(e: React.FormEvent) {
-    e.preventDefault();
+  const available = allRoles.filter((role) => !assigned.includes(role.name));
+
+  async function attach(event: React.FormEvent) {
+    event.preventDefault();
     if (pending || roleId === "") return;
-    setNote(null);
+    setError(null);
+    setSaved(null);
     setPending(true);
     try {
       await apiRequest(`/api/admin/users/${userId}/roles`, { method: "POST", body: { roleId } });
-      notify("success", "تم إرفاق الدور.");
-      router.refresh();
+      setSaved("الدور اتضاف للحساب.");
       setRoleId("");
-    } catch (error) {
-      setNote(displayFailure(error, "تعذّر الإرفاق."));
+      router.refresh();
+    } catch (failure) {
+      setError(adminErrorMessage(failure, "تعذّر إضافة الدور. جرّب تاني."));
     } finally {
       setPending(false);
     }
   }
 
-  async function detach(rid: string) {
+  async function detach(targetRoleId: string) {
     if (pending) return;
-    setNote(null);
+    setError(null);
+    setSaved(null);
     setPending(true);
     try {
-      await apiRequest(`/api/admin/users/${userId}/roles/${rid}`, { method: "DELETE" });
-      notify("success", "تم فصل الدور.");
+      await apiRequest(`/api/admin/users/${userId}/roles/${targetRoleId}`, { method: "DELETE" });
+      setSaved("الدور اتشال من الحساب.");
       router.refresh();
-    } catch (error) {
-      setNote(displayFailure(error, "تعذّر الفصل."));
+    } catch (failure) {
+      setError(adminErrorMessage(failure, "تعذّر سحب الدور. جرّب تاني."));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <div className="grid gap-2">
-      <ul className="flex flex-wrap gap-2">
-        {assigned.length === 0 ? <li className="text-sm text-secondary">بلا أدوار.</li> : null}
-        {assigned.map((name) => {
-          const row = allRoles.find((r) => r.name === name);
-          return (
-            <li key={name} className="inline-flex items-center gap-2 rounded-badge border border-line bg-white px-3 py-1 text-sm">
-              {name}
-              {row ? (
-                <button
-                  type="button"
-                  onClick={() => void detach(row.id)}
-                  disabled={pending}
-                  aria-label={`فصل الدور ${name}`}
-                  className="min-h-[44px] min-w-[44px] font-bold text-error disabled:cursor-not-allowed disabled:opacity-55"
-                >
-                  ×
-                </button>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-      <form onSubmit={(e) => void attach(e)} className="flex flex-wrap items-end gap-2">
-        <label className="grid gap-1 text-sm font-semibold">
-          إرفاق دور
-          <select value={roleId} onChange={(e) => setRoleId(e.target.value)} className="min-h-[44px] rounded-control border border-line bg-white px-2">
-            <option value="">— اختر —</option>
-            {allRoles.filter((r) => !assigned.includes(r.name)).map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-        </label>
-        <Button type="submit" size="sm" loading={pending}>
-          إرفاق
-        </Button>
+    <div className="adm-form">
+      <div className="adm-field">
+        <span className="adm-label">الأدوار اللي على الحساب</span>
+        {assigned.length === 0 ? (
+          <p className="adm-hint">الحساب ده مفيش عليه أي دور.</p>
+        ) : (
+          <div className="adm-chips">
+            {assigned.map((name) => {
+              const row = allRoles.find((role) => role.name === name);
+              const label = roleLabel(name);
+              return (
+                <span className="adm-chip" key={name}>
+                  {label}
+                  {row ? (
+                    <AdminButton
+                      variant="ghost"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => void detach(row.id)}
+                      aria-label={`إزالة الدور ${label}`}
+                    >
+                      <X size={14} aria-hidden="true" />
+                    </AdminButton>
+                  ) : null}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <form className="adm-form" onSubmit={(event) => void attach(event)}>
+        <AdminField label="إضافة دور" hint="الدور بيحدد إيه اللي الحساب يقدر يعمله في المتجر.">
+          {({ inputId, describedBy }) => (
+            <AdminSelect
+              inputId={inputId}
+              describedBy={describedBy}
+              value={roleId}
+              onChange={(event) => setRoleId(event.target.value)}
+            >
+              <option value="">— اختار الدور —</option>
+              {available.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {roleLabel(role.name)}
+                </option>
+              ))}
+            </AdminSelect>
+          )}
+        </AdminField>
+        <div className="adm-btn-row">
+          <AdminButton type="submit" size="sm" loading={pending} disabled={roleId === ""}>
+            إضافة الدور
+          </AdminButton>
+        </div>
       </form>
-      <Note text={note} />
+
+      {error ? (
+        <p className="adm-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {saved && !error ? (
+        <p className="adm-note adm-note--accent">{saved}</p>
+      ) : null}
     </div>
   );
 }

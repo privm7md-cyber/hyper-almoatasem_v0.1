@@ -1,0 +1,551 @@
+{
+  "label": "current",
+  "distDir": ".next",
+  "adminRoutes": [
+    {
+      "route": "/admin",
+      "syncChunks": 9,
+      "syncKB": 110.2,
+      "syncGzipKB": 40,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/audit-logs",
+      "syncChunks": 8,
+      "syncKB": 107.6,
+      "syncGzipKB": 38.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/audit-logs/[id]",
+      "syncChunks": 8,
+      "syncKB": 107.6,
+      "syncGzipKB": 38.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/coupons",
+      "syncChunks": 10,
+      "syncKB": 157.8,
+      "syncGzipKB": 52.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/coupons/[id]",
+      "syncChunks": 10,
+      "syncKB": 157.1,
+      "syncGzipKB": 52.5,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/customers",
+      "syncChunks": 8,
+      "syncKB": 107.6,
+      "syncGzipKB": 38.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/customers/[id]",
+      "syncChunks": 10,
+      "syncKB": 146.4,
+      "syncGzipKB": 49.5,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/delivery-zones",
+      "syncChunks": 9,
+      "syncKB": 144.1,
+      "syncGzipKB": 48.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/inventory",
+      "syncChunks": 10,
+      "syncKB": 145,
+      "syncGzipKB": 49.6,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/inventory/[variantId]",
+      "syncChunks": 10,
+      "syncKB": 145,
+      "syncGzipKB": 49.6,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/inventory/product-status",
+      "syncChunks": 9,
+      "syncKB": 111.8,
+      "syncGzipKB": 40.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/login",
+      "syncChunks": 10,
+      "syncKB": 120.6,
+      "syncGzipKB": 44.1,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/notifications",
+      "syncChunks": 9,
+      "syncKB": 111.8,
+      "syncGzipKB": 40.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/orders",
+      "syncChunks": 8,
+      "syncKB": 107.6,
+      "syncGzipKB": 38.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/orders/[id]",
+      "syncChunks": 11,
+      "syncKB": 254.6,
+      "syncGzipKB": 80.6,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/permissions",
+      "syncChunks": 8,
+      "syncKB": 107.6,
+      "syncGzipKB": 38.7,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/products",
+      "syncChunks": 9,
+      "syncKB": 111.8,
+      "syncGzipKB": 40.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/products/[id]",
+      "syncChunks": 11,
+      "syncKB": 290.5,
+      "syncGzipKB": 88.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/products/new",
+      "syncChunks": 10,
+      "syncKB": 149.1,
+      "syncGzipKB": 50,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/products/storefront",
+      "syncChunks": 9,
+      "syncKB": 123.8,
+      "syncGzipKB": 44.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/promotions",
+      "syncChunks": 10,
+      "syncKB": 152.5,
+      "syncGzipKB": 50.8,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/promotions/[id]",
+      "syncChunks": 10,
+      "syncKB": 163.4,
+      "syncGzipKB": 54.2,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/roles",
+      "syncChunks": 10,
+      "syncKB": 146.4,
+      "syncGzipKB": 49.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/roles/[id]",
+      "syncChunks": 10,
+      "syncKB": 146.4,
+      "syncGzipKB": 49.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/settings",
+      "syncChunks": 9,
+      "syncKB": 139.9,
+      "syncGzipKB": 47.9,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/taxonomy",
+      "syncChunks": 10,
+      "syncKB": 150.8,
+      "syncGzipKB": 49.4,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/users",
+      "syncChunks": 9,
+      "syncKB": 140.5,
+      "syncGzipKB": 47.9,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    },
+    {
+      "route": "/admin/users/[id]",
+      "syncChunks": 9,
+      "syncKB": 144.5,
+      "syncGzipKB": 48.9,
+      "lazyChunks": 2,
+      "lazyKB": 123.3,
+      "lazyFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ],
+      "loadableFiles": [
+        "static/chunks/2ovbcl6jizgaf.js",
+        "static/chunks/3_uimhbns7vv8.js"
+      ]
+    }
+  ],
+  "allRouteCount": 53,
+  "threeChunk": {
+    "file": "static/chunks/0hr7djwfywcjd.js",
+    "kb": 907.9
+  },
+  "threeChunkReachableFrom": [],
+  "motionChunk": {
+    "file": "static/chunks/3_uimhbns7vv8.js",
+    "kb": 123.1
+  },
+  "motionChunkReachableFrom": [
+    "/admin",
+    "/admin/audit-logs",
+    "/admin/audit-logs/[id]",
+    "/admin/coupons",
+    "/admin/coupons/[id]",
+    "/admin/customers",
+    "/admin/customers/[id]",
+    "/admin/delivery-zones",
+    "/admin/inventory",
+    "/admin/inventory/[variantId]",
+    "/admin/inventory/product-status",
+    "/admin/login",
+    "/admin/notifications",
+    "/admin/orders",
+    "/admin/orders/[id]",
+    "/admin/permissions",
+    "/admin/products",
+    "/admin/products/[id]",
+    "/admin/products/new",
+    "/admin/products/storefront",
+    "/admin/promotions",
+    "/admin/promotions/[id]",
+    "/admin/roles",
+    "/admin/roles/[id]",
+    "/admin/settings",
+    "/admin/taxonomy",
+    "/admin/users",
+    "/admin/users/[id]"
+  ],
+  "heavyChunks": [
+    {
+      "name": "0hr7djwfywcjd.js",
+      "kb": 907.9,
+      "bucket": "3d"
+    },
+    {
+      "name": "2wye36b3mbzpa.js",
+      "kb": 229,
+      "bucket": "other"
+    },
+    {
+      "name": "16uyp1ymdlvpq.js",
+      "kb": 128.7,
+      "bucket": "other"
+    },
+    {
+      "name": "3_uimhbns7vv8.js",
+      "kb": 123.1,
+      "bucket": "motion"
+    },
+    {
+      "name": "0cz1d0mv5g_q7.js",
+      "kb": 110,
+      "bucket": "other"
+    },
+    {
+      "name": "1bxi3-59oxzv2.js",
+      "kb": 107.1,
+      "bucket": "other"
+    },
+    {
+      "name": "221t8prlw_tu1.js",
+      "kb": 68.5,
+      "bucket": "gsap"
+    },
+    {
+      "name": "1zpb1td07c_y6.js",
+      "kb": 44.7,
+      "bucket": "other"
+    },
+    {
+      "name": "1krythp0aw_hq.js",
+      "kb": 44.6,
+      "bucket": "other"
+    },
+    {
+      "name": "02fqnk-w5mklb.js",
+      "kb": 43,
+      "bucket": "other"
+    },
+    {
+      "name": "3-kvi4_5tehnx.js",
+      "kb": 41.3,
+      "bucket": "other"
+    }
+  ]
+}

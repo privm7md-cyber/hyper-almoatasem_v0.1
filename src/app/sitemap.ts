@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { listBrands, listCategories, listProducts } from "@/lib/catalog/queries";
 import { wireSlugOf } from "@/lib/frontend/slug";
+import { SITE_ORIGIN, mayAdvertiseOrigin } from "@/lib/site-origin";
 
 // Public sitemap (Phase-12).
 //
@@ -10,8 +11,9 @@ import { wireSlugOf } from "@/lib/frontend/slug";
 // an hour so a crawler never re-runs the whole walk on every request.
 //
 // Nothing private is listed: no admin, no session, no cart / checkout /
-// account / orders, no unpublished pages, and no preview or localhost host
-// (the host comes from the same origin resolution the metadata uses).
+// account / orders, no unpublished pages, and — Final-Closure — no preview or
+// localhost host is EVER advertised from a production build: entries are
+// emitted only from an explicitly configured origin (src/lib/site-origin.ts).
 
 const PRODUCT_PAGE_SIZE = 1000;
 const CATEGORY_LIMIT = 5000;
@@ -20,14 +22,8 @@ const BRAND_LIMIT = 5000;
 /** The sitemap is cached for an hour (a catalogue walk on every request is wasteful). */
 export const revalidate = 3600;
 
-export const ORIGIN = (
-  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-    : process.env.VERCEL_URL?.trim()
-      ? `https://${process.env.VERCEL_URL.trim()}`
-      : "http://localhost:3000")
-).replace(/\/$/, "");
+/** Kept for external importers/tests; the live entries use mayAdvertiseOrigin(). */
+export const ORIGIN = SITE_ORIGIN;
 
 const STATIC_PAGES: {
   path: string;
@@ -43,6 +39,7 @@ const STATIC_PAGES: {
   { path: "/cancellation", priority: 0.5, changeFrequency: "monthly" },
   { path: "/replacement", priority: 0.5, changeFrequency: "monthly" },
   { path: "/order-help", priority: 0.6, changeFrequency: "monthly" },
+  { path: "/contact", priority: 0.5, changeFrequency: "monthly" },
 ];
 
 export interface ProductRef {
@@ -126,8 +123,14 @@ export async function staticSitemapEntries(): Promise<MetadataRoute.Sitemap> {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // "No fabricated origin": a production build without an explicitly
+  // configured origin emits an EMPTY sitemap (the route still answers 200) —
+  // a production host that was never told its own domain must not publish
+  // entry URLs under a guessed host. Local/development environments keep the
+  // full behaviour (Phase-12/17 contract).
+  if (!mayAdvertiseOrigin()) return [];
   const entries = await staticSitemapEntries();
-  const products = await listAllProductRefs();
+  const products = await listAllProductRefs().catch(() => []);
   const now = new Date();
   for (const p of products) {
     entries.push({

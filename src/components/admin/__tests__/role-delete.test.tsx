@@ -26,11 +26,13 @@ describe("RoleDeleteButton (FE-11 dangerous-action confirmation)", () => {
     vi.stubGlobal("fetch", fetchSpy);
     render(
       <ToastProvider>
-        <RoleDeleteButton id="r-1" memberCount={0} />
+        <RoleDeleteButton id="r-1" memberCount={0} roleName="كاشير" />
       </ToastProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "حذف الدور" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/نهائيًا ولا يمكن التراجع/);
+    // The confirmation names the role that goes away.
+    expect(screen.getByRole("alert")).toHaveTextContent("كاشير");
     fireEvent.click(screen.getByRole("button", { name: "تراجع" }));
     expect(screen.getByRole("button", { name: "حذف الدور" })).toBeVisible();
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -41,7 +43,7 @@ describe("RoleDeleteButton (FE-11 dangerous-action confirmation)", () => {
     vi.stubGlobal("fetch", fetchSpy);
     render(
       <ToastProvider>
-        <RoleDeleteButton id="r-1" memberCount={0} />
+        <RoleDeleteButton id="r-1" memberCount={0} roleName="كاشير" />
       </ToastProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: "حذف الدور" }));
@@ -56,19 +58,28 @@ describe("RoleDeleteButton (FE-11 dangerous-action confirmation)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        jsonResponse({ error: { code: "CONFLICT", message: "الدور مرتبط.", details: null } }, 409),
+        jsonResponse(
+          {
+            error: {
+              code: "CONFLICT",
+              message: "Role is still granted and cannot be deleted.",
+              details: null,
+            },
+          },
+          409,
+        ),
       ),
     );
     render(
       <ToastProvider>
-        <RoleDeleteButton id="r-1" memberCount={2} />
+        <RoleDeleteButton id="r-1" memberCount={2} roleName="كاشير" />
       </ToastProvider>,
     );
     expect(screen.getByText(/سيُرفض من الخادم/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "حذف الدور" }));
     fireEvent.click(screen.getByRole("button", { name: "تأكيد الحذف" }));
-    // Error Note (not the confirm alert): wait for the server message text itself.
-    expect(await screen.findByText("الدور مرتبط.")).toBeVisible();
+    // Error Note (not the confirm alert): wait for the Arabic server message.
+    expect(await screen.findByText("الدور ده متسلّم لحد تاني، فمش ينفع تشيله. شيله من المستخدمين الأول.")).toBeVisible();
     // Confirm step dismissed after failure; base form intact for retry/cancel.
     expect(screen.getByRole("button", { name: "حذف الدور" })).toBeVisible();
   });

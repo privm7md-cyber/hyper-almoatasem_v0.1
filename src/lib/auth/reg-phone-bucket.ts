@@ -31,6 +31,16 @@ export function resolveRegPhoneSecret(): Buffer {
   return buf;
 }
 
+/** True when `REG_RATE_LIMIT_PHONE_SECRET` is present and meets the ≥32-byte contract. */
+export function isRegPhoneSecretValid(): boolean {
+  try {
+    resolveRegPhoneSecret();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Secret-bound bucket key for a canonical phone (`201…` R8 form). */
 export function regPhoneBucketKey(canonicalPhone: string): string {
   const secret = resolveRegPhoneSecret();

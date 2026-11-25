@@ -1,73 +1,162 @@
-// FE-10F permissions catalog (server, read-only): the valid grant universe.
-// No writes exist by contract — attach happens on role detail pages.
+// ADMIN PERMISSIONS — the catalogue of everything a staff member can do.
+//
+// This page is a catalogue, not a log and not a switchboard: it lists the
+// capabilities the store knows, grouped by the part of the store they belong
+// to, in the words the team uses.
+//
+// A capability is not granted to a person directly. It is granted to a role,
+// and it only works for someone who holds that role. That is why nothing on
+// this page can be switched on or off here.
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import { prisma } from "@/lib/db";
 import { requirePermission } from "@/lib/auth/rbac";
-import { listPermissions } from "@/lib/admin/queries";
-import { toPermission } from "@/lib/admin/serialize";
-import { EmptyState, ErrorState } from "@/components/ui/states";
+import {
+  PERMISSION_GROUPS,
+  permissionCapabilityLabel,
+  permissionDescription,
+  permissionLabel,
+} from "@/lib/admin/terminology";
+import { DataTable, ErrorState, Note, PageHead, Panel, Pill } from "@/components/admin/ui/surfaces";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "الصلاحيات — الإدارة",
+  title: "صلاحيات المستخدمين — الإدارة",
   robots: { index: false, follow: false },
 };
 
-export default async function AdminPermissionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ search?: string; cursor?: string }>;
-}) {
+export default async function AdminPermissionsPage() {
   await requirePermission("roles.view");
-  const sp = await searchParams;
-  const search = typeof sp.search === "string" && sp.search.trim() !== "" ? sp.search.trim().slice(0, 120) : null;
-  const cursor = typeof sp.cursor === "string" && sp.cursor !== "" ? sp.cursor : null;
-  let rows: ReturnType<typeof toPermission>[] | null = null;
-  let next: string | null = null;
-  try {
-    const found = await listPermissions({ limit: 50, cursor, search });
-    next = found.length > 50 ? found[50].id : null;
-    rows = found.slice(0, 50).map(toPermission);
-  } catch {
-    rows = null;
-  }
+
+  const permissions = await prisma.permission
+    .findMany({ where: { isActive: true }, orderBy: [{ key: "asc" }] })
+    .catch(() => null);
+
+  const known = permissions ? new Set(permissions.map((permission) => permission.key)) : new Set<string>();
+  // DRIFT (owner decision, 12 Nov 2026): the code catalogue and the database
+  // can disagree — a permission the code knows but the database does not have
+  // is a capability NOBODY can be granted. The page says so instead of
+  // silently hiding the gap.
+  const catalogueKeys = PERMISSION_GROUPS.flatMap((group) =>
+    group.permissions.map((permission) => permission.key),
+  );
+  const missing = catalogueKeys.filter((key) => !known.has(key));
+  const grouped = PERMISSION_GROUPS.map((group) => ({
+    group,
+    keys: group.permissions.map((permission) => permission.key).filter((key) => known.has(key)),
+  })).filter((entry) => entry.keys.length > 0);
+  const ungrouped = permissions
+    ? permissions.filter((permission) => !PERMISSION_GROUPS.some((group) => group.permissions.some((p) => p.key === permission.key)))
+    : [];
+
   return (
-    <main className="grid gap-4">
-      <h1 className="text-xl font-bold">الصلاحيات</h1>
-      <p className="text-sm text-secondary">كتالوج القراءة فقط للصلاحيات القابلة للمنح — لا توجد عمليات كتابة.</p>
-      <form method="get" action="/admin/permissions" className="flex gap-2">
-        <label className="sr-only" htmlFor="perm-search">بحث الصلاحيات</label>
-        <input id="perm-search" name="search" defaultValue={search ?? ""} maxLength={120} placeholder="users.view…" dir="ltr" className="min-h-[44px] flex-1 rounded-control border border-line bg-white px-3" />
-        <button type="submit" className="min-h-[44px] rounded-control bg-brand px-5 font-semibold text-white">
-          بحث
-        </button>
-      </form>
-      {rows === null ? (
-        <ErrorState title="تعذّر التحميل" text="حاول مجددًا." />
-      ) : rows.length === 0 ? (
-        <EmptyState title="لا توجد صلاحيات مطابقة" hint="جرّب بحثًا مختلفًا." />
+    <>
+      <PageHead
+        eyebrow="الأدوار"
+        title="صلاحيات المستخدمين"
+        intro="دي كل حاجة ممكن حد في فريق المتجر يعملها. الصلاحيات مرتبة حسب أقسام المتجر، وكل صلاحية مكتوبة باسمها العادي عشان الفريق يفهمها من غير ما يعرف الكود بتاعها."
+      />
+
+      <Note tone="info">
+        الصلاحيات مش بتتدي للفرد على طول. كل صلاحية بتتدي لدور، وهي بتشتغل بس مع العضو اللي يشغل الدور
+        ده. عشان تدي صلاحية لحد، افتح صفحة الدور بتاعه وضيفها فيه.
+      </Note>
+
+      <Note tone="warn">
+        <strong>الصلاحية الحساسة</strong> (إخفاء هوية العميل، حذف المنتجات، عرض الأسعار، وإدارة الأدوار)
+        مش بتُشغَّل بمجرد وجودها في الكتالوج: لازم تكون موجودة في قاعدة البيانات <em>و</em> ممنوحة
+        للدور، وفي حالة إخفاء هوية العميل محتاجة اعتماد المالك كمان.
+      </Note>
+
+      {permissions === null ? (
+        <ErrorState
+          title="مفيش تحميل للكتالوج"
+          hint="حصلت مشكلة في جلب الصلاحيات من قاعدة البيانات. جرّب تعمل تحديث للصفحة."
+        />
       ) : (
-        <ul className="grid gap-2">
-          {rows.map((p) => (
-            <li key={p.id} className="rounded-card border border-line bg-white p-3 text-sm">
-              <p dir="ltr" className="font-mono font-bold">{p.key}</p>
-              {p.description ? <p className="text-secondary">{p.description}</p> : null}
-            </li>
+        <>
+          {permissions !== null && missing.length > 0 ? (
+            <Panel
+              title="صلاحيات ناقصة في قاعدة البيانات"
+              sub="الكود بيعرف صلاحيات أكتر من المسجّلة في القاعدة — وده معناه إن محدش يقدر ياخدها"
+              flush
+            >
+              <DataTable
+                caption="صلاحيات موجودة في الكود ومش موجودة في قاعدة البيانات"
+                columns={[{ header: "الصلاحية" }, { header: "الوصف" }, { header: "الحل" }]}
+                rows={missing.map((key) => [
+                  <span className="adm-cell-id" dir="ltr" key="key">
+                    {key}
+                  </span>,
+                  <span className="adm-cell-title" key="label">
+                    {permissionLabel(key)}
+                  </span>,
+                  <span className="adm-cell-sub" key="fix">
+                    ضيفها في قاعدة البيانات (خطوة الصلاحيات في سكربت البذور بتعمل ده بشكل آمن ومكرر)، وبعدين
+                    امنحها للدور من صفحة الأدوار.
+                  </span>,
+                ])}
+                emptyLabel="مفيش صلاحيات ناقصة."
+              />
+            </Panel>
+          ) : null}
+
+          {grouped.map(({ group, keys }) => (
+            <Panel key={group.title} title={group.title} sub={group.intro} flush>
+              <DataTable
+                caption={`${group.title} — الصلاحيات المتاحة`}
+                columns={[
+                  { header: "الصلاحية" },
+                  { header: "النوع" },
+                  { header: "الشرح" },
+                ]}
+                rows={keys.map((key) => {
+                  const entry = group.permissions.find((permission) => permission.key === key);
+                  return [
+                    <span key={`${key}-key`} className="adm-cell-main">
+                      <span className="adm-cell-title">{permissionLabel(key)}</span>
+                      <span className="adm-cell-id" dir="ltr">
+                        {key}
+                      </span>
+                    </span>,
+                    <span key={`${key}-cap`} className="adm-cell-main">
+                      <Pill tone={entry?.sensitive ? "warn" : "neutral"}>
+                        {entry ? permissionCapabilityLabel(entry.capability) : "—"}
+                      </Pill>
+                      {entry?.sensitive ? (
+                        <span className="adm-cell-sub">صلاحية حساسة</span>
+                      ) : null}
+                    </span>,
+                    <span key={`${key}-desc`} className="adm-cell-sub">
+                      {permissionDescription(key)}
+                    </span>,
+                  ];
+                })}
+                emptyLabel="مفيش صلاحيات في القسم ده."
+              />
+            </Panel>
           ))}
-        </ul>
+
+          {ungrouped.length > 0 ? (
+            <Panel title="صلاحيات تانية" sub="صلاحيات موجودة في النظام ومش متجمّعة تحت قسم معروف" flush>
+              <DataTable
+                caption="صلاحيات غير مصنّفة"
+                columns={[{ header: "الصلاحية" }, { header: "الوصف" }]}
+                rows={ungrouped.map((permission) => [
+                  <span className="adm-cell-id" dir="ltr" key="key">
+                    {permission.key}
+                  </span>,
+                  <span className="adm-cell-title" key="label">
+                    {permissionLabel(permission.key)}
+                  </span>,
+                ])}
+                emptyLabel="مفيش صلاحيات غير مصنّفة."
+              />
+            </Panel>
+          ) : null}
+        </>
       )}
-      {next ? (
-        <p>
-          <Link
-            href={`/admin/permissions?${new URLSearchParams({ ...(search ? { search } : {}), cursor: next }).toString()}`}
-            className="font-semibold text-brand"
-          >
-            الصفحة التالية
-          </Link>
-        </p>
-      ) : null}
-    </main>
+    </>
   );
 }

@@ -2,15 +2,20 @@
 // Each Q/A pairs with a source in the Phase 09 content-provenance record:
 // the catalogue/search contract, the cart+order contract (lib/cart, lib/orders),
 // the checkout implementation, the order-detail UI, and the owner-approved
-// specs FP-11-5 (D34/D36/D37/D39). Questions whose answer would depend on an
-// unapproved policy are NOT published here — they live in the decision register.
+// specs FP-11-5 (D34/D36/D37/D39), plus the owner's Phase-13 approvals
+// (the contact number, the cancellation-review rule and the product-problem
+// request rule). Questions whose answer would depend on an unapproved policy
+// are NOT published here — they live in the decision register.
 
 import type { Metadata } from "next";
+import { canonicalMetadata } from "@/lib/seo/canonical";
 import Link from "next/link";
 import { InfoNote, InfoPage, InfoSection } from "@/components/store/info-page";
 import { StoreShell } from "@/components/store/store-shell";
+import { StoreContactLink } from "@/components/store/contact-link";
 
 export const metadata: Metadata = {
+  ...canonicalMetadata("/faq"),
   title: "الأسئلة الشائعة",
   description: "إجابات عملية عن البحث والشراء بالقطعة وبالوزن، والتوافر، والطلب كضيف، ومتابعة الطلب، ورسوم التوصيل.",
 };
@@ -124,9 +129,40 @@ export default function FaqPage() {
       <Q
         q="كيف أُلغي طلبي؟"
         a={
+          <>
+            <p>
+              يمكنك الإلغاء من صفحة تفاصيل الطلب ما دام الطلب في إحدى الحالات الأولى: «تم استلام طلبك» أو
+              «تم تأكيد الطلب» أو «جاري تجهيز طلبك». بعد ذلك لا يمكن الإلغاء من المتجر.
+            </p>
+            <p>
+              وبعد انتهاء التجهيز — أي عندما يصبح الطلب «طلبك جاهز» أو حالة تالية لها — أو بعد تسجيل
+              كميات فعلية لبعض عناصر الطلب، يتوقف الإلغاء الذاتي. في هذه الحالة تواصل مع المتجر على
+              الرقم <StoreContactLink /> لمراجعة الحالة، ويحدّد المتجر بعد المراجعة ما إذا كان
+              الإلغاء ممكنًا.
+            </p>
+          </>
+        }
+      />
+
+      <Q
+        q="ماذا أفعل إذا استلمت منتجًا مختلفًا أو تالفًا؟"
+        a={
           <p>
-            يمكنك الإلغاء من صفحة تفاصيل الطلب ما دام الطلب في إحدى الحالات الأولى: «تم استلام طلبك» أو
-            «تم تأكيد الطلب» أو «جاري تجهيز طلبك». بعد ذلك لا يمكن الإلغاء من المتجر.
+            يمكنك طلب معالجة المشكلة من المتجر في هذه الحالات: استلام منتج مختلف عن الذي طلبته، أو
+            منتج تالف أو معيب، أو ملاحظة اختلاف بين المنتج والطلب. يراجع المتجر الحالة ويحدّد الإجراء
+            المناسب — بما في ذلك الاستبدال إن كان ممكنًا. تواصل على الرقم <StoreContactLink /> مع ذكر
+            رقم الطلب. لا يَعِد المتجر بموعد للاستبدال ولا بوجود بديل متاح.
+          </p>
+        }
+      />
+
+      <Q
+        q="كيف أتواصل مع المتجر؟"
+        a={
+          <p>
+            رقم التواصل المعتمد مع المتجر هو <StoreContactLink />، ويُفضَّل أن يكون رقم الطلب معك
+            عند الاتصال. التواصل عبر الرقم يعني طلب مراجعة — القرار يحدّده المتجر بعد المراجعة. لا
+            يعرض المتجر بريدًا إلكترونيًا ولا رابط واتساب ولا مواعيد عمل.
           </p>
         }
       />
@@ -161,23 +197,28 @@ export default function FaqPage() {
       <InfoSection title="صفحات ذات صلة">
         <ul className="grid gap-1">
           <li>
-            <Link href="/delivery" className="font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
+            <Link href="/delivery" className="inline-flex min-h-[44px] items-center font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
               سياسة التوصيل
             </Link>
           </li>
           <li>
-            <Link href="/cancellation" className="font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
+            <Link href="/cancellation" className="inline-flex min-h-[44px] items-center font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
               سياسة الإلغاء
             </Link>
           </li>
           <li>
-            <Link href="/replacement" className="font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
+            <Link href="/replacement" className="inline-flex min-h-[44px] items-center font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
               سياسة الاستبدال
             </Link>
           </li>
           <li>
-            <Link href="/order-help" className="font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
+            <Link href="/order-help" className="inline-flex min-h-[44px] items-center font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
               مساعدة الطلب
+            </Link>
+          </li>
+          <li>
+            <Link href="/contact" className="inline-flex min-h-[44px] items-center font-semibold text-brand hover:text-[color:var(--ink-purple-deep)]">
+              تواصل معنا
             </Link>
           </li>
         </ul>

@@ -6,20 +6,32 @@ import "server-only";
 // windows are pruned opportunistically (best-effort, same call). No in-memory
 // Maps: state lives in PostgreSQL, so every instance/serverless invocation
 // shares one consistent view. No Redis, no new services.
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { regPhoneBucketKey } from "./reg-phone-bucket";
+import { bucketScope, logOperationalEvent } from "@/lib/api/log-events";
 
 export const IP_BUCKET_LIMIT = 30;
 export const ACCOUNT_BUCKET_LIMIT = 10;
 export const RATE_WINDOW_MINUTES = 15;
+export const IDENTIFY_IP_LIMIT = 30;
+export const IDENTIFY_PHONE_LIMIT = 10;
 
 export interface RateDecision {
   allowed: boolean;
   attempts: number;
 }
 
-export function ipBucket(ip: string | null | undefined): string {
-  return `login:ip:${ip ?? "unknown"}`;
+function shortScopeHash(scope: string): string {
+  return createHash("sha256").update(scope).digest("hex").slice(0, 24);
+}
+
+export function ipBucket(ip: string | null | undefined, fallbackTarget?: string | null): string {
+  if (ip && ip.trim() !== "") return `login:ip:${ip.trim()}`;
+  if (fallbackTarget && fallbackTarget.trim() !== "") {
+    return `login:ip:target:${shortScopeHash(fallbackTarget.trim().toLowerCase())}`;
+  }
+  return "login:ip:unknown";
 }
 
 export function accountBucket(email: string): string {
@@ -27,12 +39,28 @@ export function accountBucket(email: string): string {
 }
 
 /** Customer-login buckets (separate accounting from admin — isolation). */
-export function customerIpBucket(ip: string | null | undefined): string {
-  return `login:cust-ip:${ip ?? "unknown"}`;
+export function customerIpBucket(ip: string | null | undefined, fallbackTarget?: string | null): string {
+  if (ip && ip.trim() !== "") return `login:cust-ip:${ip.trim()}`;
+  if (fallbackTarget && fallbackTarget.trim() !== "") {
+    return `login:cust-ip:target:${shortScopeHash(fallbackTarget.trim())}`;
+  }
+  return "login:cust-ip:unknown";
 }
 
 export function customerAccountBucket(canonicalPhone: string): string {
   return `login:cust-acct:${canonicalPhone}`;
+}
+
+export function customerIdentifyIpBucket(ip: string | null | undefined, fallbackPhone?: string | null): string {
+  if (ip && ip.trim() !== "") return `identify:cust-ip:${ip.trim()}`;
+  if (fallbackPhone && fallbackPhone.trim() !== "") {
+    return `identify:cust-ip:target:${shortScopeHash(fallbackPhone.trim())}`;
+  }
+  return "identify:cust-ip:unknown";
+}
+
+export function customerIdentifyPhoneBucket(canonicalPhone: string): string {
+  return `identify:cust-phone:${shortScopeHash(canonicalPhone)}`;
 }
 
 /** Customer-registration buckets (G5 hardening): isolated from login buckets
@@ -45,12 +73,34 @@ export function customerAccountBucket(canonicalPhone: string): string {
 export const REG_REGISTER_IP_LIMIT = 30;
 export const REG_REGISTER_PHONE_LIMIT = 10;
 
-export function customerRegIpBucket(ip: string | null | undefined): string {
-  return `reg:cust-ip:${ip ?? "unknown"}`;
+export function customerRegIpBucket(ip: string | null | undefined, fallbackTarget?: string | null): string {
+  if (ip && ip.trim() !== "") return `reg:cust-ip:${ip.trim()}`;
+  if (fallbackTarget && fallbackTarget.trim() !== "") {
+    return `reg:cust-ip:target:${shortScopeHash(fallbackTarget.trim())}`;
+  }
+  return "reg:cust-ip:unknown";
 }
 
 export function customerRegPhoneBucket(canonicalPhone: string): string {
   return regPhoneBucketKey(canonicalPhone);
+}
+
+/** P12-07 SEC-04: Authenticated customer password-change buckets (isolated from
+ * login/register counters; prevents Argon2id CPU exhaustion and currentPassword
+ * brute-forcing with a captured/unattended session). */
+export const CUSTOMER_PASSWORD_IP_LIMIT = 30;
+export const CUSTOMER_PASSWORD_ACCOUNT_LIMIT = 10;
+
+export function customerPasswordIpBucket(ip: string | null | undefined, customerId?: string | null): string {
+  if (ip && ip.trim() !== "") return `pwd:cust-ip:${ip.trim()}`;
+  if (customerId && customerId.trim() !== "") {
+    return `pwd:cust-ip:target:${shortScopeHash(customerId.trim().toLowerCase())}`;
+  }
+  return "pwd:cust-ip:unknown";
+}
+
+export function customerPasswordAccountBucket(customerId: string): string {
+  return `pwd:cust-acct:${shortScopeHash(customerId.trim().toLowerCase())}`;
 }
 
 type RateLimitTable =
@@ -64,12 +114,34 @@ type RateLimitTable =
 export const GUEST_ORDER_CREATE_BUCKET_LIMIT = 10;
 export const GUEST_ORDER_READ_BUCKET_LIMIT = 60;
 
-export function guestOrderCreateBucket(ip: string | null | undefined): string {
-  return `guest-order:ip:${ip ?? "unknown"}`;
+/** Recovery-session minting gets its own bucket: a page load must never
+ * consume the order-creation budget (and vice versa). */
+export const GUEST_CHECKOUT_SESSION_BUCKET_LIMIT = 20;
+
+export function guestOrderCreateBucket(
+  ip: string | null | undefined,
+  fallbackScope?: string | null,
+): string {
+  if (ip && ip.trim() !== "") return `guest-order:ip:${ip.trim()}`;
+  if (fallbackScope && fallbackScope.trim() !== "") {
+    return `guest-order:scope:${shortScopeHash(fallbackScope.trim())}`;
+  }
+  return "guest-order:ip:unknown";
 }
 
-export function guestOrderReadBucket(ip: string | null | undefined): string {
-  return `guest-order:read-ip:${ip ?? "unknown"}`;
+export function guestOrderReadBucket(
+  ip: string | null | undefined,
+  fallbackOrderId?: string | null,
+): string {
+  if (ip && ip.trim() !== "") return `guest-order:read-ip:${ip.trim()}`;
+  if (fallbackOrderId && fallbackOrderId.trim() !== "") {
+    return `guest-order:read-scope:${shortScopeHash(fallbackOrderId.trim().toLowerCase())}`;
+  }
+  return "guest-order:read-ip:unknown";
+}
+
+export function guestCheckoutSessionBucket(ip: string | null | undefined): string {
+  return `guest-checkout-session:ip:${ip ?? "unknown"}`;
 }
 
 /** Atomically record one attempt; returns whether the bucket is still open.
@@ -139,5 +211,17 @@ export async function checkAndRecordRateLimit(
     `.catch(() => {});
   }
   const attempts = Number(bumped[0]?.attempts ?? limit + 1);
-  return { allowed: attempts <= limit, attempts };
+  const allowed = attempts <= limit;
+  if (!allowed) {
+    // Operational + security signal: a limit was hit. The bucket FAMILY is
+    // logged, never the bucket key — a key embeds the identity it was
+    // derived from (IP, email, phone or its HMAC).
+    logOperationalEvent("rate_limit.exceeded", {
+      scope: bucketScope(bucketKey),
+      limit,
+      attempts,
+      table,
+    });
+  }
+  return { allowed, attempts };
 }

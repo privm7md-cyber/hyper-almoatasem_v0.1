@@ -30,9 +30,9 @@ export default async function LoginPage({
         <div className="mt-3">
           <LoginForm />
         </div>
-        <p className="mt-3 text-sm">
-          ليس لديك حساب؟{" "}
-          <Link href={registerHref} className="font-semibold text-brand">
+        <p className="mt-3 flex items-center gap-1.5 text-sm">
+          <span>ليس لديك حساب؟</span>
+          <Link href={registerHref} className="inline-flex min-h-[44px] items-center font-semibold text-brand">
             أنشئ حسابًا
           </Link>
         </p>

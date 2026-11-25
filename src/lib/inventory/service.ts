@@ -18,10 +18,12 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { ApiError, businessRule, conflict } from "@/lib/api/errors";
-import { auditInTx } from "@/lib/api/audit";
+import { auditInTx, serializeAuditValue } from "@/lib/api/audit";
 import { orderLockIds } from "@/lib/api/concurrency";
 import { getVariantStockContext } from "@/lib/inventory/queries";
-import { qtyToThousandths, isWholePacks, isStepMultiple, envelopeAllows } from "@/lib/inventory/quantities";
+import { qtyToThousandths, boundedThousandths, isWholePacks, isStepMultiple, envelopeAllows } from "@/lib/inventory/quantities";
+import { safeAdjustmentSchema } from "@/lib/inventory/validation";
+import { assertAdminPreviewWritesAllowed } from "@/lib/auth/admin-read-only-preview";
 
 /** RFC 9562 UUIDv7 (frozen app-ID strategy, mirrors catalog writes). */
 export function newUuidV7(nowMs: number = Date.now()): string {
@@ -59,12 +61,17 @@ function pgCodeOf(error: unknown): string | null {
 
 /** Map PG guard-rail errors to API conflicts (loser re-reads, never 500s
  * for contended stock): 23514 check_violation (CHECK backstop on a lost
- * race, e.g. double-commit breaching reserved<=quantity), 40P01 deadlock +
- * 40001 serialization (re-read per BA-1 classifier). Anything else rethrows. */
+ * race, e.g. double-commit breaching reserved<=quantity), 23505 unique
+ * violation (BL-05: two concurrent creations of the same variant's row),
+ * 40P01 deadlock + 40001 serialization (re-read per BA-1 classifier).
+ * Anything else rethrows. */
 function mapGuardError(error: unknown, variantId: string): never {
   const code = pgCodeOf(error);
   if (code === "23514") {
     throw conflict("Insufficient stock for this operation.", { productVariantId: variantId });
+  }
+  if (code === "23505") {
+    throw conflict("Inventory already exists for this variant.", { productVariantId: variantId });
   }
   if (code === "40P01" || code === "40001") {
     throw conflict("Concurrent modification; re-read and retry.", { productVariantId: variantId });
@@ -130,13 +137,110 @@ export interface AdjustArgs {
 }
 
 /**
+ * BL-05 (closes E-48's mechanism gap): create the inventory row for one
+ * variant through the sanctioned path. Transaction:
+ * BEGIN → variant liveness gate (404 unknown / 422 not sellable) →
+ * INSERT (quantity as declared, reserved = 0; GENERATED availability is
+ * never written) → audit row in the SAME tx → COMMIT.
+ *
+ * Rules (owner-approved package, Wave 1):
+ *   * the initial quantity is an admin-declared REAL balance — the service
+ *     never invents one, and no retroactive movement row is inserted (the
+ *     movement history starts with the first adjust/commit);
+ *   * exactly one row per variant (UNIQUE product_variant_id): a second
+ *     creation — including a lost creation race — answers 409, never a
+ *     silent overwrite; deltas go through `adjustStock` afterwards;
+ *   * quantity >= 0 is legal (a declared known-zero); negative input is
+ *     rejected at the boundary (initializeInputSchema);
+ *   * warehouse/branch scope: the frozen inventory table carries no such
+ *     dimension — the sanctioned model is the single global location
+ *     (registered in the run docs; no invented columns);
+ *   * same-tx audit `inventory.create` with true old/new (old = null by
+ *     definition of a creation), correlation id + reason via the envelope.
+ */
+export interface CreateInventoryArgs {
+  variantId: string;
+  quantity: string;
+  lowStockThreshold: string | null;
+  reason: string | null;
+  actorId: string;
+}
+
+export async function createInventoryRow(args: CreateInventoryArgs) {
+  const variant = await prisma.productVariant.findUnique({
+    where: { id: args.variantId },
+    select: {
+      id: true,
+      isActive: true,
+      deletedAt: true,
+      product: { select: { isActive: true, deletedAt: true } },
+    },
+  });
+  if (!variant) throw new ApiError("NOT_FOUND", "Variant not found.", null);
+  if (variant.deletedAt !== null || !variant.isActive || variant.product.deletedAt !== null || !variant.product.isActive) {
+    throw businessRule("Inventory cannot be created for a variant that is not sellable.", null);
+  }
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const inventoryId = newUuidV7();
+      await tx.$executeRaw`
+        INSERT INTO inventory (id, product_variant_id, quantity, reserved_quantity, low_stock_threshold)
+        VALUES (${inventoryId}::uuid, ${args.variantId}::uuid, ${args.quantity}::numeric, 0::numeric,
+          ${args.lowStockThreshold}::numeric)`;
+      await auditInTx(tx, {
+        action: "inventory.create",
+        userId: args.actorId,
+        entityType: "inventory",
+        entityId: inventoryId,
+        oldValues: null,
+        newValues: {
+          productVariantId: args.variantId,
+          quantity: args.quantity,
+          reservedQuantity: "0",
+          lowStockThreshold: args.lowStockThreshold,
+        },
+        reason: args.reason,
+      });
+      return { inventoryId, quantity: args.quantity, lowStockThreshold: args.lowStockThreshold };
+    });
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    mapGuardError(error, args.variantId);
+  }
+}
+
+/**
  * Stock adjustment (admin). Transaction:
  * BEGIN → SELECT inventory FOR UPDATE → conditional UPDATE
  * (quantity+delta ≥ 0 AND reserved ≤ quantity+delta, rowcount-checked) →
  * INSERT movement (prev from locked row) → COMMIT.
  * 409 when the predicate fails (insufficient stock / reserved breach).
  */
-export async function adjustStock(args: AdjustArgs) {
+export async function adjustStock(args: AdjustArgs, safe?: {
+  requestId: string; expectedQuantity: string; confirmed: true;
+}) {
+  // Legacy callers retain their generic contract, without durable idempotency.
+  // The operational mode reserves MANUAL/reference_id for the request UUID.
+  if (safe) {
+    assertAdminPreviewWritesAllowed(); // direct service entry: before any read/effect
+    const parsed = safeAdjustmentSchema.safeParse({
+      productVariantId: args.variantId, delta: args.delta, movementType: args.movementType,
+      reason: args.reason, ...safe,
+    });
+    if (!parsed.success || args.referenceType !== "MANUAL" ||
+        args.referenceId?.toLowerCase() !== parsed.data.requestId) {
+      throw new ApiError("VALIDATION", "Invalid safe adjustment.");
+    }
+    safe = { requestId: parsed.data.requestId, expectedQuantity: parsed.data.expectedQuantity, confirmed: true };
+    args = { ...args, variantId: parsed.data.productVariantId, referenceId: safe.requestId, reason: parsed.data.reason };
+    const ctx = await getVariantStockContext(args.variantId);
+    if (!ctx) throw new ApiError("NOT_FOUND", "Variant not found.");
+    if (ctx.product.productType === "PIECE" &&
+        (!isWholePacks(args.delta) || !isWholePacks(safe.expectedQuantity))) {
+      throw businessRule("Piece quantity must be whole packs.");
+    }
+    // Counted WEIGHT facts deliberately do not use sales-step/R7 checks.
+  }
   try {
     return await prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ id: string; quantity: string; reserved_quantity: string }>>`
@@ -144,6 +248,35 @@ export async function adjustStock(args: AdjustArgs) {
         FROM inventory WHERE product_variant_id = ${args.variantId}::uuid FOR UPDATE`;
     if (locked.length === 0) throw new ApiError("NOT_FOUND", "Inventory not found.", null);
     const prev = locked[0].quantity;
+    if (safe) {
+      // This SAME variant row lock serializes all operational keys. Replay is
+      // checked before expected balance, since the first request changed it.
+      const prior = await tx.$queryRaw<Array<{
+        id: string; quantity: string; previous_quantity: string; new_quantity: string;
+        movement_type: string; reason: string | null; created_by: string | null;
+      }>>`
+        SELECT id::text, quantity::text, previous_quantity::text, new_quantity::text,
+               movement_type, reason, created_by::text
+        FROM inventory_movements
+        WHERE product_variant_id = ${args.variantId}::uuid
+          AND reference_type = 'MANUAL' AND reference_id = ${safe.requestId}::varchar`;
+      if (prior.length) {
+        const movement = prior[0];
+        if (prior.length !== 1 || movement.created_by?.toLowerCase() !== args.actorId.toLowerCase() ||
+            boundedThousandths(movement.quantity, true) !== boundedThousandths(args.delta, true) ||
+            movement.movement_type !== args.movementType || movement.reason !== args.reason ||
+            boundedThousandths(movement.previous_quantity) !== boundedThousandths(safe.expectedQuantity)) {
+          throw conflict("Request key already used with different terms.");
+        }
+        return { movementId: movement.id, previousQuantity: movement.previous_quantity, newQuantity: movement.new_quantity };
+      }
+      if (boundedThousandths(prev) !== boundedThousandths(safe.expectedQuantity)) {
+        throw conflict("Balance changed; re-read before adjusting.");
+      }
+      if (boundedThousandths(prev) + boundedThousandths(args.delta, true) > 999_999_999_999) {
+        throw businessRule("Resulting balance exceeds quantity bounds.");
+      }
+    }
     const updated = await tx.$queryRaw<Array<{ nq: string }>>`
       UPDATE inventory SET quantity = quantity + ${args.delta}::numeric
        WHERE product_variant_id = ${args.variantId}::uuid
@@ -169,7 +302,9 @@ export async function adjustStock(args: AdjustArgs) {
       entityType: "inventory",
       entityId: locked[0].id,
       oldValues: { quantity: prev },
-      newValues: { delta: args.delta, quantity: next, movementType: args.movementType },
+      newValues: { delta: args.delta, quantity: next, movementType: args.movementType,
+        ...(safe ? { referenceType: "MANUAL", requestId: safe.requestId } : {}) },
+      ...(safe ? { reason: args.reason } : {}),
     });
     return { movementId, previousQuantity: prev, newQuantity: next };
     });
@@ -189,7 +324,11 @@ export async function reserveStock(variantId: string, quantity: string, actorId:
   await assertRequestedShape(variantId, quantity);
   try {
     return await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${variantId}::uuid FOR UPDATE`;
+    // BL-01 (P2): the locked row's prior reserved value feeds the audit diff.
+    const lock = await tx.$queryRaw<Array<{ rq: string }>>`
+      SELECT reserved_quantity::text AS rq FROM inventory
+       WHERE product_variant_id = ${variantId}::uuid FOR UPDATE`;
+    const priorReserved = lock[0]?.rq ?? null;
     const updated = await tx.$queryRaw<Array<{ r: string; a: string; id: string }>>`
       UPDATE inventory SET reserved_quantity = reserved_quantity + ${quantity}::numeric
        WHERE product_variant_id = ${variantId}::uuid
@@ -203,8 +342,8 @@ export async function reserveStock(variantId: string, quantity: string, actorId:
       userId: actorId,
       entityType: "inventory",
       entityId: updated[0].id,
-      oldValues: null,
-      newValues: { quantity },
+      oldValues: { reserved_quantity: priorReserved },
+      newValues: { quantity, reserved_quantity: updated[0].r },
     });
     return { reservedQuantity: updated[0].r, availableQuantity: updated[0].a };
     });
@@ -225,7 +364,11 @@ export async function releaseStock(variantId: string, quantity: string, actorId:
   if (qtyToThousandths(quantity) <= 0) throw businessRule("Invalid quantity.", null);
   try {
     return await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${variantId}::uuid FOR UPDATE`;
+    // BL-01 (P2): the locked row's prior reserved value feeds the audit diff.
+    const lock = await tx.$queryRaw<Array<{ rq: string }>>`
+      SELECT reserved_quantity::text AS rq FROM inventory
+       WHERE product_variant_id = ${variantId}::uuid FOR UPDATE`;
+    const priorReserved = lock[0]?.rq ?? null;
     const updated = await tx.$queryRaw<Array<{ r: string; a: string; id: string }>>`
       UPDATE inventory SET reserved_quantity = reserved_quantity - ${quantity}::numeric
        WHERE product_variant_id = ${variantId}::uuid
@@ -242,8 +385,8 @@ export async function releaseStock(variantId: string, quantity: string, actorId:
       userId: actorId,
       entityType: "inventory",
       entityId: updated[0].id,
-      oldValues: null,
-      newValues: { quantity },
+      oldValues: { reserved_quantity: priorReserved },
+      newValues: { quantity, reserved_quantity: updated[0].r },
     });
     return { reservedQuantity: updated[0].r, availableQuantity: updated[0].a };
     });
@@ -366,10 +509,16 @@ export async function reserveBatch(lines: Array<{ variantId: string; quantity: s
 }
 
 /** Admin threshold edit (no stock guard, no movement — display-level).
- * Audit-paired in the same tx (PRE-BA-11 decision #2). */
+ * Audit-paired in the same tx (PRE-BA-11 decision #2); BL-01 (P2): the prior
+ * threshold is read INSIDE the tx so the row records true before/after. */
 export async function setLowStockThreshold(variantId: string, threshold: string | null, actorId: string) {
   try {
     return await prisma.$transaction(async (tx) => {
+      const prior = await tx.inventory.findUnique({
+        where: { productVariantId: variantId },
+        select: { id: true, lowStockThreshold: true },
+      });
+      if (!prior) return null;
       const updated = await tx.inventory.update({
         where: { productVariantId: variantId },
         data: { lowStockThreshold: threshold },
@@ -379,8 +528,8 @@ export async function setLowStockThreshold(variantId: string, threshold: string 
         userId: actorId,
         entityType: "inventory",
         entityId: updated.id,
-        oldValues: null,
-        newValues: { threshold },
+        oldValues: { lowStockThreshold: serializeAuditValue(prior.lowStockThreshold) },
+        newValues: { lowStockThreshold: serializeAuditValue(updated.lowStockThreshold) },
       });
       return updated;
     });

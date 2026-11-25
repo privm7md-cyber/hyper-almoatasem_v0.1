@@ -10,6 +10,7 @@ import Link from "next/link";
 import { ShoppingCart, UserRound } from "lucide-react";
 import { SearchBox } from "./search-box";
 import { StoreMenu } from "./store-menu";
+import { CartBadge } from "./cart-badge";
 
 const DESKTOP_LINKS = [
   { href: "/categories", label: "الأقسام" },
@@ -23,7 +24,8 @@ export function StoreHeader() {
       <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 md:px-6 md:py-4">
         <Link
           href="/"
-          className="flex shrink-0 items-baseline gap-2"
+          prefetch={false}
+          className="flex min-h-[44px] shrink-0 items-center gap-2"
           aria-label="هايبر المعتصم — الرئيسية"
         >
           <span className="text-xl font-extrabold tracking-tight text-brand md:text-[22px]">
@@ -40,6 +42,7 @@ export function StoreHeader() {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  prefetch={false}
                   className="flex min-h-[44px] items-center rounded-control px-3 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-purple-surface"
                 >
                   {item.label}
@@ -56,13 +59,16 @@ export function StoreHeader() {
         <div className="flex shrink-0 items-center gap-1">
           <Link
             href="/cart"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white text-ink transition-colors duration-200 hover:border-line-strong focus-visible:border-brand"
+            prefetch={false}
+            className="relative inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white px-2 text-ink transition-colors duration-200 hover:border-line-strong focus-visible:border-brand"
           >
             <span className="sr-only">السلة</span>
             <ShoppingCart size={20} aria-hidden="true" />
+            <CartBadge />
           </Link>
           <Link
             href="/account"
+            prefetch={false}
             className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control border border-line bg-white text-ink transition-colors duration-200 hover:border-line-strong focus-visible:border-brand"
           >
             <span className="sr-only">حسابي</span>

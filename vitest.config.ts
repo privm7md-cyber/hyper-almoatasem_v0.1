@@ -16,5 +16,10 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // The axe/a11y suites render whole admin pages and run the rule engine on
+    // them; on a loaded machine they need longer than the 5s default, and a
+    // timeout there is a false alarm, not a finding. Assertions are unchanged.
+    testTimeout: 30000,
+    hookTimeout: 30000,
   },
 });

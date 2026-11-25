@@ -11,14 +11,19 @@
 //     fallback).
 import { describe, expect, it } from "vitest";
 import {
+  DEV_GUEST_ORDER_COOKIE_PREFIX,
   DEV_SESSION_COOKIE_NAME,
+  PROD_GUEST_ORDER_COOKIE_PREFIX,
   PROD_SESSION_COOKIE_NAME,
+  guestOrderCookieName,
+  guestOrderCookieNames,
+  isDevSessionCookieAllowed,
+  isGuestOrderCookieName,
   isLocalDatabaseTarget,
   isProductionDatabaseTarget,
   sessionCookieName,
   sessionCookieOptions,
   sessionCookieSecure,
-  isDevSessionCookieAllowed,
 } from "@/lib/auth/session-cookie";
 
 const LOCAL_SCRATCH = "postgresql://user:pw@localhost:5432/hyper_almoatasem_scratch";
@@ -76,5 +81,21 @@ describe("admin session cookie policy (G07)", () => {
     expect(isLocalDatabaseTarget(undefined)).toBe(false);
     expect(isProductionDatabaseTarget(LOCAL_PRODUCTION_DB)).toBe(true);
     expect(isProductionDatabaseTarget(LOCAL_SCRATCH)).toBe(false);
+  });
+
+  it("BUG-02: guest order cookie policy enforces Secure on __Host- and non-prefixed dev cookie on local HTTP", () => {
+    const orderId = "11111111-1111-4111-8111-111111111111";
+    const prodName = guestOrderCookieName(orderId, { NODE_ENV: "production", DATABASE_URL: LOCAL_SCRATCH });
+    expect(prodName).toBe(`${PROD_GUEST_ORDER_COOKIE_PREFIX}${orderId}`);
+    expect(sessionCookieOptions(prodName).secure).toBe(true);
+
+    const devName = guestOrderCookieName(orderId, { NODE_ENV: "development", DATABASE_URL: LOCAL_SCRATCH });
+    expect(devName).toBe(`${DEV_GUEST_ORDER_COOKIE_PREFIX}${orderId}`);
+    expect(sessionCookieOptions(devName).secure).toBe(false);
+
+    expect(guestOrderCookieNames(orderId)).toEqual([prodName, devName]);
+    expect(isGuestOrderCookieName(prodName)).toBe(true);
+    expect(isGuestOrderCookieName(devName)).toBe(true);
+    expect(isGuestOrderCookieName("__Host-admin-session")).toBe(false);
   });
 });

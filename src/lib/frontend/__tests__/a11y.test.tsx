@@ -37,7 +37,7 @@ describe("foundation a11y (axe-core)", () => {
       slug: "s",
       description: null,
       brandName: null,
-      categoryName: "ألبان",
+      category: { id: "c", name: "ألبان", slug: "c", parentId: null },
       productType: "WEIGHT",
       saleStepGrams: 250,
       gallery: [],

@@ -1,4 +1,4 @@
-// BA-5 cart concurrency suite (real PostgreSQL, scratch-only).
+﻿// BA-5 cart concurrency suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-cart-concurrency.mjs --db <name> --port <port>
 //   A: concurrent cart creation (one customer) -> one ACTIVE cart,
 //      statuses {201,200}, identical ids (partial-UQ convergence).
@@ -28,7 +28,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -75,7 +78,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };

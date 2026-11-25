@@ -145,9 +145,12 @@ test.describe("Phase-10 remediation (browser)", () => {
       return "/admin/products";
     });
     await page.goto(`${BASE}${productPath}`);
-    await expect(page.getByRole("heading", { name: /تعديل السعر/ })).toBeVisible();
+    await expect(page.getByText(/ج\.م/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "حفظ السعر" })).toHaveCount(0);
-    await expect(page.getByText("prices.update").first()).toBeVisible();
+    await expect(page.getByText("تعديل سعر شكل")).toHaveCount(0);
+    await expect(page.getByText(/تعديل الأسعار — غير متاح لحسابك/).first()).toBeVisible();
+    await expect(page.getByText(/محتاج صلاحية: تعديل الأسعار/).first()).toBeVisible();
+    await expect(page.getByText("prices.update")).toHaveCount(0);
 
     const result = await page.evaluate(async () => {
       const list = await fetch("/api/admin/catalog/products?limit=20");
@@ -196,7 +199,9 @@ test.describe("Phase-10 remediation (browser)", () => {
     await expect(firstCustomer).toBeVisible();
     await firstCustomer.click();
     await expect(page.getByRole("button", { name: "حفظ بيانات العميل" })).toHaveCount(0);
-    await expect(page.getByText("customers.manage").first()).toBeVisible();
+    await expect(page.getByText(/تعديل بيانات العميل — غير متاح لحسابك/).first()).toBeVisible();
+    await expect(page.getByText(/تعديل بيانات العملاء/).first()).toBeVisible();
+    await expect(page.getByText("customers.manage")).toHaveCount(0);
 
     const result = await page.evaluate(async () => {
       const list = await fetch("/api/admin/customers?limit=1");
@@ -258,7 +263,7 @@ test.describe("Phase-10 remediation (browser)", () => {
   test("G04: the audit trail is read-only in the UI and over the API", async ({ page }) => {
     await login(page, OWNER_EMAIL, OWNER_PASSWORD);
     await page.goto(`${BASE}/admin/audit-logs`);
-    await expect(page.getByText("سجل التدقيق").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "سجل التغييرات" })).toBeVisible();
     const auditRefs = await page.evaluate(() =>
       Array.from(document.querySelectorAll("a,button,form")).filter((el) =>
         (el.getAttribute("href") ?? el.getAttribute("action") ?? "").includes("/api/admin/audit-logs"),

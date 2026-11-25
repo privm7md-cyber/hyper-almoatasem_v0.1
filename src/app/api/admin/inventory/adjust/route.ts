@@ -1,9 +1,12 @@
 // Admin inventory adjustment: quantity delta + paired movement, one tx.
+// Legacy generic contract: NO durable idempotency or expected-balance check.
+// Operational UI uses /adjustments; retrying this legacy route may apply twice.
 // Permission: inventory.adjust. Movement types here are manual-stock only
 // (STOCK_IN / ADJUSTMENT / WASTE / RETURN); SALE / CANCELLED_ORDER /
 // REPLACEMENT belong to order flows (BA-6/BA-7) and are rejected with 400.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { created, fail } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { adjustInputSchema } from "@/lib/inventory/validation";
@@ -12,6 +15,10 @@ import { getInventory } from "@/lib/inventory/queries";
 import { toInventory } from "@/lib/inventory/serialize";
 
 export async function POST(request: Request) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("inventory.adjust");
   if (auth.ok === false) {
     const r = fail(

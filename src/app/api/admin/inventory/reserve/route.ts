@@ -3,6 +3,7 @@
 // availability (single-winner race loser re-reads). Permission: inventory.adjust.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { created, fail } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { reserveInputSchema } from "@/lib/inventory/validation";
@@ -11,6 +12,10 @@ import { getInventory } from "@/lib/inventory/queries";
 import { toInventory } from "@/lib/inventory/serialize";
 
 export async function POST(request: Request) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("inventory.adjust");
   if (auth.ok === false) {
     const r = fail(

@@ -9,6 +9,24 @@
 // match /^\d+(\.\d{1,3})?$/ (NUMERIC(12,3) shape); adjust deltas are signed.
 import { z } from "zod";
 import { uuidSchema, paginationSchema } from "../api/validation";
+import { boundedThousandths } from "./quantities";
+
+const boundedQty = (signed: boolean) => z.string().refine((value) => {
+  try { boundedThousandths(value, signed); return true; } catch { return false; }
+}, "Invalid bounded quantity.");
+
+/** Operational API only: MANUAL reference is the request UUID, not a document. */
+export const safeAdjustmentSchema = z.object({
+  productVariantId: uuidSchema.transform(value => value.toLowerCase()),
+  requestId: uuidSchema.transform(value => value.toLowerCase()),
+  expectedQuantity: boundedQty(false),
+  delta: boundedQty(true).refine(value => {
+    try { return boundedThousandths(value, true) !== 0; } catch { return false; }
+  }),
+  movementType: z.enum(["STOCK_IN", "ADJUSTMENT", "WASTE", "RETURN"]),
+  reason: z.string().trim().min(1).max(2000),
+  confirmed: z.literal(true),
+}).strict();
 
 /** Positive quantity wire shape: NUMERIC(12,3) text, > 0. */
 export const positiveQtySchema = z
@@ -119,6 +137,26 @@ export const thresholdPatchSchema = z
     lowStockThreshold: thresholdSchema.nullable(),
   })
   .strict();
+
+/**
+ * BL-05 (closes E-48's mechanism gap): inventory-row creation wire shape.
+ * The initial quantity is a NON-NEGATIVE decimal text (NUMERIC(12,3)) — a
+ * real balance the admin declares, never a fabricated default. Zero IS a
+ * legal balance (a declared "known out of stock"); reserved always starts
+ * at 0; the threshold is optional and clears on null.
+ */
+export const initializeInputSchema = z
+  .object({
+    productVariantId: uuidSchema,
+    quantity: z
+      .string()
+      .regex(/^\d+(\.\d{1,3})?$/, { message: "Invalid quantity." }),
+    lowStockThreshold: thresholdSchema.nullish(),
+    reason: z.string().trim().max(2000).nullish(),
+  })
+  .strict();
+
+export type InitializeInput = z.infer<typeof initializeInputSchema>;
 
 export type AdjustInput = z.infer<typeof adjustInputSchema>;
 export type ReserveInput = z.infer<typeof reserveInputSchema>;

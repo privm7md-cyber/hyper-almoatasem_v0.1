@@ -1,4 +1,4 @@
-// Auth scratch setup (scratch-only): seed bootstrap data, create a store-admin
+﻿// Auth scratch setup (scratch-only): seed bootstrap data, create a store-admin
 // test identity, set both passwords via the bootstrap CLI. Never production.
 // Usage: node scripts/auth/setup-auth-scratch.mjs --db <name>
 // Prints ONLY non-secret progress lines (never passwords or URLs).
@@ -8,7 +8,9 @@ import { Client } from "pg";
 
 const dbName = process.argv[process.argv.indexOf("--db") + 1];
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",

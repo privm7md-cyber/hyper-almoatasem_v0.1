@@ -15,6 +15,13 @@
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { created, fail } from "@/lib/api/respond";
+import { clientIpBucketKey, resolveClientIp } from "@/lib/api/client-ip";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
+import { logOperationalEvent } from "@/lib/api/log-events";
+import {
+  REG_RATE_LIMIT_PHONE_SECRET_NAME,
+  isRegPhoneSecretValid,
+} from "@/lib/auth/reg-phone-bucket";
 import {
   REG_REGISTER_IP_LIMIT,
   REG_REGISTER_PHONE_LIMIT,
@@ -34,6 +41,12 @@ import { getCustomer } from "@/lib/customers/queries";
 import { toCustomer } from "@/lib/customers/serialize";
 
 export async function POST(request: Request) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   let body: unknown;
   try {
     body = await request.json();
@@ -51,10 +64,16 @@ export async function POST(request: Request) {
   // login uniform-budget posture — but never a phone bucket it can't key).
   // Phone keys are secret-bound (never raw, never plain SHA-256); a missing
   // or invalid secret fails closed here with a generic 500 — no fallback.
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+  // The BUCKET identity and the AUDIT identity are two different things.
+  // The bucket key is opaque and may be the shared "unknown" marker when no
+  // trusted source exists; the session/audit column is PostgreSQL `inet`,
+  // which accepts only a real address — so it receives the resolved IP or
+  // NULL, never the marker. Mixing them aborts the audited transaction.
+  const bucketIp = clientIpBucketKey(request.headers);
+  const auditIp = resolveClientIp(request.headers).ip;
   try {
     const ipGate = await checkAndRecordRateLimit(
-      customerRegIpBucket(ip),
+      customerRegIpBucket(bucketIp),
       REG_REGISTER_IP_LIMIT,
       undefined,
       "customer_auth_rate_limits",
@@ -83,6 +102,9 @@ export async function POST(request: Request) {
         "customer_auth_rate_limits",
       );
     } catch {
+      if (!isRegPhoneSecretValid()) {
+        logOperationalEvent("config.invalid", { name: REG_RATE_LIMIT_PHONE_SECRET_NAME });
+      }
       const r = fail(new ApiError("INTERNAL", "Unexpected error.", null, false));
       return NextResponse.json(r.body, { status: r.status });
     }
@@ -99,7 +121,7 @@ export async function POST(request: Request) {
       password: parsed.data.password,
     },
     {
-      ip,
+      ip: auditIp,
       userAgent: request.headers.get("user-agent"),
     },
   );

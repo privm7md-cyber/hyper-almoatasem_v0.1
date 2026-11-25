@@ -7,6 +7,13 @@
 //     two search landmarks with the same name; the id is now unique per box;
 //   * submitting a one-character query did NOTHING at all (the handler
 //     returned silently) — it now says what is missing.
+// Phase 08 (P08-T02): the note matches the CONTRACT (q 2..120 after trim —
+// TWO CHARACTERS, not two words): «اكتب حرفين على الأقل للبحث» exactly as the
+// results page says it; the submit handler — not the browser's native
+// constraint validation — is the gate (native minLength would preempt this
+// app note with a browser bubble, so the attribute is not set; maxLength
+// stays as the honest ≤120 typing guard). The note is a role="alert"
+// (in-repo error convention) so it is announced.
 
 "use client";
 
@@ -35,7 +42,7 @@ export function SearchBox({
     event.preventDefault();
     const q = value.trim();
     if (q.length < 2) {
-      setNote("اكتب كلمتين على الأقل للبحث.");
+      setNote("اكتب حرفين على الأقل للبحث");
       return;
     }
     setNote(null);
@@ -62,7 +69,6 @@ export function SearchBox({
             if (note) setNote(null);
           }}
           placeholder="ابحث عن منتج…"
-          minLength={2}
           maxLength={120}
           aria-describedby={note ? noteId : undefined}
           className="min-h-[44px] w-full min-w-0 rounded-control border border-line bg-white px-3 text-base text-ink transition-colors duration-200 hover:border-line-strong focus:border-brand"
@@ -77,7 +83,7 @@ export function SearchBox({
         </button>
       </div>
       {note ? (
-        <p id={noteId} role="status" className="w-full text-xs font-semibold text-error">
+        <p id={noteId} role="alert" className="w-full text-xs font-semibold text-error">
           {note}
         </p>
       ) : null}

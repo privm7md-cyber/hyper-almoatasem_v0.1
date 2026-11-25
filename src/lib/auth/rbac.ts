@@ -11,9 +11,12 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { readSessionCookie, validateSessionToken } from "@/lib/auth/session";
+import { logOperationalEvent } from "@/lib/api/log-events";
+import { isAdminPreviewPermissionAllowed } from "@/lib/auth/admin-read-only-preview";
 
 export interface AdminContext {
   user: { id: string; name: string; email: string };
+  sessionId?: string;
   roles: string[];
   permissions: string[];
 }
@@ -62,6 +65,7 @@ export const getCurrentAdmin = cache(async (): Promise<AdminContext | null> => {
   }
   return {
     user: { id: user.id, name: user.name, email: user.email },
+    sessionId: session.sessionId,
     roles,
     permissions: [...permissions],
   };
@@ -77,9 +81,26 @@ export async function requireAdmin(): Promise<AdminContext> {
 /** Pages: redirect anonymous, forbid unauthorized (Next.js forbidden.js → 403). */
 export async function requirePermission(permission: string): Promise<AdminContext> {
   const { forbidden } = await import("next/navigation");
+  if (!isAdminPreviewPermissionAllowed(permission)) forbidden();
   const admin = await getCurrentAdmin();
   if (!admin) redirect("/admin/login");
   if (!admin.permissions.includes(permission)) forbidden();
+  return admin;
+}
+
+/**
+ * Pages gated by MORE THAN ONE accepted key (E-3 closure): the caller may
+ * hold ANY of them. Same semantics as `requirePermission` — anonymous admins
+ * are redirected to the login page, unauthorized ones hit the 403 boundary —
+ * and the page never reveals which key was expected.
+ */
+export async function requirePermissionAny(permissions: string[]): Promise<AdminContext> {
+  const { forbidden } = await import("next/navigation");
+  if (permissions.length === 0) forbidden();
+  if (!permissions.some(isAdminPreviewPermissionAllowed)) forbidden();
+  const admin = await getCurrentAdmin();
+  if (!admin) redirect("/admin/login");
+  if (!permissions.some((permission) => admin.permissions.includes(permission))) forbidden();
   return admin;
 }
 
@@ -87,9 +108,19 @@ export async function requirePermission(permission: string): Promise<AdminContex
 export async function checkPermission(
   permission: string,
 ): Promise<{ ok: true; admin: AdminContext } | { ok: false; code: "UNAUTHENTICATED" | "FORBIDDEN" }> {
+  if (!isAdminPreviewPermissionAllowed(permission)) {
+    logOperationalEvent("authz.denied", { permission, reason: "read_only_preview" });
+    return { ok: false, code: "FORBIDDEN" };
+  }
   const admin = await getCurrentAdmin();
-  if (!admin) return { ok: false, code: "UNAUTHENTICATED" };
-  if (!admin.permissions.includes(permission)) return { ok: false, code: "FORBIDDEN" };
+  if (!admin) {
+    logOperationalEvent("authz.denied", { permission, reason: "unauthenticated" });
+    return { ok: false, code: "UNAUTHENTICATED" };
+  }
+  if (!admin.permissions.includes(permission)) {
+    logOperationalEvent("authz.denied", { permission, reason: "missing_permission" });
+    return { ok: false, code: "FORBIDDEN" };
+  }
   return { ok: true, admin };
 }
 

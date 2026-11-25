@@ -6,6 +6,7 @@
 // one tx. Picked/further states → 409. Expired credential → 410.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { uuidSchema } from "@/lib/api/validation";
 import { orderCancelSchema } from "@/lib/orders/validation";
@@ -16,6 +17,10 @@ import { requireGuestOrder } from "@/lib/orders/guest-access";
 import { toOrder } from "@/lib/orders/serialize";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const { id } = await context.params;
   if (!uuidSchema.safeParse(id).success) {
     const r = fail(new ApiError("VALIDATION", "Invalid order id."));

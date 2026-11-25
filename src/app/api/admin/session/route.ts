@@ -15,12 +15,14 @@ import { ApiError } from "@/lib/api/errors";
 import { created, fail, ok } from "@/lib/api/respond";
 import {
   buildRequestContext,
-  extractForwardedIp,
   isHttpsRequest,
   isLocalOrigin,
-  isTrustedProxyContext,
+  verifySameOrigin,
 } from "@/lib/api/request-context";
 import { sessionCookieName, sessionCookieSecure } from "@/lib/auth/session-cookie";
+import { denyAdminPreviewRequest } from "@/lib/api/route-auth";
+import { isAdminPreviewReadRequestAllowed } from "@/lib/auth/admin-preview-request";
+import { isAdminReadOnlyPreviewConfigured } from "@/lib/auth/admin-read-only-preview";
 
 const BodySchema = z.object({
   email: z.string().min(1).max(160),
@@ -29,17 +31,17 @@ const BodySchema = z.object({
 
 /**
  * The request context for the audit trail + the session row.
- * `ip` is the TRUSTED client IP (null unless a trusted proxy is declared);
- * `bucketIp` keeps the rate-limit buckets keyed exactly as before.
+ * `ip` and `bucketIp` are the SAME trusted identity (see `./client-ip`): a
+ * rate-limit bucket keyed by a client-chosen address could be rotated to
+ * bypass the limit, so both use the platform-written address only.
  */
 function requestContext(request: Request): {
   ip: string | null;
   userAgent: string | null;
   bucketIp: string | null;
 } {
-  const trusted = isTrustedProxyContext();
-  const ctx = buildRequestContext(request.headers, trusted);
-  return { ip: ctx.ip, userAgent: ctx.userAgent, bucketIp: extractForwardedIp(request.headers) };
+  const ctx = buildRequestContext(request.headers);
+  return { ip: ctx.ip, userAgent: ctx.userAgent, bucketIp: ctx.ip };
 }
 
 /**
@@ -60,19 +62,12 @@ function cookieWouldBeDropped(request: Request): boolean {
 }
 
 export async function POST(request: Request) {
+  const previewDenied = await denyAdminPreviewRequest([]);
+  if (previewDenied) return previewDenied;
   // Explicit same-origin enforcement for credential submission.
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin) {
-    try {
-      if (new URL(origin).host !== host) {
-        const r = fail(new ApiError("FORBIDDEN", "Forbidden.", null));
-        return NextResponse.json(r.body, { status: r.status });
-      }
-    } catch {
-      const r = fail(new ApiError("FORBIDDEN", "Forbidden.", null));
-      return NextResponse.json(r.body, { status: r.status });
-    }
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Forbidden.", null));
+    return NextResponse.json(r.body, { status: r.status });
   }
   let body: unknown;
   try {
@@ -109,8 +104,15 @@ export async function POST(request: Request) {
 }
 
 export async function GET() {
+  if (!await isAdminPreviewReadRequestAllowed()) {
+    const r = fail(new ApiError("FORBIDDEN", "Admin read-only preview.", null));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const admin = await getCurrentAdmin();
   if (!admin) {
+    if (!isAdminReadOnlyPreviewConfigured() && (await readSessionCookie())) {
+      await clearSessionCookie();
+    }
     const r = fail(new ApiError("UNAUTHENTICATED", "Authentication required.", null));
     return NextResponse.json(r.body, { status: r.status });
   }
@@ -123,6 +125,12 @@ export async function GET() {
 }
 
 export async function DELETE(request: Request) {
+  const previewDenied = await denyAdminPreviewRequest([]);
+  if (previewDenied) return previewDenied;
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Forbidden.", null));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const rawToken = await readSessionCookie();
   if (rawToken) {
     const { hashToken } = await import("@/lib/auth/tokens");

@@ -38,8 +38,13 @@ t("terminals-closed", !canTransition("DELIVERED", "CANCELLED") && !canTransition
   && !canTransition("DELIVERED", "DELIVERED"));
 t("unknown-states", !canTransition("NEW", "BOGUS") && !canTransition("BOGUS", "NEW"));
 t("is-terminal", isTerminal("DELIVERED") && isTerminal("CANCELLED") && !isTerminal("CONFIRMED") && !isTerminal("NEW"));
+// The frozen machine allows CANCELLED from NEW, CONFIRMED and PREPARING;
+// cancelOrder() additionally requires every line unpicked (a picked line
+// rejects with 409). The scope is asserted here, the picked-line rule is
+// covered by the fulfillment suite.
 t("ba6-cancel-scope", canCancelInBa6("NEW") && canCancelInBa6("CONFIRMED")
-  && !canCancelInBa6("PREPARING") && !canCancelInBa6("DELIVERED") && !canCancelInBa6("CANCELLED"));
+  && canCancelInBa6("PREPARING")
+  && !canCancelInBa6("DELIVERED") && !canCancelInBa6("CANCELLED"));
 
 // --- order number format (HM-YYYYMMDD-######) ---
 t("order-number-format", formatOrderNumber("20260926", 42) === "HM-20260926-000042"
@@ -56,6 +61,21 @@ t("create-rejects", !orderCreateSchema.safeParse({ addressId: CID, idempotencyKe
   && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "" }).success
   && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k", notes: "x" }).success
   && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k", cartId: CID }).success);
+// --- D2: the reviewed fee on the wire ---
+// The fee is an ASSERTION of what the customer reviewed, never an amount the
+// server charges. It must be a plain decimal string; a malformed value is
+// refused locally (the server is never asked to charge it).
+t("create-fee-accepted", orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: "20.00" }).success
+  && orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: "20" }).success);
+// Nullable ONLY so a same-key VERIFICATION of an unresolved attempt is never
+// blocked before the idempotency lookup; the domain rejects a NEW order
+// without it (400 VALIDATION) — see scripts/api/t-orders.mjs.
+t("create-fee-nullable-for-verification", orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: null }).success
+  && orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001" }).success);
+t("create-fee-rejects-malformed", !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: "12,50" }).success
+  && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: "20.005" }).success
+  && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: "-1.00" }).success
+  && !orderCreateSchema.safeParse({ addressId: CID, idempotencyKey: "k-0001", expectedDeliveryFee: "abc" }).success);
 const parsedList = orderListQuerySchema.safeParse({ limit: 20, customerId: CID });
 t("list-claim-stripped", orderListQuerySchema.safeParse({}).success
   && parsedList.success && parsedList.data.customerId === undefined);

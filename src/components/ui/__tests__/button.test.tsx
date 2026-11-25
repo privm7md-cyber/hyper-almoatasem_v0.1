@@ -37,8 +37,24 @@ describe("Button", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("has a 44px minimum touch target at md size", () => {
-    rtl(<Button>أضف</Button>);
+  it("has a 44px minimum touch target at md and sm sizes and icon variant", () => {
+    rtl(
+      <>
+        <Button>أضف</Button>
+        <Button size="sm">إجراء صغير</Button>
+        <Button variant="icon" aria-label="إغلاق">×</Button>
+      </>,
+    );
     expect(screen.getByRole("button", { name: "أضف" })).toHaveClass("min-h-[44px]");
+    expect(screen.getByRole("button", { name: "إجراء صغير" })).toHaveClass("min-h-[44px]");
+    const iconBtn = screen.getByRole("button", { name: "إغلاق" });
+    expect(iconBtn).toHaveClass("min-h-[44px]", "min-w-[44px]");
+  });
+
+  it("renders a decorative aria-hidden spinner icon while loading", () => {
+    const { container } = rtl(<Button loading>حفظ</Button>);
+    const svg = container.querySelector("svg");
+    expect(svg).toBeInTheDocument();
+    expect(svg).toHaveAttribute("aria-hidden", "true");
   });
 });

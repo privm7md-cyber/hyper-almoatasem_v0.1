@@ -45,3 +45,40 @@ test("D08: one-character search uses the corrected copy (two characters)", async
   await page.goto("/search?q=%D8%A3");
   await expect(page.getByText("اكتب حرفين على الأقل للبحث")).toBeVisible();
 });
+
+test("NAV-05: initial load keeps skip link as the first Tab stop without stealing focus", async ({ page }) => {
+  await page.goto("/");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "تخطَّ إلى المحتوى" })).toBeFocused();
+});
+
+test("NAV-05: browser back and forward history navigations move focus to #main", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "الأقسام" }).first().click();
+  await expect(page).toHaveURL(/\/categories/);
+  await expect(page.locator("#main")).toBeFocused();
+
+  await page.getByRole("link", { name: "العلامات" }).first().click();
+  await expect(page).toHaveURL(/\/brands/);
+  await expect(page.locator("#main")).toBeFocused();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/categories/);
+  await expect(page.locator("#main")).toBeFocused();
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/brands/);
+  await expect(page.locator("#main")).toBeFocused();
+});
+
+test("NAV-05: mobile store menu SPA navigation closes dialog and moves focus to #main", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "فتح قائمة المتجر" }).click();
+  const drawer = page.getByRole("dialog", { name: "قائمة المتجر" });
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("link", { name: "الأقسام" }).click();
+  await expect(page).toHaveURL(/\/categories/);
+  await expect(page.getByRole("dialog", { name: "قائمة المتجر" })).toHaveCount(0);
+  await expect(page.locator("#main")).toBeFocused();
+});

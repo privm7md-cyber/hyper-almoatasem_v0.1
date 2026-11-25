@@ -20,12 +20,25 @@ const nextConfig: NextConfig = {
   // is deliberately NOT added: the App Router needs inline bootstrap scripts,
   // and a policy that has to allow 'unsafe-inline' is theatre — it is recorded
   // as an open item instead.
+  //
+  // Final-Closure (2026-11-06): the open item is being closed in its SAFEST
+  // possible form — a Content-Security-Policy-Report-Only (never enforcing).
+  // Violations POST to /api/csp-report (console-logged only). The policy is
+  // deliberately written WITHOUT any relaxation so reports reveal everything
+  // that production enforcement would need to allow, including the App Router
+  // inline bootstrap scripts. Nothing on the site changes behaviour: browsers
+  // report, never block, on a Report-Only header. Enforcement remains blocked
+  // on (a) a real production origin (OWNER-INPUT-REQUIRED) and (b) the
+  // documented allowlist produced by these reports (see
+  // D:/Hyper_Data_Review Final_Project_Closure reports).
   async headers() {
     const securityHeaders = [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "same-origin" },
       { key: "X-Frame-Options", value: "SAMEORIGIN" },
     ];
+    // Dynamic nonce-based CSP (strict-dynamic + per-request nonce) is generated
+    // in src/proxy.ts per official Next.js 16 App Router specification.
     return [
       {
         source: "/:path*",

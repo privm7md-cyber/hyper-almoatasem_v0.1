@@ -4,6 +4,7 @@
 // actor's effective set (403 otherwise, atomic).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { created, fail } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
@@ -11,6 +12,10 @@ import { grantInputSchema } from "@/lib/admin/validation";
 import { assignGrant } from "@/lib/admin/writes";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("roles.manage");
   if (auth.ok === false) {
     const r = fail(

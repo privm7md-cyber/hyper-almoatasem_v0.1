@@ -42,10 +42,11 @@ export function isTerminal(status: string): boolean {
 
 /** BA-6 cancel policy: unpicked orders only. Picking (actual quantities)
  * belongs to fulfillment; cancelling picked lines needs restock movements
- * that phase will own. NEW|CONFIRMED rows are always unpicked by
- * construction (actuals are PREPARING-only writes). */
+ * that phase will own. The frozen machine allows CANCELLED from NEW,
+ * CONFIRMED and PREPARING; cancelOrder() additionally requires every line
+ * unpicked. */
 export function canCancelInBa6(status: string): boolean {
-  return status === "NEW" || status === "CONFIRMED";
+  return status === "NEW" || status === "CONFIRMED" || status === "PREPARING";
 }
 
 /** HM-YYYYMMDD-###### from SQL clock parts (gaps OK). Pure formatter;

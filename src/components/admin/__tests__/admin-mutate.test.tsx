@@ -73,4 +73,16 @@ describe("AdminAction (FE-11 dangerous-action UX)", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/لا تملك الصلاحية/);
   });
+
+  it("BUG-12: pressing Escape cancels confirmation state without firing request", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    renderAction({ label: "حذف", path: "/api/admin/x/1", method: "DELETE", confirmText: "الحذف نهائي. تأكيد؟" });
+    fireEvent.click(screen.getByRole("button", { name: "حذف" }));
+    const confirmBtn = screen.getByRole("button", { name: "تأكيد" });
+    expect(confirmBtn).toBeVisible();
+    fireEvent.keyDown(confirmBtn, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "حذف" })).toBeVisible();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

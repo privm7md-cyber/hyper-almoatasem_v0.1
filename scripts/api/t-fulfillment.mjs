@@ -1,8 +1,8 @@
-// PHASE 4 order fulfillment + picking verification (real PostgreSQL, scratch-only).
+﻿// PHASE 4 order fulfillment + picking verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-fulfillment.mjs --db <name> --port <port>
 // Covers the fulfillment lifecycle end to end through the REAL admin routes
-// (no test doubles): CONFIRMED→PREPARING→READY_FOR_DELIVERY→
-// OUT_FOR_DELIVERY→DELIVERED, illegal/repeat/backward transitions, piece +
+// (no test doubles): CONFIRMEDâ†’PREPARINGâ†’READY_FOR_DELIVERYâ†’
+// OUT_FOR_DELIVERYâ†’DELIVERED, illegal/repeat/backward transitions, piece +
 // weighted picking (exact/partial/envelope-breach), out-of-stock marking,
 // READY gate (pending lines, open proposals), replacement integration
 // (approve/reject), PREPARING cancel widening, inventory commit math +
@@ -14,6 +14,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -30,7 +31,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -72,6 +76,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const hdrs = (cookieOrHeaders) =>
     typeof cookieOrHeaders === "string" ? { cookie: cookieOrHeaders } : (cookieOrHeaders ?? {});
@@ -119,7 +129,7 @@ async function main() {
     for (const [vid, qty] of lines) {
       await post(`/api/store/cart/items`, { productVariantId: vid, quantity: qty }, H(sessTok));
     }
-    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k }, H(sessTok));
+    const o = await post(`/api/store/orders`, { addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE }, H(sessTok));
     if (o.body?.data?.order?.id) orderIds.add(o.body.data.order.id);
     return o.body?.data?.order ?? null;
   };
@@ -180,7 +190,7 @@ async function main() {
     t("prepare-malformed-400", badUuid.status === 400, `${badUuid.status}`);
 
     // ================= PICKING =================
-    // Piece exact → FULFILLED; weighted 0.132 on 0.125 (in-envelope) → PARTIALLY_FULFILLED.
+    // Piece exact â†’ FULFILLED; weighted 0.132 on 0.125 (in-envelope) â†’ PARTIALLY_FULFILLED.
     const resBefore = await reservedOf(P330);
     const resBeforeW = await reservedOf(ROMI_V);
     const pkP = await post(`/api/admin/orders/${oId}/items/${lineP.id}/pick`, { actualQuantity: "2" }, ck);
@@ -202,10 +212,10 @@ async function main() {
       FROM inventory_movements WHERE product_variant_id = $1 AND movement_type = 'SALE' ORDER BY created_at DESC LIMIT 1`, [P330]);
     t("pick-sale-movement", saleMove.length === 1 && num(saleMove[0].qty) === -2
       && num(saleMove[0].prev) + num(saleMove[0].qty) === num(saleMove[0].nw), JSON.stringify(saleMove[0]));
-    // Repeat pick → 409; pick on non-PREPARING tested later via full chain.
+    // Repeat pick â†’ 409; pick on non-PREPARING tested later via full chain.
     const pkAgain = await post(`/api/admin/orders/${oId}/items/${lineP.id}/pick`, { actualQuantity: "2" }, ck);
     t("pick-repeat-409", pkAgain.status === 409, `${pkAgain.status}`);
-    // Envelope breach → 422, nothing written. Use a fresh order for a clean PENDING line.
+    // Envelope breach â†’ 422, nothing written. Use a fresh order for a clean PENDING line.
     const s2 = await sess(P_F2, "Ful2");
     const idA2 = await mkAddr(s2.tok, P_F2);
     const oB = await mkOrder(s2.tok, idA2, [[ROMI_V, "0.125"]], key("breach"));
@@ -217,25 +227,25 @@ async function main() {
     const lineBAfter = await q(`SELECT item_status s, actual_quantity aq FROM order_items WHERE id = $1`, [lineB.id]);
     t("pick-breach-no-write", lineBAfter[0].s === "PENDING" && lineBAfter[0].aq === null
       && (await reservedOf(ROMI_V)).r === resBBefore.r, JSON.stringify(lineBAfter[0]));
-    // Piece over-pick → 422 (PIECE tolerance 0).
+    // Piece over-pick â†’ 422 (PIECE tolerance 0).
     const oP = await mkOrder(s2.tok, idA2, [[P330, "1"]], key("overpiece"));
     await post(`/api/admin/orders/${oP.id}/prepare`, {}, ck);
     const lineP2 = oP.items.find((i) => i.productVariantId === P330);
     const pkPieceOver = await post(`/api/admin/orders/${oP.id}/items/${lineP2.id}/pick`, { actualQuantity: "2" }, ck);
     t("pick-piece-over-422", pkPieceOver.status === 422, `${pkPieceOver.status}`);
-    // Malformed actuals → 400.
+    // Malformed actuals â†’ 400.
     for (const [nm, qty, want] of [["zero", "0", 400], ["negative", "-1", 400], ["nan", "abc", 400], ["num", 2, 400]]) {
       const r = await post(`/api/admin/orders/${oP.id}/items/${lineP2.id}/pick`, { actualQuantity: qty }, ck);
       t(`pick-${nm}-400`, r.status === want, `${r.status}`);
     }
-    // Stock-short at commit → 409 (deplete below actual, restore hold after).
+    // Stock-short at commit â†’ 409 (deplete below actual, restore hold after).
     // Snapshot the legitimate hold first: the depletion below wipes it.
     const shortHold = await reservedOf(P330);
     await db.query(`UPDATE inventory SET quantity = 0.100, reserved_quantity = 0 WHERE product_variant_id = $1`, [P330]);
     const pkShort = await post(`/api/admin/orders/${oP.id}/items/${lineP2.id}/pick`, { actualQuantity: "1" }, ck);
     t("pick-stock-short-409", pkShort.status === 409, `${pkShort.status}`);
     await db.query(`UPDATE inventory SET quantity = 500.000, reserved_quantity = $2 WHERE product_variant_id = $1`, [P330, shortHold.r]);
-    // Unknown line → 404.
+    // Unknown line â†’ 404.
     const pkMiss = await post(`/api/admin/orders/${oP.id}/items/04800000-0000-7000-8000-000000009999/pick`, { actualQuantity: "1" }, ck);
     t("pick-unknown-line-404", pkMiss.status === 404, `${pkMiss.status}`);
 
@@ -252,7 +262,7 @@ async function main() {
     t("pick-after-unavailable-409", pickAfterUnav.status === 409, `${pickAfterUnav.status}`);
 
     // ================= READY GATE =================
-    // oB still has a PENDING line (breach rejected) → 409.
+    // oB still has a PENDING line (breach rejected) â†’ 409.
     const readyBlocked = await post(`/api/admin/orders/${oB.id}/ready`, {}, ck);
     t("ready-pending-blocked-409", readyBlocked.status === 409, `${readyBlocked.status}`);
     // Resolve oB via unavailable (short-ship path), then READY with finals.
@@ -264,8 +274,8 @@ async function main() {
     t("ready-short-ship-200", readyB.status === 200 && oBReady?.status === "READY_FOR_DELIVERY"
       && num(oBReady?.subtotalFinal) === 0 && num(oBReady?.totalFinal) === 20, `${readyB.status}/${oBReady?.subtotalFinal}/${oBReady?.totalFinal}`);
     t("ready-releases-short-hold", num((await reservedOf(ROMI_V)).r) === num(resBHold.r) - 0.125, `${resBHold.r}`);
-    // Journey order: both lines picked → READY with exact money.
-    // sub 30.00 + 42.24 = 72.24, discount 0 (no promos), delivery 20 → 92.24.
+    // Journey order: both lines picked â†’ READY with exact money.
+    // sub 30.00 + 42.24 = 72.24, discount 0 (no promos), delivery 20 â†’ 92.24.
     const readyJ = await post(`/api/admin/orders/${oId}/ready`, {}, ck);
     const oJReady = readyJ.body?.data?.order;
     t("ready-200-finals", readyJ.status === 200 && oJReady?.status === "READY_FOR_DELIVERY"
@@ -274,7 +284,7 @@ async function main() {
     t("ready-repeat-409", readyAgain.status === 409, `${readyAgain.status}`);
 
     // ================= REPLACEMENT INTEGRATION =================
-    // oP: UNAVAILABLE P330 line → staff propose P1L substitute → customer approve → substitute PENDING → pick → READY.
+    // oP: UNAVAILABLE P330 line â†’ staff propose P1L substitute â†’ customer approve â†’ substitute PENDING â†’ pick â†’ READY.
     const pR = await post(`/api/admin/orders/${oP.id}/items/${lineP2.id}/replacements`,
       { replacementVariantId: "01800000-0000-7000-8000-000000000202", replacementQuantity: "1" }, ck);
     t("repl-proposed-201", pR.status === 201, `${pR.status}`);
@@ -295,7 +305,7 @@ async function main() {
     const oPReady = readyP.body?.data?.order;
     t("ready-with-substitute-200", readyP.status === 200 && oPReady?.status === "READY_FOR_DELIVERY"
       && num(oPReady?.subtotalFinal) === 30 && num(oPReady?.totalFinal) === 50, `${readyP.status}/${oPReady?.subtotalFinal}/${oPReady?.totalFinal}`);
-    // Reject path: fresh order, OOS, propose, reject → UNAVAILABLE stands → READY short.
+    // Reject path: fresh order, OOS, propose, reject â†’ UNAVAILABLE stands â†’ READY short.
     const oRj = await mkOrder(s2.tok, idA2, [[P330, "1"]], key("reject"));
     await post(`/api/admin/orders/${oRj.id}/prepare`, {}, ck);
     const lineRj = oRj.items.find((i) => i.productVariantId === P330);

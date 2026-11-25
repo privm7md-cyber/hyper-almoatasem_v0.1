@@ -20,6 +20,7 @@ import {
 import { hasAnyInventoryRows } from "@/lib/inventory/queries";
 import {
   SEARCH_SORT_OPTIONS,
+  hasReversedPriceWindow,
   loadMoreKey,
   parseListingParams,
   parseSearchQuery,
@@ -51,7 +52,12 @@ export default async function SearchPage({
 
   let page: Awaited<ReturnType<typeof searchCatalogPaged>> | null = null;
   let failed = false;
-  if (valid !== null) {
+  // P08 (D25 completion): both bounds with max < min is contract-invalid (the
+  // public routes answer 400 "Invalid price window.") — a window the frontend
+  // KNOWS is invalid is never SENT; the page answers the honest state instead
+  // (a silent empty result would hide the reason).
+  const reversedWindow = hasReversedPriceWindow(effectiveQuery);
+  if (valid !== null && !reversedWindow) {
     try {
       page = await searchCatalogPaged(valid, effectiveQuery);
     } catch {
@@ -73,14 +79,14 @@ export default async function SearchPage({
 
   return (
     <StoreShell>
-      <div className="mt-6">
+      <div className="mt-6 rounded-card border border-line bg-white p-5 shadow-xs">
         <PageTitle>البحث في المنتجات</PageTitle>
-        <div className="mt-3 max-w-[560px]">
+        <div className="mt-3.5 max-w-[600px]">
           <SearchBox initial={raw} label="البحث في صفحة النتائج" hint="عدّل كلمة البحث" />
         </div>
       </div>
       {valid !== null ? (
-        <div className="mt-3">
+        <div className="mt-4">
           <FilterPanel
             query={effectiveQuery}
             brands={brands}
@@ -95,8 +101,24 @@ export default async function SearchPage({
       {valid === null ? (
         <div className="mt-4">
           <EmptyState
-            title={raw.trim().length === 0 ? "ابدأ بكتابة كلمة للبحث" : "اكتب حرفين على الأقل للبحث"}
+            title={
+              raw.trim().length === 0
+                ? "ابدأ بكتابة كلمة للبحث"
+                : raw.trim().length > 120
+                  ? "الاستعلام أطول من 120 حرفًا — اكتب استعلامًا أقصر"
+                  : "اكتب حرفين على الأقل للبحث"
+            }
             hint="البحث يعمل من حرفين حتى 120 حرفًا."
+          />
+        </div>
+      ) : reversedWindow ? (
+        // P08 (D25 completion): the URL carried a contract-invalid price
+        // window — the request was NOT sent (the public route would 400);
+        // the same reason the panel gives is the page's answer.
+        <div className="mt-4">
+          <EmptyState
+            title="نطاق السعر غير صالح"
+            hint="الحد الأول أكبر من الثاني — عدّل النطاق ثم أعد المحاولة."
           />
         </div>
       ) : failed || page === null ? (
@@ -122,10 +144,13 @@ export default async function SearchPage({
         </div>
       ) : (
         <>
-          <p className="mt-4 text-sm text-secondary" role="status">
+          <h2 id="search-products-heading" className="sr-only">
+            نتائج المنتجات
+          </h2>
+          <p className="mt-4 inline-flex items-center rounded-badge border border-line bg-white px-3.5 py-1.5 text-sm text-secondary" role="status">
             <ResultCount initialCount={page.cards.length} /> لنتائج «{valid}» — اعرض المزيد للمتابعة (بدون أرقام صفحات مخترعة).
           </p>
-          <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="mt-3 grid grid-cols-2 gap-3.5 md:grid-cols-4 md:gap-4">
             {page.cards.map((p) => (
               <ProductCard key={p.id} product={p} />
             ))}

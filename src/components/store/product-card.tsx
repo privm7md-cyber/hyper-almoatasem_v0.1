@@ -1,5 +1,6 @@
 // FE-2/FE-4 product card (server, presentational): authoritative fields only.
-// Links to the real PDP route (/p/[id]/[slug]); no add-to-cart here (PDP owns purchase).
+// Links to the real PDP; the optional purchase island defaults on for the store.
+// Admin catalog callers explicitly disable it; admin tools remain outside this card.
 // VXP: bordered card w/ gentle hover lift, availability chip w/ distinct states,
 // image frame stays stable with or without artwork.
 // Phase 07 (D01): the price is shown with ITS OWN basis — a WEIGHT product priced
@@ -10,10 +11,10 @@
 // identity green (dot/icon) is unchanged.
 
 import Link from "next/link";
-import { ImageOff } from "lucide-react";
 import type { HomeProductCard } from "@/lib/frontend/storefront-reads";
 import { saleBasisFor } from "@/lib/frontend/cart-qty";
 import { CardBuy } from "@/components/store/card-buy";
+import { CardImage } from "@/components/store/card-image";
 
 const STOCK_CHIP: Record<HomeProductCard["stock"], { className: string; dotClass: string; label: string }> = {
   in: { className: "bg-[color:var(--success-bg)] text-success-ink", dotClass: "bg-success", label: "متوفر" },
@@ -42,7 +43,7 @@ function packDetail(product: HomeProductCard): string | null {
   return `عبوة ${shown} ${unit}`;
 }
 
-export function ProductCard({ product }: { product: HomeProductCard }) {
+export function ProductCard({ product, showPurchase = true }: { product: HomeProductCard; showPurchase?: boolean }) {
   const href = `/p/${product.id}/${encodeURIComponent(product.slug)}`;
   const chip = STOCK_CHIP[product.stock];
   const basis = saleBasisFor(product.productType, product.sizeUnit);
@@ -54,59 +55,62 @@ export function ProductCard({ product }: { product: HomeProductCard }) {
   return (
     <article
       aria-label={product.name}
-      className="vxp-card flex h-full flex-col gap-2 rounded-card border border-line bg-white p-3 shadow-subtle hover:border-brand/40"
+      className="vxp-card flex h-full flex-col gap-2.5 rounded-card border border-line bg-white p-3.5 shadow-subtle transition-[border-color,box-shadow] hover:border-brand/45 hover:shadow-sm"
     >
-      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-control bg-purple-surface">
-        {product.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={product.image}
-            alt={product.name}
-            loading="lazy"
-            className="h-full w-full object-contain transition-transform duration-300 hover:scale-[1.03]"
-          />
-        ) : (
-          <span className="flex flex-col items-center gap-1.5 text-secondary" aria-hidden="true">
-            <ImageOff size={26} strokeWidth={1.5} className="text-[color:var(--border-strong)]" />
-            <span className="text-xs">بلا صورة</span>
-          </span>
-        )}
+      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-control border border-line/60 bg-purple-surface">
+        <CardImage
+          key={product.image}
+          src={product.image}
+          name={product.name}
+          unavailable={product.imageUnavailable}
+          productType={product.productType}
+        />
       </div>
-      <h3 className="line-clamp-2 min-h-[2.6em] text-sm font-bold">
-        <Link href={href} className="text-ink" aria-label={`تفاصيل ${product.name}`}>
-          {product.name}
-        </Link>
-      </h3>
-      {product.brandName ? <p className="text-xs text-secondary">{product.brandName}</p> : null}
+      <div className="grid gap-1">
+        <h3 className="line-clamp-2 min-h-[2.6em] text-sm font-bold leading-snug">
+          <Link href={href} prefetch={false} className="inline-flex min-h-[44px] items-center text-ink transition-colors hover:text-brand" aria-label={`تفاصيل ${product.name}`}>
+            {product.name}
+          </Link>
+        </h3>
+        {product.brandName ? (
+          <p className="truncate text-xs font-medium text-secondary">{product.brandName}</p>
+        ) : null}
+      </div>
       {product.price !== null ? (
-        <p>
-          <bdi className="text-lg font-extrabold">
+        <p className="flex flex-wrap items-baseline gap-1.5">
+          <bdi className="text-lg font-extrabold tabular-nums text-brand-deep">
             {product.price} ج.م{basis === "PER_KG" ? " / كجم" : ""}
           </bdi>
           {product.compareAt !== null ? (
-            <span className="ms-2 text-xs text-secondary">
+            <span className="text-xs text-secondary">
               السعر المرجعي: <bdi>{product.compareAt} ج.م</bdi> (ليس عرضًا)
             </span>
           ) : null}
         </p>
       ) : (
-        <p className="text-sm text-secondary">السعر عند الاختيار</p>
+        <p className="text-sm text-secondary">{product.pricesUnavailable ? "السعر غير متاح لحسابك" : "السعر عند الاختيار"}</p>
       )}
       <p className="text-sm" aria-live="off">
-        <span className={`inline-flex items-center gap-1.5 rounded-badge px-2 py-0.5 text-xs font-semibold ${chip.className}`}>
+        <span className={`inline-flex items-center gap-1.5 rounded-badge px-2.5 py-0.5 text-xs font-semibold ${chip.className}`}>
           <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${chip.dotClass}`} />
           {chip.label}
         </span>
       </p>
       <p className="mt-auto text-xs text-secondary">{saleLine}</p>
+      <p
+        className="rounded-badge bg-purple-surface px-2.5 py-0.5 text-xs text-secondary"
+        aria-live="polite"
+      >
+        توفر المنتجات بيتأكد أثناء تجهيز الطلب، ولو صنف مش موجود هنبعتلك بدائل.
+      </p>
       {/*
         FE-11.2 (AC-P3 owner-approved): PIECE cards carry an add island —
         productType === "PIECE", price known, and availability is not provably
         out (OOS keeps the honest chip + lets the PDP own its disabled add;
         stock "unknown" stays clickable — the server is the authority).
       */}
-      {product.productType === "PIECE" && product.stock !== "oos" && product.price !== null ? (
-        <CardBuy productId={product.id} />
+      {showPurchase && product.productType === "PIECE" && product.stock !== "oos" && product.price !== null ? (
+        <CardBuy productId={product.id} slug={product.slug} />
       ) : null}
     </article>
   );

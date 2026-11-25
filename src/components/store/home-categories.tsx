@@ -32,7 +32,7 @@ const CATEGORY_ICONS: Array<{ match: string[]; Icon: LucideIcon }> = [
   { match: ["عناية"], Icon: Sparkles },
   { match: ["منظف", "منزلي"], Icon: SprayCan },
   { match: ["ألبان", "أجبان"], Icon: Milk },
-  { match: ["مضحر", "متجمد"], Icon: Package },
+  { match: ["مضحر", "متجمد", "مجمد"], Icon: Package },
 ];
 
 export function iconFor(categoryName: string): LucideIcon {
@@ -49,16 +49,19 @@ function MainTile({ category, index }: { category: CategoryShape; index: number 
     <li className="vxp-card min-w-0 rounded-card border border-line bg-white">
       <Link
         href={`/c/${category.id}/${wireSlugOf(category.slug)}`}
-        className="flex h-full items-center gap-3 p-4"
+        prefetch={false}
+        className="flex h-full min-w-0 items-center gap-2.5 p-3 sm:gap-3 sm:p-4"
         aria-label={category.name}
       >
         <span
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-control ${accent}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-control sm:h-11 sm:w-11 ${accent}`}
           aria-hidden="true"
         >
           {createElement(iconFor(category.name), { size: 22, strokeWidth: 1.8 })}
         </span>
-        <span className="line-clamp-2 font-bold leading-snug text-ink">{category.name}</span>
+        <span className="min-w-0 flex-1 line-clamp-2 break-words [overflow-wrap:anywhere] text-sm font-bold leading-snug text-ink sm:text-base">
+          {category.name}
+        </span>
       </Link>
     </li>
   );
@@ -69,7 +72,8 @@ function SubChip({ sub }: { sub: CategoryShape }) {
     <li>
       <Link
         href={`/c/${sub.id}/${wireSlugOf(sub.slug)}`}
-        className="vxp-card inline-flex min-h-[32px] items-center rounded-badge border border-line bg-white px-3 py-1 text-[13px] font-semibold text-secondary hover:border-brand/40 hover:bg-purple-surface hover:text-brand"
+        prefetch={false}
+        className="vxp-card inline-flex min-h-[44px] items-center rounded-badge border border-line bg-white px-3 py-1 text-[13px] font-semibold text-secondary hover:border-brand/40 hover:bg-purple-surface hover:text-brand"
         aria-label={sub.name}
       >
         {sub.name}
@@ -95,7 +99,8 @@ function SubGroupCard({ parent, subs }: SubGroup) {
         </span>
         <Link
           href={`/c/${parent.id}/${wireSlugOf(parent.slug)}`}
-          className="text-[15px] font-bold text-ink transition-colors duration-200 hover:text-brand"
+          prefetch={false}
+          className="inline-flex min-h-[44px] items-center text-[15px] font-bold text-ink transition-colors duration-200 hover:text-brand"
         >
           {parent.name}
         </Link>

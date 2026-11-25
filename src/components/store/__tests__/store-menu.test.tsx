@@ -59,6 +59,7 @@ describe("store mobile menu (Phase-11)", () => {
       "/cancellation",
       "/replacement",
       "/order-help",
+      "/contact",
     ]) {
       expect(hrefs).toContain(href);
     }
@@ -121,5 +122,21 @@ describe("store mobile menu (Phase-11)", () => {
       shiftKey: true,
     });
     expect(document.activeElement).toBe(items[items.length - 1]);
+  });
+
+  it("renders as a right-anchored RTL side drawer and closes on backdrop click", () => {
+    const { container } = render(<StoreMenu />);
+    const trigger = screen.getByRole("button", { name: "فتح قائمة المتجر" });
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "قائمة المتجر" });
+    expect(dialog).toHaveAttribute("data-motion-drawer", "rtl");
+    expect(dialog.className).toContain("right-0");
+    expect(dialog.className).toContain("vxp-drawer-rtl-enter");
+    const backdrop = container.querySelector('[data-menu-backdrop="true"]') as HTMLButtonElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(document.body.style.overflow).not.toBe("hidden");
   });
 });

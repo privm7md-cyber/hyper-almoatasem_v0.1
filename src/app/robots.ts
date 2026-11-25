@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_ORIGIN, mayAdvertiseOrigin } from "@/lib/site-origin";
 
 // Public crawl policy (Phase-12).
 //
@@ -7,14 +8,12 @@ import type { MetadataRoute } from "next";
 // and are ALSO marked `noindex` in their own metadata. This file only tells
 // crawlers which pages are worth indexing.
 export default function robots(): MetadataRoute.Robots {
-  const origin = (
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim()}`
-      : process.env.VERCEL_URL?.trim()
-        ? `https://${process.env.VERCEL_URL.trim()}`
-        : "http://localhost:3000")
-  ).replace(/\/$/, "");
+  // Final-Closure: the origin decision is centralised. The `Sitemap:` line is
+  // emitted only when the origin may be advertised (explicit env var, or the
+  // localhost fallback in a NON-production environment). A production build
+  // that was never told its own domain stays silent instead of advertising a
+  // guessed host.
+  const advertise = mayAdvertiseOrigin();
 
   return {
     rules: [
@@ -37,7 +36,7 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: `${origin}/sitemap.xml`,
-    host: origin,
+    ...(advertise ? { sitemap: `${SITE_ORIGIN}/sitemap.xml` } : {}),
+    ...(advertise ? { host: SITE_ORIGIN } : {}),
   };
 }

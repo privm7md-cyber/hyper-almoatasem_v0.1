@@ -115,11 +115,30 @@ export const SEARCH_SORT_OPTIONS: { value: string; label: string }[] = [
 
 /**
  * D07: the search retry/reload link must reproduce the exact current result-defining
- * URL state (query + sort + dir + every filter) — not just the q term.
+ * URL state (query + sort + every filter) — not just the q term.
+ * P08-T02 (D07 follow-up): the search contract has a single sort enum
+ * (relevance|newest) and NO dir parameter — so a dir value (only reachable via a
+ * hand-written URL) never serializes into a search retry link (desc is the
+ * serialization default and is omitted); every filter is preserved verbatim.
  */
 export function searchRetryHref(query: ListingQuery, validQuery: string | null): string {
   if (validQuery === null) return "/search";
-  return `/search${buildListingQuery(query, { sort: "relevance" }, validQuery)}`;
+  return `/search${buildListingQuery({ ...query, dir: "desc" }, { sort: "relevance" }, validQuery)}`;
+}
+
+/**
+ * P08 (D25 completion): when both price bounds exist, min ≤ max is part of the
+ * public contract — the listing/search routes answer a reversed window with
+ * 400 "Invalid price window." A window the frontend KNOWS is invalid is never
+ * sent: the following pure check is what all three listing pages gate with
+ * (an honest page state instead of a silent empty result).
+ */
+export function hasReversedPriceWindow(query: Pick<ListingQuery, "minPrice" | "maxPrice">): boolean {
+  return (
+    query.minPrice !== null &&
+    query.maxPrice !== null &&
+    Number(query.maxPrice) < Number(query.minPrice)
+  );
 }
 
 /**

@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ApiError, businessRule, conflict } from "@/lib/api/errors";
-import { auditInTx } from "@/lib/api/audit";
+import { auditInTx, auditFieldDiff } from "@/lib/api/audit";
 import type {
   BrandInput,
   CategoryInput,
@@ -20,6 +20,7 @@ import type {
   VariantInput,
 } from "@/lib/catalog/validation";
 import { normalizeSlug } from "@/lib/catalog/validation";
+import { normalizeBrandDuplicateKey } from "@/lib/catalog/brand-management";
 
 /** RFC 9562 UUIDv7 (unix-ms timestamp + rand_b): frozen app-ID strategy. */
 export function newUuidV7(nowMs: number = Date.now()): string {
@@ -141,6 +142,10 @@ export async function createCategory(input: CategoryInput, actorId: string) {
 export async function patchCategory(id: string, input: Partial<CategoryInput>, actorId: string) {
   return catalogWrite("Category", () =>
     prisma.$transaction(async (tx) => {
+      // BL-01 (P2): prior row read INSIDE the tx → true old/new audit. A
+      // missing row returns null (same 404 outcome the P2025 path produced).
+      const prior = await tx.category.findUnique({ where: { id } });
+      if (!prior) return null;
       // Explicit assignments (not conditional spreads): the spread-union form
       // defeats Prisma's Without<> conditional input type under strict mode.
       // Null passes through only to nullable columns; non-nullable columns
@@ -166,13 +171,18 @@ export async function patchCategory(id: string, input: Partial<CategoryInput>, a
       if (input.sortOrder != null) data.sortOrder = input.sortOrder;
       if (input.isActive != null) data.isActive = input.isActive;
       const updated = await tx.category.update({ where: { id }, data });
+      const { oldValues, newValues } = auditFieldDiff(
+        prior as unknown as Record<string, unknown>,
+        updated as unknown as Record<string, unknown>,
+        Object.keys(data),
+      );
       await auditInTx(tx, {
         action: "categories.update",
         userId: actorId,
         entityType: "categories",
         entityId: id,
-        oldValues: null,
-        newValues: { name: updated.name, slug: updated.slug },
+        oldValues,
+        newValues,
       });
       return updated;
     }),
@@ -182,6 +192,18 @@ export async function patchCategory(id: string, input: Partial<CategoryInput>, a
 export async function createBrand(input: BrandInput, actorId: string) {
   return catalogWrite("Brand", () =>
     prisma.$transaction(async (tx) => {
+      // The frozen schema has a unique slug but no normalized-name index.
+      // Serialize app brand-name writes, then reject exact/case/whitespace
+      // duplicates while preserving the supplied spelling in storage.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(88421031)`;
+      const normalizedName = normalizeBrandDuplicateKey(input.name);
+      const duplicate = (await tx.brand.findMany({ select: { id: true, name: true } }))
+        .find((brand) => normalizeBrandDuplicateKey(brand.name) === normalizedName);
+      if (duplicate) {
+        throw conflict("توجد علامة تجارية بنفس الاسم بعد توحيد المسافات وحالة الأحرف.", {
+          existingBrandId: duplicate.id,
+        });
+      }
       const created = await tx.brand.create({
         data: {
           id: newUuidV7(),
@@ -207,6 +229,20 @@ export async function createBrand(input: BrandInput, actorId: string) {
 export async function patchBrand(id: string, input: Partial<BrandInput>, actorId: string) {
   return catalogWrite("Brand", () =>
     prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(88421031)`;
+      // BL-01 (P2): prior row read INSIDE the tx → true old/new audit.
+      const prior = await tx.brand.findUnique({ where: { id } });
+      if (!prior) return null;
+      if (input.name !== undefined) {
+        const normalizedName = normalizeBrandDuplicateKey(input.name);
+        const duplicate = (await tx.brand.findMany({ select: { id: true, name: true } }))
+          .find((brand) => brand.id !== id && normalizeBrandDuplicateKey(brand.name) === normalizedName);
+        if (duplicate) {
+          throw conflict("توجد علامة تجارية بنفس الاسم بعد توحيد المسافات وحالة الأحرف.", {
+            existingBrandId: duplicate.id,
+          });
+        }
+      }
       // Explicit assignments (not conditional spreads): the spread-union form
       // defeats Prisma's Without<> conditional input type under strict mode.
       // Null passes through only to nullable columns; non-nullable columns
@@ -226,13 +262,18 @@ export async function patchBrand(id: string, input: Partial<BrandInput>, actorId
       if (input.logo !== undefined) data.logo = input.logo;
       if (input.isActive != null) data.isActive = input.isActive;
       const updated = await tx.brand.update({ where: { id }, data });
+      const { oldValues, newValues } = auditFieldDiff(
+        prior as unknown as Record<string, unknown>,
+        updated as unknown as Record<string, unknown>,
+        Object.keys(data),
+      );
       await auditInTx(tx, {
         action: "brands.update",
         userId: actorId,
         entityType: "brands",
         entityId: id,
-        oldValues: null,
-        newValues: { name: updated.name, slug: updated.slug },
+        oldValues,
+        newValues,
       });
       return updated;
     }),
@@ -285,33 +326,96 @@ export async function createProduct(input: ProductInput, actorId: string) {
 
 export async function patchProduct(
   id: string,
-  input: { name?: string; slug?: string | null; description?: string | null; categoryId?: string; brandId?: string | null; isActive?: boolean },
+  input: {
+    name?: string;
+    slug?: string | null;
+    description?: string | null;
+    categoryId?: string;
+    brandId?: string | null;
+    isActive?: boolean;
+    productType?: "PIECE" | "WEIGHT";
+    unit?: "PIECE" | "KG" | "GRAM";
+    saleStepGrams?: number | null;
+    expectedUpdatedAt?: string;
+  },
   actorId: string,
 ) {
   if (input.categoryId !== undefined) await assertCategoryExists(input.categoryId);
   if (input.brandId !== undefined) await assertBrandExists(input.brandId);
+  // The concurrency token is metadata, never a product field: extracted here
+  // and stripped from the write payload (the API boundary validates its shape).
+  const expectedUpdatedAt = input.expectedUpdatedAt;
   return catalogWrite("Product", () =>
     prisma.$transaction(async (tx) => {
-      const updated = await tx.product.update({
-        where: { id },
-        data: {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.slug !== undefined
-            ? { slug: input.slug === null ? undefined : resolveSlug(input.slug, input.name ?? "") }
-            : {}),
-          ...(input.description !== undefined ? { description: input.description } : {}),
-          ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
-          ...(input.brandId !== undefined ? { brandId: input.brandId } : {}),
-          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        },
+      // BL-02 (GD-2): lock the row FOR UPDATE and read the prior state inside
+      // the tx — the transition rule and the concurrency token are evaluated
+      // against the LOCKED row, and BL-01 (P2) diffs from the same read.
+      const lockedRows = (await tx.$queryRaw<Array<{
+        updated_at: Date;
+      }>>`
+        SELECT updated_at FROM products WHERE id = ${id}::uuid FOR UPDATE
+      `) as unknown as Array<{ updated_at: Date }>;
+      const lockedAt = lockedRows[0]?.updated_at ?? null;
+      if (!lockedAt) return null;
+      if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== "*") {
+        const expectedMs = Date.parse(expectedUpdatedAt);
+        const currentMs = Date.parse(lockedAt.toISOString());
+        if (!Number.isFinite(expectedMs) || expectedMs !== currentMs) {
+          throw conflict("Product was modified concurrently; re-read and retry.", {
+            currentUpdatedAt: lockedAt.toISOString(),
+          });
+        }
+      }
+      const prior = await tx.product.findUnique({ where: { id } });
+      if (!prior) return null;
+      if (prior.deletedAt !== null) {
+        throw conflict("Archived products cannot be edited directly. Restore the product first.", null);
+      }
+      // Two-legal-states transition rule (mirrors chk_products_weight_rule):
+      // the NEXT state = (patched field ?? prior value, null clears the step)
+      // must be a legal pair — rejected 422 BEFORE any write. The DB CHECK
+      // remains the final enforcer; this fails fast with the stable message.
+      assertProductWeightShape({
+        productType: (input.productType ?? prior.productType) as "PIECE" | "WEIGHT",
+        unit: (input.unit ?? prior.unit) as "PIECE" | "KG" | "GRAM",
+        saleStepGrams: input.saleStepGrams === undefined ? prior.saleStepGrams : input.saleStepGrams,
       });
+      const data: {
+        name?: string;
+        slug?: string;
+        description?: string | null;
+        categoryId?: string;
+        brandId?: string | null;
+        isActive?: boolean;
+        productType?: "PIECE" | "WEIGHT";
+        unit?: "PIECE" | "KG" | "GRAM";
+        saleStepGrams?: number | null;
+      } = {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.slug !== undefined
+          ? { slug: input.slug === null ? undefined : resolveSlug(input.slug, input.name ?? "") }
+          : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+        ...(input.brandId !== undefined ? { brandId: input.brandId } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.productType !== undefined ? { productType: input.productType } : {}),
+        ...(input.unit !== undefined ? { unit: input.unit } : {}),
+        ...(input.saleStepGrams !== undefined ? { saleStepGrams: input.saleStepGrams } : {}),
+      };
+      const updated = await tx.product.update({ where: { id }, data });
+      const { oldValues, newValues } = auditFieldDiff(
+        prior as unknown as Record<string, unknown>,
+        updated as unknown as Record<string, unknown>,
+        Object.keys(data),
+      );
       await auditInTx(tx, {
         action: "products.update",
         userId: actorId,
         entityType: "products",
         entityId: id,
-        oldValues: null,
-        newValues: { name: updated.name, slug: updated.slug },
+        oldValues,
+        newValues,
       });
       return updated;
     }),
@@ -377,24 +481,37 @@ export async function patchVariant(
   }
   return catalogWrite("Variant", () =>
     prisma.$transaction(async (tx) => {
-      const updated = await tx.productVariant.update({
-        where: { id },
-        data: {
-          ...(input.name !== undefined ? { name: input.name } : {}),
-          ...(input.sizeValue !== undefined ? { sizeValue: input.sizeValue } : {}),
-          ...(input.sizeUnit !== undefined ? { sizeUnit: input.sizeUnit } : {}),
-          ...(input.compareAtPrice !== undefined ? { compareAtPrice: input.compareAtPrice } : {}),
-          ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
-          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        },
-      });
+      // BL-01 (P2): prior row read INSIDE the tx → true old/new audit.
+      const prior = await tx.productVariant.findUnique({ where: { id } });
+      if (!prior) return null;
+      const data: {
+        name?: string;
+        sizeValue?: string | null;
+        sizeUnit?: string | null;
+        compareAtPrice?: string | null;
+        costPrice?: string | null;
+        isActive?: boolean;
+      } = {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.sizeValue !== undefined ? { sizeValue: input.sizeValue } : {}),
+        ...(input.sizeUnit !== undefined ? { sizeUnit: input.sizeUnit } : {}),
+        ...(input.compareAtPrice !== undefined ? { compareAtPrice: input.compareAtPrice } : {}),
+        ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      };
+      const updated = await tx.productVariant.update({ where: { id }, data });
+      const { oldValues, newValues } = auditFieldDiff(
+        prior as unknown as Record<string, unknown>,
+        updated as unknown as Record<string, unknown>,
+        Object.keys(data),
+      );
       await auditInTx(tx, {
         action: "variants.update",
         userId: actorId,
         entityType: "product_variants",
         entityId: id,
-        oldValues: null,
-        newValues: { name: updated.name },
+        oldValues,
+        newValues,
       });
       return updated;
     }),

@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/db";
 
 const variantGraph = {
-  include: { product: { select: { name: true } } },
+  include: { product: { select: { name: true, unit: true, productType: true } } },
 } as const;
 
 const replacementGraph = {

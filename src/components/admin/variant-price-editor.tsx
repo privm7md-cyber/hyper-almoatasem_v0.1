@@ -1,55 +1,72 @@
-// FE-10C variant price editor island ("use client"): PATCH variants/[id]/price.
-// Server re-validates price shape + governance; UI renders the confirmed row.
+// Variant price editor island ("use client"): PATCH variants/[id]/price.
+// The server re-validates the price shape and the governance; the UI renders
+// the confirmed row.
 //
-// Phase-10: a no-op price submission is blocked in the UI. The server-side
-// guard compares the NORMALIZED decimal string with the raw payload, so
-// re-submitting the current price as "25.00" reaches the write path, tries to
-// record a price-history row with old_price = new_price, and the frozen CHECK
-// `chk_price_history_changed` rejects it — the API answers a generic 500
-// ("Unexpected error."). The UI compares NUMERICALLY and refuses the no-op
-// with a readable message instead. The backend defect is recorded in the
-// Phase-10 gap register (BACKEND-CHANGE-REQUIRED) and is NOT fixed here.
+// A no-op price submission is blocked in the UI: the server compares the
+// NORMALIZED decimal with the raw payload, so re-submitting the current price
+// as "25.00" reaches the write path, tries to record a price-history row with
+// the same old and new price, and the frozen price-history check rejects it —
+// the API would answer a generic failure. The UI compares NUMERICALLY and
+// refuses the no-op with a readable message instead.
 
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiRequest, displayFailure } from "@/lib/frontend/api-client";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/ui/toast";
+import { Info } from "lucide-react";
+import { apiRequest } from "@/lib/frontend/api-client";
+import { adminErrorMessage } from "@/lib/admin/errors";
+import { AdminButton, AdminField, AdminInput, AdminSelect } from "@/components/admin/ui/controls";
 
 export function VariantPriceEditor({
   variants,
   canSeePrices = true,
 }: {
   variants: { id: string; name: string; price: string }[];
-  /** `prices.view` — may the operator SEE the current price? (G01) */
+  /** `prices.view` — may the operator SEE the current price? */
   canSeePrices?: boolean;
 }) {
   const router = useRouter();
-  const { notify } = useToast();
   const [variantId, setVariantId] = useState(variants[0]?.id ?? "");
   const [price, setPrice] = useState("");
   const [reason, setReason] = useState("");
-  const [note, setNote] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const [pending, setPending] = useState(false);
 
   if (variants.length === 0) {
-    return <p className="text-sm text-secondary">لا توجد Variants لهذا المنتج.</p>;
+    return <p className="adm-hint">مفيش أشكال بيع لهذا المنتج، فمفيش سعر تتغيره.</p>;
   }
 
-  const current = variants.find((v) => v.id === variantId);
+  if (!canSeePrices) {
+    return (
+      <div className="adm-note adm-note--info" role="note">
+        <Info size={16} className="adm-note-icon" aria-hidden="true" />
+        <div>
+          الأسعار مش معروضة لحسابك. لو محتاج تعدّل سعر، كلّم مالك المتجر عشان يضيف صلاحية عرض
+          الأسعار لحسابك.
+        </div>
+      </div>
+    );
+  }
+
+  const current = variants.find((variant) => variant.id === variantId);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (pending || variantId === "") return;
-    setNote(null);
+    setFeedback(null);
     if (!/^\d+(\.\d{1,2})?$/.test(price.trim()) || Number(price) <= 0) {
-      setNote("السعر يجب أن يكون رقمًا موجبًا برقمين عشريين حدًا أقصى.");
+      setFeedback({
+        tone: "danger",
+        text: "السعر لازم يكون رقم موجب برقمين عشريين على الأكثر.",
+      });
       return;
     }
     if (current && Number(price.trim()) === Number(current.price)) {
-      setNote(`السعر الحالي هو ${current.price} — لا يوجد تغيير لحفظه.`);
+      setFeedback({
+        tone: "danger",
+        text: `السعر الحالي هو ${current.price} — لا يوجد تغيير لحفظه.`,
+      });
       return;
     }
     setPending(true);
@@ -58,60 +75,86 @@ export function VariantPriceEditor({
         method: "PATCH",
         body: { price: price.trim(), ...(reason.trim() === "" ? {} : { reason: reason.trim() }) },
       });
-      notify("success", "تم تحديث السعر.");
+      setFeedback({ tone: "success", text: "تم تحديث السعر." });
       router.refresh();
       setPrice("");
       setReason("");
     } catch (error) {
-      setNote(displayFailure(error, "تعذّر تحديث السعر."));
+      setFeedback({
+        tone: "danger",
+        text: adminErrorMessage(error, "تعذّر تحديث السعر — راجع الرقم وجرب تاني."),
+      });
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-[480px] gap-3">
-      <label className="grid gap-1 text-sm font-semibold">
-        الـVariant
-        <select
-          value={variantId}
-          onChange={(e) => setVariantId(e.target.value)}
-          className="min-h-[44px] rounded-control border border-line bg-white px-2"
+    <form noValidate onSubmit={(e) => void submit(e)} className="adm-form">
+      <AdminField label="شكل البيع" hint="اختار الشكل اللي هتغيّر سعره.">
+        {({ inputId, describedBy }) => (
+          <AdminSelect
+            inputId={inputId}
+            describedBy={describedBy}
+            value={variantId}
+            onChange={(e) => setVariantId(e.target.value)}
+          >
+            {variants.map((variant) => (
+              <option key={variant.id} value={variant.id}>
+                {`${variant.name} — ${variant.price} ج.م`}
+              </option>
+            ))}
+          </AdminSelect>
+        )}
+      </AdminField>
+
+      <div className="adm-form-grid">
+        <AdminField label="السعر الجديد" hint="السعر بالجنيه — لازم يكون مختلف عن السعر الحالي.">
+          {({ inputId, describedBy }) => (
+            <AdminInput
+              inputId={inputId}
+              describedBy={describedBy}
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              inputMode="decimal"
+              placeholder="0.00"
+            />
+          )}
+        </AdminField>
+
+        <AdminField label="سبب التغيير" optional hint="سطر واحد بيوضح ليه السعر اتغيّر.">
+          {({ inputId, describedBy }) => (
+            <AdminInput
+              inputId={inputId}
+              describedBy={describedBy}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={500}
+            />
+          )}
+        </AdminField>
+      </div>
+
+      {feedback ? (
+        <div
+          className={`adm-note ${feedback.tone === "success" ? "adm-note--accent" : "adm-note--danger"}`}
+          role="alert"
         >
-          {variants.map((v) => (
-            <option key={v.id} value={v.id}>
-              {canSeePrices ? `${v.name} — ${v.price} ج.م` : v.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-semibold">
-        السعر الجديد
-        <input
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          inputMode="decimal"
-          placeholder="0.00"
-          className="min-h-[44px] rounded-control border border-line bg-white px-2"
-        />
-      </label>
-      <label className="grid gap-1 text-sm font-semibold">
-        السبب (اختياري)
-        <input
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          maxLength={500}
-          className="min-h-[44px] rounded-control border border-line bg-white px-2"
-        />
-      </label>
-      {note ? (
-        <p role="alert" className="text-sm text-secondary">
-          {note}
-        </p>
+          <Info size={16} className="adm-note-icon" aria-hidden="true" />
+          <div>{feedback.text}</div>
+        </div>
       ) : null}
-      <Button type="submit" loading={pending}>
-        حفظ السعر
-      </Button>
+
+      <div className="adm-btn-row">
+        <AdminButton type="submit" loading={pending}>
+          احفظ السعر
+        </AdminButton>
+      </div>
+
+      <p className="adm-hint">
+        كل تغيير سعر بيتسجل في تاريخ الأسعار بالتاريخ والسبب، عشان أي مراجعة بعدين تقدر تعرف السعر
+        اتغيّر إزاي.
+      </p>
     </form>
   );
 }

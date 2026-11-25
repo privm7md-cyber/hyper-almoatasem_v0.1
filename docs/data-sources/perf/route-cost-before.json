@@ -1,0 +1,248 @@
+{
+  "label": "before",
+  "distDir": "D:/perf-baseline/.next",
+  "adminRoutes": [
+    {
+      "route": "/admin",
+      "syncChunks": 6,
+      "syncKB": 56.2,
+      "syncGzipKB": 21.1,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/audit-logs",
+      "syncChunks": 7,
+      "syncKB": 58.6,
+      "syncGzipKB": 22.2,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/audit-logs/[id]",
+      "syncChunks": 6,
+      "syncKB": 56.2,
+      "syncGzipKB": 21.1,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/coupons",
+      "syncChunks": 7,
+      "syncKB": 63.2,
+      "syncGzipKB": 24,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/coupons/[id]",
+      "syncChunks": 7,
+      "syncKB": 63,
+      "syncGzipKB": 23.9,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/customers",
+      "syncChunks": 7,
+      "syncKB": 58.6,
+      "syncGzipKB": 22.2,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/customers/[id]",
+      "syncChunks": 7,
+      "syncKB": 62.8,
+      "syncGzipKB": 23.8,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/inventory",
+      "syncChunks": 7,
+      "syncKB": 64.4,
+      "syncGzipKB": 24.3,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/login",
+      "syncChunks": 7,
+      "syncKB": 57.8,
+      "syncGzipKB": 21.9,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/orders",
+      "syncChunks": 7,
+      "syncKB": 58.6,
+      "syncGzipKB": 22.2,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/orders/[id]",
+      "syncChunks": 7,
+      "syncKB": 64.8,
+      "syncGzipKB": 24.3,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/permissions",
+      "syncChunks": 7,
+      "syncKB": 58.6,
+      "syncGzipKB": 22.2,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/products",
+      "syncChunks": 7,
+      "syncKB": 66.1,
+      "syncGzipKB": 24.8,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/products/[id]",
+      "syncChunks": 7,
+      "syncKB": 73.8,
+      "syncGzipKB": 25.8,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/promotions",
+      "syncChunks": 7,
+      "syncKB": 69.2,
+      "syncGzipKB": 25,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/promotions/[id]",
+      "syncChunks": 7,
+      "syncKB": 73.9,
+      "syncGzipKB": 25.9,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/roles",
+      "syncChunks": 7,
+      "syncKB": 66.6,
+      "syncGzipKB": 24.7,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/roles/[id]",
+      "syncChunks": 7,
+      "syncKB": 65,
+      "syncGzipKB": 24.3,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/settings",
+      "syncChunks": 7,
+      "syncKB": 62,
+      "syncGzipKB": 23.8,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/taxonomy",
+      "syncChunks": 7,
+      "syncKB": 67.2,
+      "syncGzipKB": 24.3,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/users",
+      "syncChunks": 7,
+      "syncKB": 62.4,
+      "syncGzipKB": 23.8,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    },
+    {
+      "route": "/admin/users/[id]",
+      "syncChunks": 7,
+      "syncKB": 63.6,
+      "syncGzipKB": 24,
+      "lazyChunks": 0,
+      "lazyKB": 0,
+      "lazyFiles": [],
+      "loadableFiles": []
+    }
+  ],
+  "allRouteCount": 46,
+  "threeChunk": null,
+  "threeChunkReachableFrom": [],
+  "motionChunk": null,
+  "motionChunkReachableFrom": [],
+  "heavyChunks": [
+    {
+      "name": "3sg07wnn969xq.js",
+      "kb": 228.9,
+      "bucket": "other"
+    },
+    {
+      "name": "0wmkdhjapc4sz.js",
+      "kb": 126.5,
+      "bucket": "other"
+    },
+    {
+      "name": "0cz1d0mv5g_q7.js",
+      "kb": 110,
+      "bucket": "other"
+    }
+  ]
+}

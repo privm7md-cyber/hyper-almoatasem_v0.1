@@ -49,7 +49,10 @@ const BASELINE_MIGRATION = "20260923_baseline__official";
 // Scratch databases this seed is allowed to touch. Production
 // (`hyper_almoatasem`) can never appear here by construction.
 const ALLOWED_SCRATCH_DBS = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   // Auth-foundation scratch: bootstrap owner identity is required there for the
@@ -61,6 +64,12 @@ const ALLOWED_SCRATCH_DBS = [
   "hyper_almoatasem_hardening_20260924",
   // Staging database (isolated production-like deployment target).
   "hyper_almoatasem_staging_20260924",
+  // Phase-10 residual-closure run (isolated clone for delivery-fee + guest
+  // recovery verification; never production).
+  "hyper_almoatasem_p10r",
+  // Phase-11 order-journey run (isolated clone for order lifecycle,
+  // replacement, cancellation and guest-access verification; never production).
+  "hyper_almoatasem_p11",
 ];
 
 const PRODUCTION_DB = "hyper_almoatasem";
@@ -131,6 +140,11 @@ const PERMISSIONS = [
   // two seeded business roles (SUPER_ADMIN + STORE_ADMIN) — never to a
   // read-only role, and never to every operator by default.
   { id: "02800000-0000-7000-8000-000000000132", key: "customers.manage", description: "Edit customers and their addresses (write capability)" },
+  // Owner decision (12 Nov 2026): hiding a customer's identity for good is a
+  // SEPARATE capability from editing their data. Granted to SUPER_ADMIN only
+  // (it is excluded from STORE_ADMIN below) — never implied by
+  // `customers.manage`, and never granted by default to any operator.
+  { id: "02800000-0000-7000-8000-000000000133", key: "customers.anonymize", description: "Anonymize a customer (irreversible identity removal)" },
 ];
 
 // STORE_ADMIN holds everything EXCEPT the platform-security capabilities.
@@ -142,6 +156,10 @@ const STORE_ADMIN_EXCLUDED_KEYS = [
   "settings.view",
   "settings.manage",
   "audit_logs.view",
+  // The irreversible identity removal is SUPER_ADMIN-only (owner decision,
+  // 12 Nov 2026). The owner can still grant it to a custom role later from
+  // the admin roles screen.
+  "customers.anonymize",
 ];
 
 const SETTINGS = [
@@ -150,9 +168,14 @@ const SETTINGS = [
   { id: "02800000-0000-7000-8000-000000000203", key: "store.email", valueText: "store@hyper-al-moatasem.local", valueType: "TEXT", description: "Public contact email" },
   { id: "02800000-0000-7000-8000-000000000204", key: "currency", valueText: "EGP", valueType: "TEXT", description: "Single operating currency (frozen assumption)" },
   { id: "02800000-0000-7000-8000-000000000205", key: "timezone", valueText: "Africa/Cairo", valueType: "TEXT", description: "Operating timezone" },
-  { id: "02800000-0000-7000-8000-000000000206", key: "delivery.enabled", valueText: "false", valueType: "BOOLEAN", description: "Delivery fulfillment switch (delivery phase owns mechanics)" },
-  { id: "02800000-0000-7000-8000-000000000207", key: "delivery.default_fee", valueText: "20.00", valueType: "NUMERIC", description: "Default delivery fee applied by future delivery phase" },
+  { id: "02800000-0000-7000-8000-000000000206", key: "delivery.enabled", valueText: "false", valueType: "BOOLEAN", description: "Reserved delivery-phase key. NOT a service switch and NOT a fee gate: storefront checkout always offers delivery and the server always charges the resolved fee regardless of this value." },
+  { id: "02800000-0000-7000-8000-000000000207", key: "delivery.default_fee", valueText: "20.00", valueType: "NUMERIC", description: "Base delivery fee in EGP (server-resolved). An active delivery zone matching the address overrides it; orders snapshot the charged fee." },
   { id: "02800000-0000-7000-8000-000000000208", key: "orders.auto_cancel_minutes", valueText: "30", valueType: "INTEGER", description: "Unpaid-order auto-cancel window (payments phase consumes)" },
+  { id: "02800000-0000-7000-8000-000000000209", key: "delivery.center_name", valueText: "مطاي", valueType: "TEXT", description: "Owner-approved Markaz Matay center name; center addresses use the inside fee." },
+  { id: "02800000-0000-7000-8000-000000000210", key: "delivery.center_villages", valueText: "[]", valueType: "JSON", description: "Owner-managed JSON list of villages classified inside Markaz Matay. Empty until approved." },
+  { id: "02800000-0000-7000-8000-000000000211", key: "delivery.outside_cities", valueText: "[]", valueType: "JSON", description: "Owner-managed JSON list of supported outside-center cities. Empty means no outside city is approved." },
+  { id: "02800000-0000-7000-8000-000000000212", key: "delivery.inside_fee", valueText: "20.00", valueType: "NUMERIC", description: "Owner-approved delivery fee inside Markaz Matay." },
+  { id: "02800000-0000-7000-8000-000000000213", key: "delivery.outside_fee", valueText: "30.00", valueType: "NUMERIC", description: "Owner-approved delivery fee for explicitly supported outside-center locations." },
 ];
 
 // Bootstrap owner: identity ONLY. No password/hash/token/session/secret exists
@@ -215,12 +238,23 @@ async function ensureGrant(q, roleId, permissionId, report) {
 async function ensureSetting(q, expected, report) {
   const row = (await q(`SELECT id, value_text, value_type, description FROM store_settings WHERE key = $1`, [expected.key]))[0];
   if (row) {
+    // Values/types/ids are drift-protected (a mismatch is never silently
+    // rewritten). Descriptions are documentation: a corrected canonical
+    // description is converged, so re-seeding an existing database does not
+    // fail merely because the wording was fixed.
     const bad = [];
     if (!same(row.value_text, expected.valueText)) bad.push("valueText");
     if (!same(row.value_type, expected.valueType)) bad.push("valueType");
-    if (!same(row.description, expected.description)) bad.push("description");
     if (row.id !== expected.id) bad.push("id");
     if (bad.length > 0) throw new SeedMismatch(`setting ${expected.key} exists with different ${bad.join(",")}`);
+    if (!same(row.description, expected.description)) {
+      await q(`UPDATE store_settings SET description = $2, updated_at = now() WHERE key = $1`, [
+        expected.key,
+        expected.description,
+      ]);
+      report.descriptionsUpdated++;
+      return;
+    }
     report.existing++;
     return;
   }
@@ -283,7 +317,7 @@ async function main() {
     roles: { inserted: 0, existing: 0 },
     permissions: { inserted: 0, existing: 0 },
     grants: { inserted: 0, existing: 0 },
-    settings: { inserted: 0, existing: 0 },
+    settings: { inserted: 0, existing: 0, descriptionsUpdated: 0 },
     owner: { inserted: 0, existing: 0 },
     userRoles: { inserted: 0, existing: 0 },
     extraGrants: [],
@@ -357,7 +391,7 @@ async function main() {
       users: Number((await q(`SELECT count(*) AS n FROM users`))[0].n),
       userRoles: Number((await q(`SELECT count(*) AS n FROM user_roles`))[0].n),
     };
-    const expected = { roles: 2, permissions: 32, rolePermissions: 57, storeSettings: 8, users: 1, userRoles: 1 };
+    const expected = { roles: 2, permissions: 33, rolePermissions: 58, storeSettings: 8, users: 1, userRoles: 1 };
     const countMismatch = Object.keys(expected).filter((k) => counts[k] !== expected[k]);
     console.log(JSON.stringify({ ...report, counts, expected }, null, 2));
     if (countMismatch.length > 0 || report.extraGrants.length > 0) {

@@ -1,4 +1,4 @@
-// BA-3 inventory API suite (scratch-only, needs built server pointed at DB).
+﻿// BA-3 inventory API suite (scratch-only, needs built server pointed at DB).
 // Usage: node scripts/api/t-inventory.mjs --db <name> --port <port>
 // Covers: storefront availability (variant/product/code-integration), admin
 // list/detail/movements reads, weighted validation (0.125..1.000, step,
@@ -28,7 +28,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -118,7 +121,7 @@ async function main() {
   };
   const num = (s) => Number(s);
 
-  const inactiveId = crypto.randomUUID();
+  let inactiveId = crypto.randomUUID();
   try {
     // ---------- setup: dedicated fixtures + deterministic reset ----------
     await db.query(`INSERT INTO categories (id, name, slug) VALUES ($1,'BA3 Test','ba3-test') ON CONFLICT (id) DO NOTHING`, [CAT]);
@@ -201,12 +204,18 @@ async function main() {
     const ownerList = await get(`/api/admin/inventory?limit=5`, owner.cookie);
     t("owner-list-200", ownerList.status === 200);
     const inactiveHash = await argon2.hash("Ba3-Test-Off-Pass-0001!", { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
-    await db.query(`INSERT INTO users (id, name, email, phone, password_hash, is_active) VALUES ($1,'BA3 Off','off-ba3-test@example.com','201133300031',$2,FALSE)`, [inactiveId, inactiveHash]);
+    // Third-Agent re-runnability fix: audit-residue FK keeps this fixture user
+    // alive between runs; create-if-absent and reuse the existing row id.
+    await db.query(`INSERT INTO users (id, name, email, phone, password_hash, is_active) VALUES ($1,'BA3 Off','off-ba3-test@example.com','201133300031',$2,FALSE) ON CONFLICT (email) DO NOTHING`, [inactiveId, inactiveHash]);
+    const ba3Row = await db.query(`SELECT id FROM users WHERE email = $1`, ["off-ba3-test@example.com"]);
+    inactiveId = ba3Row.rows[0].id;
     const inactiveLogin = await loginAs("off-ba3-test@example.com", "anything-0000!");
     t("inactive-login-401", inactiveLogin.status === 401);
 
     // ---------- admin reads ----------
-    const list = await get(`/api/admin/inventory?limit=20`, store.cookie);
+    // Owner Decision Execution: filter by the test's own product so the variant
+    // is found deterministically regardless of total inventory row count.
+    const list = await get(`/api/admin/inventory?productId=${PROD_W}&limit=20`, store.cookie);
     t("admin-list-has-test-variant", list.status === 200 && list.body.data.some((r) => r.inventory.productVariantId === VAR_W));
     const paged = await get(`/api/admin/inventory?limit=1`, store.cookie);
     t("admin-pagination-cursor", paged.status === 200 && paged.body.data.length === 1 && typeof paged.body.meta.nextCursor === "string");
@@ -290,7 +299,7 @@ async function main() {
       FROM inventory_movements WHERE id = $1`, [com.body.data.movementId]))[0];
     t("commit-sale-pairing", saleRow && saleRow.d === "-0.500" && saleRow.p === "10.000" && saleRow.n === "9.500" && saleRow.t === "SALE");
     t("commit-movement-math", saleRow && num(saleRow.n) === num(saleRow.p) + num(saleRow.d));
-    // Partial: actual < requested (R7 case A — actual need not match the step).
+    // Partial: actual < requested (R7 case A â€” actual need not match the step).
     await post(`/api/admin/inventory/reserve`, { productVariantId: VAR_W, quantity: "0.500" }, store.cookie);
     const comP = await post(`/api/admin/inventory/commit`,
       { productVariantId: VAR_W, requested: "0.500", actual: "0.475", referenceType: "MANUAL", referenceId: "BA3TEST-C2" }, store.cookie);
@@ -391,10 +400,12 @@ async function main() {
       }
       await db.query(`DELETE FROM products WHERE id IN ($1,$2)`, [PROD_W, PROD_P]).catch(() => {});
       await db.query(`DELETE FROM categories WHERE id = $1`, [CAT]).catch(() => {});
-      await db.query(`DELETE FROM audit_logs WHERE user_id = $1`, [inactiveId]).catch(() => {});
-      await db.query(`DELETE FROM admin_sessions WHERE user_id = $1`, [inactiveId]).catch(() => {});
-      await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [inactiveId]).catch(() => {});
-      await db.query(`DELETE FROM users WHERE id = $1`, [inactiveId]).catch(() => {});
+      if (inactiveCreated) {
+        await db.query(`DELETE FROM audit_logs WHERE user_id = $1`, [inactiveId]).catch(() => {});
+        await db.query(`DELETE FROM admin_sessions WHERE user_id = $1`, [inactiveId]).catch(() => {});
+        await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [inactiveId]).catch(() => {});
+        await db.query(`DELETE FROM users WHERE id = $1`, [inactiveId]).catch(() => {});
+      }
       for (const email of [OWNER_EMAIL, STORE_EMAIL, BARE_EMAIL]) {
         await db.query(`DELETE FROM admin_sessions WHERE user_id = (SELECT id FROM users WHERE email = $1)`, [email]).catch(() => {});
       }

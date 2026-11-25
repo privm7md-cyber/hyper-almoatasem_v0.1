@@ -10,7 +10,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { cleanup, render } from "@testing-library/react";
-import { RouteFocus } from "@/components/store/route-focus";
+import {
+  RouteFocus,
+  resetRouteFocusState,
+} from "@/components/store/route-focus";
 
 const raf = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
@@ -27,6 +30,7 @@ describe("RouteFocus", () => {
 
   afterEach(() => {
     cleanup();
+    resetRouteFocusState();
     document.body.innerHTML = "";
     vi.clearAllMocks();
   });
@@ -60,5 +64,120 @@ describe("RouteFocus", () => {
     rerender(<RouteFocus />);
     await raf();
     expect(focusSpy).not.toHaveBeenCalled();
+  });
+
+  it("moves focus to the new #main even when StoreShell remounts a fresh RouteFocus instance", async () => {
+    const firstRender = render(<RouteFocus />);
+    await raf();
+    firstRender.unmount();
+
+    main.remove();
+    const nextMain = document.createElement("main");
+    nextMain.id = "main";
+    nextMain.tabIndex = -1;
+    document.body.appendChild(nextMain);
+    const nextFocusSpy = vi.spyOn(nextMain, "focus");
+
+    usePathname.mockReturnValue("/categories");
+    render(<RouteFocus />);
+    await raf();
+    expect(nextFocusSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-targets the settled page #main after a transient loading boundary unmounts", async () => {
+    const initialRender = render(<RouteFocus />);
+    await raf();
+    initialRender.unmount();
+
+    // 1. Transient loading.tsx mounts on the target pathname with data-route-loading="true".
+    main.innerHTML = '<div data-route-loading="true">جارٍ التحميل…</div>';
+    const loadingFocusSpy = vi.spyOn(main, "focus");
+    usePathname.mockReturnValue("/categories");
+    const loadingRender = render(<RouteFocus />);
+    await raf();
+    expect(loadingFocusSpy).toHaveBeenCalledTimes(1);
+
+    // 2. Resolved page.tsx replaces <main id="main"> on the same pathname.
+    loadingRender.unmount();
+    main.remove();
+    const settledMain = document.createElement("main");
+    settledMain.id = "main";
+    settledMain.tabIndex = -1;
+    settledMain.textContent = "الأقسام";
+    document.body.appendChild(settledMain);
+    const settledFocusSpy = vi.spyOn(settledMain, "focus");
+
+    render(<RouteFocus />);
+    await raf();
+    expect(settledFocusSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves focus if the user moved to a header control during transient loading", async () => {
+    const initialRender = render(<RouteFocus />);
+    await raf();
+    initialRender.unmount();
+
+    main.innerHTML = '<div data-route-loading="true">جارٍ التحميل…</div>';
+    usePathname.mockReturnValue("/categories");
+    const loadingRender = render(<RouteFocus />);
+    await raf();
+
+    const headerButton = document.createElement("button");
+    headerButton.type = "button";
+    headerButton.textContent = "القائمة";
+    document.body.appendChild(headerButton);
+    headerButton.focus();
+
+    loadingRender.unmount();
+    main.remove();
+    const settledMain = document.createElement("main");
+    settledMain.id = "main";
+    settledMain.tabIndex = -1;
+    document.body.appendChild(settledMain);
+    const settledFocusSpy = vi.spyOn(settledMain, "focus");
+
+    render(<RouteFocus />);
+    await raf();
+    expect(settledFocusSpy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(headerButton);
+  });
+
+  it("P1208-D04: skips React 19 display:none suspended #main during loading.tsx fallback and focuses settled #main", async () => {
+    const initialRender = render(<RouteFocus />);
+    await raf();
+    initialRender.unmount();
+
+    // React 19 <Suspense> keeps the suspended #main in DOM with display:none ahead of loading.tsx
+    main.style.display = "none";
+    const suspendedFocusSpy = vi.spyOn(main, "focus");
+
+    const loadingMain = document.createElement("main");
+    loadingMain.setAttribute("data-route-loading-main", "true");
+    loadingMain.tabIndex = -1;
+    loadingMain.innerHTML = '<div data-route-loading="true">جارٍ التحميل…</div>';
+    document.body.appendChild(loadingMain);
+    const loadingFocusSpy = vi.spyOn(loadingMain, "focus");
+
+    usePathname.mockReturnValue("/brands");
+    const loadingRender = render(<RouteFocus />);
+    await raf();
+    expect(suspendedFocusSpy).not.toHaveBeenCalled();
+    expect(loadingFocusSpy).toHaveBeenCalledTimes(1);
+
+    // Settled /brands page unmounts suspended #main and loadingMain, mounting visible <main id="main">
+    loadingRender.unmount();
+    main.remove();
+    loadingMain.remove();
+    const settledMain = document.createElement("main");
+    settledMain.id = "main";
+    settledMain.tabIndex = -1;
+    settledMain.textContent = "العلامات التجارية";
+    document.body.appendChild(settledMain);
+    const settledFocusSpy = vi.spyOn(settledMain, "focus");
+
+    render(<RouteFocus />);
+    await raf();
+    expect(settledFocusSpy).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(settledMain);
   });
 });

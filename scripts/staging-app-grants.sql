@@ -59,3 +59,19 @@ GRANT SELECT, INSERT, UPDATE ON guest_order_credentials TO hyper_app;
 -- guest_order_rate_limits (20261008_guest_orders): buckets incl. TTL
 -- cleanup (needs DELETE) — mirrors customer_auth_rate_limits.
 GRANT SELECT, INSERT, UPDATE, DELETE ON guest_order_rate_limits TO hyper_app;
+
+-- delivery_zones (20261029 residual closure): admin-managed config. No DELETE:
+-- zones are deactivated, never hard-deleted (fee/audit history must survive).
+GRANT SELECT, INSERT, UPDATE ON delivery_zones TO hyper_app;
+
+-- guest_checkout_sessions (20261029 residual closure): mint/bind/revoke only.
+-- Rows are history (revocation by flag), so no DELETE.
+GRANT SELECT, INSERT, UPDATE ON guest_checkout_sessions TO hyper_app;
+
+-- product_stock_status VIEW: read-only. The storefront availability
+-- endpoint (/api/store/inventory/products/{id}) reads this raw-SQL view as
+-- the runtime role — without the grant it answers 500 "permission denied for
+-- view product_stock_status". The view is derived from tables the app role
+-- already owns, so SELECT on it grants no write surface and leaks nothing
+-- the app cannot already read.
+GRANT SELECT ON product_stock_status TO hyper_app;

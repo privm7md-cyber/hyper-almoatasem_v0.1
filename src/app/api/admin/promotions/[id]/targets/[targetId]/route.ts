@@ -2,12 +2,17 @@
 // Permission: promotions.update. Referenced promos reject (422).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
 import { deleteTarget } from "@/lib/promotions/writes";
 
-export async function DELETE(_request: Request, context: { params: Promise<{ id: string; targetId: string }> }) {
+export async function DELETE(request: Request, context: { params: Promise<{ id: string; targetId: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("promotions.update");
   if (auth.ok === false) {
     const r = fail(

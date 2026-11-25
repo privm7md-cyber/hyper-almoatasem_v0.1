@@ -1,4 +1,4 @@
-// PRE-BA-11 RBAC safety-guard suite (real PostgreSQL, scratch-only).
+﻿// PRE-BA-11 RBAC safety-guard suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-rbac-guards.mjs --db <name> --port <port>
 // Covers human decision #1:
 //   G1 self-deactivation -> 403, no state change, no audit row.
@@ -29,7 +29,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -109,7 +112,7 @@ async function main() {
     const owner = await loginAs(OWNER_EMAIL, OWNER_PW);
     t("logins-owner-ok", owner.status === 201 && !!owner.cookie, String(owner.status));
     if (owner.status !== 201 || !owner.cookie) {
-      console.error(`REFUSED_LOGIN: owner=${owner.status} (rate buckets may be exhausted — retry after rollover)`);
+      console.error(`REFUSED_LOGIN: owner=${owner.status} (rate buckets may be exhausted â€” retry after rollover)`);
       await db.end().catch(() => {});
       process.exit(1);
     }

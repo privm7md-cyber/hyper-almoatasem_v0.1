@@ -21,21 +21,11 @@ export function HomeHero() {
     >
       {/* Decorative layer (aria-hidden, pointer-events-none) */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-        <div
-          className="hero-enter-fade absolute -left-28 -top-36 h-80 w-80 rounded-full bg-white/[0.07]"
-          style={{ "--enter-delay": "60ms" } as React.CSSProperties}
-        />
-        <div
-          className="hero-enter-fade absolute -bottom-40 left-1/3 h-96 w-96 rounded-full bg-white/[0.05]"
-          style={{ "--enter-delay": "180ms" } as React.CSSProperties}
-        />
-        <div
-          className="hero-enter-fade absolute -right-16 bottom-1/3 h-72 w-72 rounded-full bg-[color:var(--brand-orange)]/15 blur-2xl"
-          style={{ "--enter-delay": "260ms" } as React.CSSProperties}
-        />
+        <div className="hero-enter-fade hero-delay-60 absolute -left-28 -top-36 h-80 w-80 rounded-full bg-white/[0.07]" />
+        <div className="hero-enter-fade hero-delay-180 absolute left-1/3 top-44 h-96 w-96 rounded-full bg-white/[0.05]" />
+        <div className="hero-enter-fade hero-delay-260 absolute -right-16 top-28 h-72 w-72 rounded-full bg-[color:var(--brand-orange)]/15 blur-2xl" />
         <svg
-          className="hero-enter-fade absolute left-6 top-8 h-24 w-24 text-white/10"
-          style={{ "--enter-delay": "320ms" } as React.CSSProperties}
+          className="hero-enter-fade hero-delay-320 absolute left-6 top-8 h-24 w-24 text-white/10"
           viewBox="0 0 24 24"
           fill="none"
         >
@@ -53,24 +43,19 @@ export function HomeHero() {
         <div>
           <h1
             id="home-hero"
-            className="hero-enter text-[26px] font-extrabold leading-[1.25] text-white md:text-4xl md:leading-[1.28]"
+            className="min-h-[55px] text-[22px] font-extrabold leading-[1.25] text-white min-[360px]:min-h-0 min-[360px]:text-[26px] md:text-4xl md:leading-[1.28]"
           >
             احتياجات بيتك بسهولة
-            <span className="text-[color:var(--brand-orange)]"> ووضوح</span>
+            <span className="block text-[color:var(--brand-orange)] min-[360px]:inline"> ووضوح</span>
           </h1>
-          <p
-            className="hero-enter mt-3 max-w-[46ch] text-sm leading-relaxed text-white/80 md:mt-4 md:text-base"
-            style={{ "--enter-delay": "120ms" } as React.CSSProperties}
-          >
+          <p className="hero-enter hero-delay-120 mt-3 min-h-[72px] max-w-[46ch] text-sm leading-relaxed text-white/80 sm:min-h-0 md:mt-4 md:text-base">
             وثقة في كل خطوة — متجر يومي منظّم: أقسام واضحة، أسعار معروضة، وحالة توفر صادقة.
           </p>
 
-          <div
-            className="hero-enter mt-6 flex flex-wrap items-center gap-3 md:mt-7"
-            style={{ "--enter-delay": "240ms" } as React.CSSProperties}
-          >
+          <div className="hero-enter hero-delay-240 mt-6 flex flex-wrap items-center gap-3 md:mt-7">
             <Link
               href="/categories"
+              prefetch={false}
               className="vxp-accent-btn inline-flex min-h-[46px] items-center gap-2 rounded-control bg-[color:var(--brand-orange)] px-6 text-base font-bold text-[color:var(--text-ink)]"
             >
               ابدأ التسوق
@@ -78,16 +63,14 @@ export function HomeHero() {
             </Link>
             <Link
               href="/brands"
+              prefetch={false}
               className="inline-flex min-h-[46px] items-center gap-2 rounded-control border border-white/60 px-6 text-base font-semibold text-white transition-colors duration-200 hover:border-white/80 hover:bg-white/10"
             >
               العلامات التجارية
             </Link>
           </div>
 
-          <ul
-            className="hero-enter mt-6 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-white/75 md:mt-7 md:text-[13px]"
-            style={{ "--enter-delay": "360ms" } as React.CSSProperties}
-          >
+          <ul className="hero-enter hero-delay-360 mt-6 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-white/75 md:mt-7 md:text-[13px]">
             <li className="flex items-center gap-1.5">
               <CircleCheck size={15} aria-hidden="true" className="text-[color:var(--brand-orange)]" />
               أسعار معروضة بوضوح
@@ -105,8 +88,7 @@ export function HomeHero() {
 
         {/* Decorative shelf composition — pure CSS/icon mosaic, no invented claims */}
         <div
-          className="hero-enter-pop relative hidden items-end justify-center gap-3 md:flex"
-          style={{ "--enter-delay": "300ms" } as React.CSSProperties}
+          className="hero-enter-pop hero-delay-300 relative hidden items-end justify-center gap-3 md:flex"
           aria-hidden="true"
         >
           <div className="grid gap-3">

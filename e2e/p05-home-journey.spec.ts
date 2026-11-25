@@ -7,6 +7,10 @@ import { expect, test } from "@playwright/test";
 test.setTimeout(120000);
 
 async function categoryTileCount(page: import("@playwright/test").Page): Promise<number> {
+  await page
+    .locator('main a[href^="/c/"][aria-label], main :text("لا توجد أقسام حاليًا")')
+    .first()
+    .waitFor({ state: "visible" });
   return page.locator('main a[href^="/c/"][aria-label]').count();
 }
 
@@ -40,6 +44,7 @@ test("journey: home → category listing → product card → PDP shows the 4 fa
   }
   await page.locator('main a[href^="/c/"][aria-label]').first().click();
   await page.waitForURL(/\/c\//);
+  await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
   const cardLinks = page.locator('main a[href^="/p/"]');
   const m = await cardLinks.count();
   if (m === 0) {
@@ -49,6 +54,7 @@ test("journey: home → category listing → product card → PDP shows the 4 fa
     return;
   }
   await cardLinks.first().click();
+  await page.waitForURL(/\/p\//);
   await expect(page.locator("main h1")).toBeVisible();
 
   // The four shopping facts on the PDP (contract in test data OR honest fallbacks):

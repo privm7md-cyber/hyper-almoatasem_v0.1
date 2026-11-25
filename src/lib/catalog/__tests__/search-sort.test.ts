@@ -30,7 +30,7 @@ vi.mock("@/lib/catalog/queries", () => ({
   expandCategorySubtree: (...args: unknown[]) => expandCategorySubtree(...args),
 }));
 
-import { searchProducts, type SearchFilter } from "@/lib/catalog/search";
+import { countSearchProducts, encodeSearchCursor, searchProducts, type SearchFilter } from "@/lib/catalog/search";
 
 function filter(overrides: Partial<SearchFilter> = {}): SearchFilter {
   return {
@@ -131,5 +131,48 @@ describe("searchProducts — the sort never changes WHICH rows match", () => {
   it("rejects a blank query before touching the database", async () => {
     await expect(searchProducts("   ", filter())).rejects.toThrow();
     expect(queryRawUnsafe).not.toHaveBeenCalled();
+  });
+
+  it.each([{}, { brandId: "22222222-2222-4222-8222-222222222222", minPrice: "10", maxPrice: "99" }])(
+    "binds newest timestamp and id to their actual positions with filters %j", async overrides => {
+      const id = "33333333-3333-4333-8333-333333333333";
+      const at = new Date("2026-11-12T12:00:00Z");
+      await searchProducts("لورد", filter({ ...overrides, cursor: encodeSearchCursor(0, at.getTime(), id) }));
+      const params = lastParams();
+      const timestampPosition = params.indexOf(at.toISOString()) + 1;
+      const idPosition = params.indexOf(id) + 1;
+      expect(lastSql()).toContain(`p.created_at < $${timestampPosition}::timestamptz`);
+      expect(lastSql()).toContain(`p.created_at = $${timestampPosition}::timestamptz AND p.id > $${idPosition}::uuid`);
+      expect(lastSql()).toContain(`LIMIT $${params.length}`);
+      expect(params.at(-1)).toBe(13);
+      expect(new Set([...lastSql().matchAll(/\$(\d+)/g)].map(m => Number(m[1])))).toEqual(new Set(params.map((_, i) => i + 1)));
+    },
+  );
+
+  it.each(["newest", "relevance"] as const)("constrains both price bounds inside ONE sellable-variant EXISTS (%s)", async sort => {
+    await searchProducts("لورد", filter({ sort, minPrice: "40", maxPrice: "60" }));
+    const exists = lastSql().match(/EXISTS \(SELECT 1 FROM product_variants v WHERE v.product_id = p.id[^)]*\)/g) ?? [];
+    expect(exists).toHaveLength(1);
+    expect(exists[0]).toContain("v.is_active AND v.deleted_at IS NULL");
+    expect(exists[0]).toContain("v.price >= $2::numeric AND v.price <= $3::numeric");
+    // A [20, 80] pair cannot satisfy [40, 60] via two different variants.
+    expect([20, 80].some(price => price >= 40 && price <= 60)).toBe(false);
+  });
+
+  it.each(["newest", "relevance"] as const)("honors false stock as NOT EXISTS positive sellable inventory (%s)", async sort => {
+    await searchProducts("لورد", filter({ sort, inStock: false }));
+    expect(lastSql()).toMatch(/NOT EXISTS \(SELECT 1 FROM product_variants v JOIN inventory i[\s\S]*i.available_quantity > 0\)/);
+    expect(lastSql()).not.toContain("available_quantity = 0");
+  });
+
+  it("counts the same filtered candidates without cursor or LIMIT, and never counts duplicate match arms", async () => {
+    queryRawUnsafe.mockResolvedValue([{ total: BigInt(37) }]);
+    expect(await countSearchProducts("لورد", filter({ minPrice: "40", maxPrice: "60", inStock: false }))).toBe(37);
+    expect(lastSql()).toContain("COUNT(DISTINCT p.id)");
+    expect(lastSql()).toContain("pc.code = $1");
+    expect(lastSql()).toContain("v.price >= $2::numeric AND v.price <= $3::numeric");
+    expect(lastSql()).toContain("NOT EXISTS");
+    expect(lastSql()).not.toMatch(/LIMIT|p.created_at </);
+    expect(lastParams()).toEqual(["لورد", "40", "60"]);
   });
 });

@@ -33,9 +33,10 @@ describe("PermissionGate (admin write-control visibility)", () => {
       </PermissionGate>,
     );
     expect(screen.queryByRole("button", { name: "حفظ المنتج" })).toBeNull();
-    // The refusal is textual — never colour-only — and names the exact key.
-    expect(screen.getByText("products.update")).toBeVisible();
-    expect(screen.getByText(/تعديل المنتج غير متاح لحسابك/)).toBeVisible();
+    // The refusal is textual — never colour-only — and names the exact capability
+    // in the words the team uses, not as a machine key.
+    expect(screen.getByText(/تعديل بيانات المنتجات/)).toBeVisible();
+    expect(screen.getByText(/تعديل المنتج/)).toBeVisible();
   });
 
   it("treats a view-only role as unable to perform the write", () => {
@@ -45,6 +46,6 @@ describe("PermissionGate (admin write-control visibility)", () => {
       </PermissionGate>,
     );
     expect(screen.queryByRole("button", { name: "حفظ التعديل" })).toBeNull();
-    expect(screen.getByText("inventory.adjust")).toBeVisible();
+    expect(screen.getByText(/تعديل كميات المخزون/)).toBeVisible();
   });
 });

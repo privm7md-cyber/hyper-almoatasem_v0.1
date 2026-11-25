@@ -13,6 +13,7 @@ const useTls = process.argv.includes("--tls");
 if (useTls) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // self-signed staging cert, test-only
 const ALLOWED = [
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",

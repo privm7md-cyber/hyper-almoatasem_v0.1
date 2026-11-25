@@ -31,6 +31,7 @@ t("static-no-timezone-arithmetic", !/getTimezoneOffset|setHours|\+ *3 *\* *60|10
 // ---------- Part 1: HTTP behavior (needs server + scratch DB) ----------
 const ALLOWED = [
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",

@@ -26,7 +26,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const rows = me
       ? await listReplacementsForCustomerOrder(orderId, me.customerId)
       : await (async () => {
-          await requireGuestOrder(request, orderId);
+          await requireGuestOrder(request, orderId, { allowCheckoutSession: true });
           return listReplacementsForGuestOrder(orderId);
         })();
     if (!rows) {

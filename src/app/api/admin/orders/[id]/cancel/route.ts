@@ -5,14 +5,20 @@
 // Picked lines (actuals set) → 409 via the fulfillment gate.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
 import { getOrderFull } from "@/lib/orders/queries";
 import { cancelOrder } from "@/lib/orders/writes";
 import { toOrder } from "@/lib/orders/serialize";
+import { adminCancelSchema } from "@/lib/orders/validation";
 
-export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("orders.cancel");
   if (auth.ok === false) {
     const r = fail(
@@ -29,7 +35,9 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    await cancelOrder({ orderId: id, actorType: "STAFF", actorId: auth.admin.user.id });
+    const parsed = adminCancelSchema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) throw new ApiError("VALIDATION", "Cancellation requires a reason and explicit confirmation.");
+    await cancelOrder({ orderId: id, actorType: "STAFF", actorId: auth.admin.user.id, reason: parsed.data.reason });
     const full = await getOrderFull(id);
     if (!full) {
       const r = fail(new ApiError("NOT_FOUND", "Order not found."));

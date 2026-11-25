@@ -1,16 +1,17 @@
-// BA-G end-to-end release gate (real PostgreSQL, scratch-only).
+﻿// BA-G end-to-end release gate (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-bag-e2e.mjs --db <name> --port <port>
-// ONE unbroken journey through the real application path (HTTP → route →
-// validation → auth → authorization → service → transaction → PostgreSQL):
-// catalog discovery → product → customer → address → cart → merge →
-// promotion → coupon → checkout → order → mutation-proof snapshots →
-// replacement → cancellation, plus a cross-domain concurrency gate
+// ONE unbroken journey through the real application path (HTTP â†’ route â†’
+// validation â†’ auth â†’ authorization â†’ service â†’ transaction â†’ PostgreSQL):
+// catalog discovery â†’ product â†’ customer â†’ address â†’ cart â†’ merge â†’
+// promotion â†’ coupon â†’ checkout â†’ order â†’ mutation-proof snapshots â†’
+// replacement â†’ cancellation, plus a cross-domain concurrency gate
 // (coupon race, cancel+approve race, same-cart double checkout, cancel replay).
 // Direct SQL is used only for fixture guards, verification, and cleanup.
 // Prints JSON, no secrets.
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -27,7 +28,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -64,6 +68,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -126,14 +136,14 @@ async function main() {
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, ...extra }),
+      body: JSON.stringify({ addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE, ...extra}),
     });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -362,7 +372,7 @@ async function main() {
     t("e2e-replacement-twice-409", dAgain.status === 409, `${dAgain.status}`);
 
     // ================= CANCELLATION =================
-    // Journey order holds PICK×2 (the 0.125 WPICK line was replaced: its hold
+    // Journey order holds PICKأ—2 (the 0.125 WPICK line was replaced: its hold
     // moved to the 0.250 replacement line at approve time).
     const resC330 = await reservedOf(PICK);
     const resCW = await reservedOf(WPICK);
@@ -370,7 +380,7 @@ async function main() {
     t("e2e-cancel-200", cx.status === 200 && cx.body?.data?.order?.status === "CANCELLED", `${cx.status}`);
     const resAfterCx330 = await reservedOf(PICK);
     const resAfterCxW = await reservedOf(WPICK);
-    // The PICK×2 hold was already released at replacement-approve time; cancel
+    // The PICKأ—2 hold was already released at replacement-approve time; cancel
     // releases the still-held WPICK 0.375 (0.125 line + 0.250 replacement line).
     t("e2e-cancel-released", num(resC330) - num(resAfterCx330) === 0
       && num(resCW) - num(resAfterCxW) === 0.375, `${resAfterCx330}/${resAfterCxW}`);
@@ -539,5 +549,6 @@ async function main() {
 
 main().catch((e) => {
   console.error(`BAG_SUITE_FAILED: ${e.constructor.name}: ${String(e.message).slice(0, 200)}`);
+  console.error(`BAG_STACK: ${String(e.stack).split("\n").slice(0, 4).join(" | ").slice(0, 400)}`);
   process.exit(1);
 });

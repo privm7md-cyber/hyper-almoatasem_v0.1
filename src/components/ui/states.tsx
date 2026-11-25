@@ -29,7 +29,7 @@ export function SkeletonBlocks({ rows = 3 }: { rows?: number }) {
   return (
     <div aria-hidden="true" className="grid gap-2">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="h-14 rounded-card bg-purple-surface" />
+        <div key={i} className="vxp-shimmer h-14 rounded-card bg-purple-surface" />
       ))}
     </div>
   );
@@ -39,14 +39,25 @@ export function EmptyState({
   title,
   hint,
   action,
+  headingLevel = 2,
 }: {
   title: string;
   hint?: string;
   action?: React.ReactNode;
+  /**
+   * Heading level of the title. The title IS the heading of this block, so it
+   * must be a real heading element — a `<p>` is never announced as a heading
+   * and leaves the block out of the document outline. The level is explicit
+   * because the same block is used at page level (right after the page
+   * `<h1>`) and nested inside an admin section that already owns an `<h2>`,
+   * where a second `<h2>` would be a sibling, not a child.
+   */
+  headingLevel?: 2 | 3 | 4;
 }) {
+  const Heading = `h${headingLevel}` as "h2" | "h3" | "h4";
   return (
-    <div className="rounded-card border border-dashed border-line p-6 text-center">
-      <p className="font-bold">{title}</p>
+    <div className="rounded-card border border-dashed border-line-strong bg-surface-subtle/60 p-6 text-center md:p-8">
+      <Heading className="font-bold text-ink">{title}</Heading>
       {hint ? <p className="mt-1 text-secondary">{hint}</p> : null}
       {action ? <div className="mt-3">{action}</div> : null}
     </div>
@@ -63,8 +74,8 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div role="alert" className="rounded-card border border-error p-6 text-center">
-      <p className="font-bold">{title}</p>
+    <div role="alert" className="rounded-card border border-error bg-[color:var(--error-bg)]/30 p-6 text-center md:p-8">
+      <p className="font-bold text-ink">{title}</p>
       <p className="mt-1 text-secondary">{text}</p>
       {onRetry ? (
         <div className="mt-3">

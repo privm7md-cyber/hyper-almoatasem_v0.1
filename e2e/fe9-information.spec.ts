@@ -10,7 +10,8 @@ const PAGES = [
   { path: "/delivery", title: "سياسة التوصيل", facts: ["التوصيل داخل مطاي والمناطق القريبة", "معلومة — لا يوجد تحقق لحظي من التغطية", "تُقرأ رسوم التوصيل من إعدادات المتجر"] },
   { path: "/cancellation", title: "سياسة الإلغاء", facts: ["تم استلام طلبك.", "جاري تجهيز طلبك.", "تم إلغاء الطلب"] },
   { path: "/replacement", title: "سياسة الاستبدال", facts: ["الموافقة على البديل المقترح.", "رفض البديل المقترح."] },
-  { path: "/order-help", title: "مساعدة الطلب", facts: ["رقم الطلب وحده لا يفتح تفاصيل الطلب.", "تنتهي صلاحية الوصول بعد 90 يومًا", "لا يوجد استرجاع ذاتي لرمز الوصول"] },
+  { path: "/order-help", title: "مساعدة الطلب", facts: ["رقم الطلب وحده لا يفتح تفاصيل الطلب.", "تنتهي صلاحية رمز الوصول بعد 90 يومًا من إنشاء الطلب.", "لا يوجد استرجاع ذاتي لإعادة إصدار رمز الوصول بعد انتهاء الجلسة المؤقتة."] },
+  { path: "/contact", title: "تواصل معنا", facts: ["رقم واحد معتمد للتواصل مع المتجر.", "01000316676", "لا يعرض المتجر رابط واتساب — لم يُعتمد أن الرقم مُفعَّل على واتساب."] },
 ];
 
 /** Content that must never reach a published storefront page. */
@@ -55,12 +56,14 @@ test("published pages carry no placeholder or forbidden content", async ({ page 
 
 test("the footer exposes the informational pages and every one resolves", async ({ page }) => {
   await page.goto("/");
-  const hrefs = await page
-    .locator('footer nav[aria-label="معلومات المتجر"] a')
-    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href") ?? ""));
+  const infoLinks = page.locator('footer nav[aria-label="معلومات المتجر"] a');
+  await expect(infoLinks).toHaveCount(PAGES.length);
+  const hrefs = await infoLinks.evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href") ?? ""));
   expect(hrefs.length).toBe(PAGES.length);
+  for (const pageDef of PAGES) {
+    expect(hrefs, `footer links ${pageDef.path}`).toContain(pageDef.path);
+  }
   for (const href of hrefs) {
-    expect(hrefs, "footer links the published pages").toContain(href);
     const res = await page.goto(href);
     expect(res?.status(), `${href} resolves`).toBe(200);
   }

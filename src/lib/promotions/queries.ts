@@ -20,6 +20,16 @@ export function getPromotion(id: string) {
   return prisma.promotion.findUnique({ where: { id }, ...promoGraph });
 }
 
+/** Creation choices include drafts and disabled offers; checkout effectiveness is separate. */
+export function listCouponOfferOptions() {
+  return prisma.promotion.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true, status: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: 201,
+  });
+}
+
 export interface PromotionListFilter {
   limit: number;
   cursor: string | null;
@@ -27,9 +37,39 @@ export interface PromotionListFilter {
   type: string | null;
   scope: string | null;
   search: string | null;
+  /**
+   * Effective state of the offer (LIVE / SCHEDULED / EXPIRED / DRAFT /
+   * DISABLED). The backend decides effectiveness with SQL now(); this filter
+   * mirrors that rule for the operator's view of the campaign list, and the
+   * counts on the same page are computed from the same helper — so the
+   * number and the list can never disagree.
+   */
+  state?: string | null;
+  /** Reference instant for the effective state (injected; no hidden clock). */
+  now?: Date;
+}
+
+/** The effective-state predicate, mirroring the backend's own window rule. */
+function stateWhere(state: string, now: Date): Prisma.PromotionWhereInput {
+  if (state === "DRAFT") return { status: "DRAFT" };
+  if (state === "DISABLED") return { status: "DISABLED" };
+  if (state === "SCHEDULED") return { status: "ACTIVE", startAt: { gt: now } };
+  if (state === "EXPIRED") {
+    return {
+      status: "ACTIVE",
+      endAt: { lte: now },
+      AND: [{ OR: [{ startAt: null }, { startAt: { lte: now } }] }],
+    };
+  }
+  // LIVE: active, already started, not finished yet (the end is exclusive).
+  return {
+    status: "ACTIVE",
+    AND: [{ OR: [{ startAt: null }, { startAt: { lte: now } }] }, { OR: [{ endAt: null }, { endAt: { gt: now } }] }],
+  };
 }
 
 export async function listPromotions(filter: PromotionListFilter) {
+  const now = filter.now ?? new Date();
   const rows = await prisma.promotion.findMany({
     where: {
       ...(filter.cursor ? { id: { gt: filter.cursor } } : {}),
@@ -37,12 +77,26 @@ export async function listPromotions(filter: PromotionListFilter) {
       ...(filter.type ? { type: filter.type } : {}),
       ...(filter.scope ? { scope: filter.scope } : {}),
       ...(filter.search ? { name: { contains: filter.search, mode: "insensitive" as const } } : {}),
+      ...(filter.state ? stateWhere(filter.state, now) : {}),
     },
     include: { _count: { select: { targets: true, coupons: true } } },
     orderBy: [{ id: "asc" as const }],
     take: filter.limit + 1,
   });
   return rows;
+}
+
+/**
+ * The state of every offer (small table) — the counts on the campaigns page
+ * are computed from these rows with the same helper the list filter uses.
+ */
+export async function listPromotionStates(): Promise<
+  Array<{ id: string; status: string; startAt: Date | null; endAt: Date | null }>
+> {
+  return prisma.promotion.findMany({
+    where: { deletedAt: null },
+    select: { id: true, status: true, startAt: true, endAt: true },
+  });
 }
 
 /**
@@ -168,9 +222,18 @@ export async function listCouponUsages(couponId: string, filter: CouponUsageList
  * Coupon validation read: normalized code + parent + rule in one row, with
  * BOTH windows and flags decided by SQL now(). Returns null for unknown
  * codes (caller maps 404); inapplicable codes are distinguished by rule.
+ *
+ * `client` lets the order write path read the coupon through the SAME
+ * transaction connection. A read through the global client inside a
+ * transaction needs a second pooled connection: when the pool is saturated
+ * that read waits, the interactive transaction's budget expires, and a
+ * legitimate order fails with an opaque 500 instead of a coupon answer.
  */
-export async function findCouponForApply(code: string) {
-  const rows = await prisma.$queryRaw<
+export async function findCouponForApply(
+  code: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  const rows = await client.$queryRaw<
     Array<{
       id: string;
       promotion_id: string;

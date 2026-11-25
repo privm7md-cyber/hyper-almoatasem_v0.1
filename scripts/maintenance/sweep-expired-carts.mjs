@@ -32,6 +32,7 @@ const execute = args.includes("--execute");
 
 const ALLOWED = [
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -40,6 +41,11 @@ const ALLOWED = [
   "hyper_almoatasem_staging_20260924",
   "hyper_almoatasem_restore_verify_20260924",
   "hyper_almoatasem_restore_verify_2_20260924",
+  // Phase-12/14 full-execution isolated test DB (exact name; suite t-ba-a-contract
+  // targets it; hyper_almoatasem production stays REFUSED by exact-match guard).
+  "hyper_almoatasem_p12full_execution",
+  // Second-Agent Completion run (2026-11-06): dedicated isolated E2E fixture DB.
+  "hyper_almoatasem_e2e_20261106",
 ];
 
 async function main() {

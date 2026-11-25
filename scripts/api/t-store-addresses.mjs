@@ -1,8 +1,8 @@
-// PHASE 1+2 storefront address API verification (real PostgreSQL, scratch-only).
+﻿// PHASE 1+2 storefront address API verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-store-addresses.mjs --db <name> --port <port>
 // Covers the storefront address book end to end through the REAL routes
 // (no test doubles) under PHASE 2 identity: the owner is server-derived
-// from the verified customer session — no customerId travels anywhere.
+// from the verified customer session â€” no customerId travels anywhere.
 // create / list / get / patch / delete, strict validation, unauthenticated
 // refusal (401) on all five operations, forged/tampered/random token
 // rejection, explicit cross-customer (A session -> B address) refusal,
@@ -12,6 +12,7 @@
 // cleanup. Prints JSON, no secrets.
 import "dotenv/config";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -28,7 +29,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -65,9 +69,15 @@ async function main() {
     process.exit(1);
   }
   try {
-    const cat = await fetch(`${baseUrl}/api/store/catalog/products?limit=1`);
+    // Server-identity guard: the seeded fixture product exists ONLY on the
+    // scratch dataset, so resolving THAT product through the public catalog
+    // proves which database the server under test is bound to. A list probe
+    // with a small limit cannot prove this once the scratch catalog holds
+    // more products than one page: it would only see the first page and
+    // would refuse a server that is in fact bound to the right database.
+    const cat = await fetch(`${baseUrl}/api/store/catalog/products/01800000-0000-7000-8000-000000000200`);
     const catBody = await cat.json().catch(() => ({}));
-    if (!JSON.stringify(catBody).includes("01800000-0000-7000-8000-000000000200")) {
+    if (cat.status !== 200 || !JSON.stringify(catBody).includes("01800000-0000-7000-8000-000000000200")) {
       console.error(`REFUSED_WRONG_SERVER_DB: server is not bound to scratch fixtures`);
       process.exit(1);
     }
@@ -83,6 +93,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -110,7 +126,7 @@ async function main() {
 
   const PW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: PW });
     if (reg.status === 201) {
       return {
@@ -230,12 +246,12 @@ async function main() {
     if (cartOk) {
       const add = await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "2" }, H(sA.tok));
       t("checkout-cart-add", add.status === 200 || add.status === 201, `${add.status}`);
-      const coForeign = await post(`/api/store/orders`, { addressId: idAddrB, idempotencyKey: key("foreign") }, H(sA.tok));
+      const coForeign = await post(`/api/store/orders`, { addressId: idAddrB, idempotencyKey: key("foreign"), expectedDeliveryFee: FEE }, H(sA.tok));
       t("checkout-foreign-address-404", coForeign.status === 404, `${coForeign.status}`);
-      const co = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("own") }, H(sA.tok));
+      const co = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("own"), expectedDeliveryFee: FEE }, H(sA.tok));
       orderId = co.body?.data?.order?.id ?? null;
       t("checkout-own-address-201", co.status === 201 && !!orderId, `${co.status}`);
-      const coNoSess = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("nosess") });
+      const coNoSess = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("nosess"), expectedDeliveryFee: FEE });
       t("checkout-no-session-401", coNoSess.status === 401, `${coNoSess.status}`);
       if (orderId) {
         const cx = await post(`/api/store/orders/${orderId}/cancel`, {}, H(sA.tok));

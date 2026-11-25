@@ -5,6 +5,7 @@
 // (/api/admin/session stays { ok, ... }) — this module never rewrites them.
 import { ApiError, normalizeError } from "./errors";
 import { statusForCode } from "./http-status";
+import { logOperationalEvent } from "./log-events";
 
 export interface SuccessEnvelope<T> {
   data: T;
@@ -29,8 +30,17 @@ export function created<T>(data: T, meta: Record<string, unknown> = {}): { statu
 
 export function fail(error: unknown): { status: number; body: ErrorEnvelope } {
   const e: ApiError = normalizeError(error);
+  // INTERNAL means the failure was not understood; echoing a caller payload
+  // back to the client can leak internals. Validation and business errors
+  // keep their (already allowlisted) details.
+  const details = e.code === "INTERNAL" ? null : e.details;
+  if (e.code === "INTERNAL") {
+    // Operational signal: an unhandled failure. Only the normalised code is
+    // recorded — the message and the cause may carry payload or internals.
+    logOperationalEvent("internal.error", { code: e.code });
+  }
   return {
     status: statusForCode(e.code),
-    body: { error: { code: e.code, message: e.message, details: e.details } },
+    body: { error: { code: e.code, message: e.message, details } },
   };
 }

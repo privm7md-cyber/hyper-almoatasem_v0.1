@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildListingQuery,
+  hasReversedPriceWindow,
   loadMoreKey,
   parseListingParams,
   parseSearchQuery,
@@ -54,6 +55,38 @@ describe("parseListingParams", () => {
   });
 });
 
+describe("parseSearchQuery boundaries (P08-T02 matrix: trimmed length 0/1/2/120/121)", () => {
+  it("0: missing, empty, or spaces-only → null (approved guidance, no request ever)", () => {
+    expect(parseSearchQuery({})).toBeNull();
+    expect(parseSearchQuery({ q: "" })).toBeNull();
+    expect(parseSearchQuery({ q: "   " })).toBeNull();
+  });
+
+  it("1: below the minimum → null (local gate; nothing invalid is sent)", () => {
+    expect(parseSearchQuery({ q: "ا" })).toBeNull();
+  });
+
+  it("2 and 120 accept (trim first; Arabic BMP char count == string .length — same as the backend zod check)", () => {
+    expect(parseSearchQuery({ q: "  عس  " })).toBe("عس");
+    const q120 = "ل".repeat(120);
+    expect(parseSearchQuery({ q: q120 })).toBe(q120);
+  });
+
+  it("121: above the maximum → null (rejected locally; the results page owns the honest max-length message)", () => {
+    expect(parseSearchQuery({ q: "ل".repeat(121) })).toBeNull();
+  });
+});
+
+describe("buildListingQuery encoding (Arabic + spaces, no hand-concatenation)", () => {
+  it("encodes through URLSearchParams and round-trips the parsed query", () => {
+    const q = parseListingParams({}, "search");
+    const s = buildListingQuery(q, { sort: "relevance" }, "أرز بسمتي");
+    expect(s.startsWith("?q=")).toBe(true);
+    expect(s).not.toMatch(/[\u0600-\u06FF]/); // no raw Arabic outside encoding
+    expect(parseSearchQuery(Object.fromEntries(new URLSearchParams(s)))).toBe("أرز بسمتي");
+  });
+});
+
 describe("buildListingQuery", () => {
   it("omits defaults and round-trips", () => {
     const q = parseListingParams({}, "listing");
@@ -74,7 +107,7 @@ describe("buildListingQuery", () => {
   });
 });
 
-describe("searchRetryHref (D07)", () => {
+describe("searchRetryHref (D07 + P08-T02)", () => {
   it("reproduces the full result-defining state, not just the q term", () => {
     const q = parseListingParams({ type: "PIECE", inStock: "false", sort: "newest" }, "search");
     expect(searchRetryHref(q, "عسل")).toBe(
@@ -86,6 +119,39 @@ describe("searchRetryHref (D07)", () => {
     const q = parseListingParams({}, "search");
     expect(searchRetryHref(q, "عسل")).toBe("/search?q=%D8%B9%D8%B3%D9%84");
     expect(searchRetryHref(q, null)).toBe("/search");
+  });
+
+  it("never serializes dir into a search retry link (search contract has no dir) while keeping every filter", () => {
+    const q = parseListingParams(
+      { dir: "asc", sort: "newest", type: "PIECE", inStock: "false", minPrice: "10.50" },
+      "search",
+    );
+    const href = searchRetryHref(q, "عسل");
+    expect(href).not.toContain("dir=");
+    expect(href).toContain("sort=newest");
+    expect(href).toContain("type=PIECE");
+    expect(href).toContain("inStock=false");
+    expect(href).toContain("minPrice=10.50");
+  });
+
+  it("loads from a hand-written URL state: invalid filter VALUES never reach the retry link", () => {
+    const q = parseListingParams(
+      { sort: "price", dir: "up", type: "BOGUS", inStock: "maybe", brand: "not-a-uuid" },
+      "search",
+    );
+    // Sanitized parse → everything contract-invalid fell back; retry keeps only
+    // contract-valid state (sort fell back to relevance → omitted).
+    expect(searchRetryHref(q, "عسل")).toBe("/search?q=%D8%B9%D8%B3%D9%84");
+  });
+});
+
+describe("hasReversedPriceWindow (P08: D25 completion)", () => {
+  it("is true only when BOTH bounds exist and max < min", () => {
+    expect(hasReversedPriceWindow({ minPrice: "99", maxPrice: "5" })).toBe(true);
+    expect(hasReversedPriceWindow({ minPrice: null, maxPrice: "5" })).toBe(false);
+    expect(hasReversedPriceWindow({ minPrice: "99", maxPrice: null })).toBe(false);
+    expect(hasReversedPriceWindow({ minPrice: "5", maxPrice: "5" })).toBe(false);
+    expect(hasReversedPriceWindow({ minPrice: "5", maxPrice: "99" })).toBe(false);
   });
 });
 

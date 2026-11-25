@@ -7,6 +7,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { AuditRow } from "@/lib/admin/serialize";
+import { AUDIT_ACTIONS } from "@/lib/admin/audit-vocabulary";
 
 const roleNames = {
   include: { userRoles: { include: { role: { select: { name: true } } } } },
@@ -115,7 +116,7 @@ export function getPermission(id: string) {
 }
 
 export function listSettings() {
-  return prisma.storeSetting.findMany({ orderBy: [{ key: "asc" as const }] });
+  return prisma.storeSetting.findMany({ where:{NOT:{key:{startsWith:"delivery.zone."}}}, orderBy: [{ key: "asc" as const }] });
 }
 
 export function getSetting(key: string) {
@@ -131,6 +132,16 @@ export interface AuditListFilter {
   entityId: string | null;
   since: string | null;
   until: string | null;
+  untilExclusive?: string | null;
+  /**
+   * ADM-11: the outcome filter. The table has no outcome column, so the
+   * outcome is derived from the action vocabulary (`audit-vocabulary.ts`):
+   * the actions that record a REFUSED attempt are failures, the rest are
+   * committed changes. The filter is applied SERVER-side.
+   */
+  outcome?: "SUCCESS" | "FAILURE" | null;
+  /** ADM-11: only the sensitive actions (access, money, identity, destroy). */
+  sensitiveOnly?: boolean;
 }
 
 /**
@@ -153,6 +164,27 @@ export async function listAudit(filter: AuditListFilter): Promise<AuditRow[]> {
   if (filter.entityId) conds.push(Prisma.sql`entity_id = ${filter.entityId}::uuid`);
   if (filter.since) conds.push(Prisma.sql`created_at >= ${filter.since}::timestamptz`);
   if (filter.until) conds.push(Prisma.sql`created_at <= ${filter.until}::timestamptz`);
+  if (filter.untilExclusive) conds.push(Prisma.sql`created_at < ${filter.untilExclusive}::timestamptz`);
+  if (filter.outcome) {
+    // The outcome is derived from the action vocabulary, never guessed here.
+    const actions = AUDIT_ACTIONS.filter((entry) => entry.outcome === filter.outcome).map(
+      (entry) => entry.action,
+    );
+    if (actions.length === 0) {
+      // No action of that outcome exists: the result is empty by definition.
+      conds.push(Prisma.sql`false`);
+    } else {
+      conds.push(Prisma.sql`action IN (${Prisma.join(actions)})`);
+    }
+  }
+  if (filter.sensitiveOnly) {
+    const sensitive = AUDIT_ACTIONS.filter((entry) => entry.sensitive).map((entry) => entry.action);
+    if (sensitive.length === 0) {
+      conds.push(Prisma.sql`false`);
+    } else {
+      conds.push(Prisma.sql`action IN (${Prisma.join(sensitive)})`);
+    }
+  }
   const where = conds.length === 0 ? Prisma.empty : Prisma.sql`WHERE ${Prisma.join(conds, " AND ")}`;
   return prisma.$queryRaw<AuditRow[]>`
     SELECT id::text AS id, user_id::text AS user_id, actor_type, action,

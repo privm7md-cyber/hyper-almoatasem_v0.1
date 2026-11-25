@@ -9,6 +9,7 @@
 // No governorate, no new fields — the shape mirrors the frozen table.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
 import { created, fail, ok } from "@/lib/api/respond";
 import { addressInputSchema } from "@/lib/customers/validation";
 import { listAddressesByCustomer } from "@/lib/customers/queries";
@@ -29,6 +30,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   let body: unknown;
   try {
     body = await request.json();

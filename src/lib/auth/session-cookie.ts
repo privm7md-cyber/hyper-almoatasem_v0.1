@@ -38,6 +38,17 @@ export const PROD_CUSTOMER_SESSION_COOKIE_NAME = "__Host-customer-session";
 /** Local-development-only customer session cookie (no `__Host-` prefix). */
 export const DEV_CUSTOMER_SESSION_COOKIE_NAME = "hyper-customer-session-dev";
 
+/** Production guest-order ownership cookie prefix (frozen prefix — never renamed). */
+export const PROD_GUEST_ORDER_COOKIE_PREFIX = "__Host-guest-order-";
+
+/** Local-development-only guest-order ownership cookie prefix (no `__Host-` prefix). */
+export const DEV_GUEST_ORDER_COOKIE_PREFIX = "hyper-guest-order-dev-";
+
+export const CUSTOMER_SESSION_COOKIE_NAMES: readonly [string, string] = [
+  PROD_CUSTOMER_SESSION_COOKIE_NAME,
+  DEV_CUSTOMER_SESSION_COOKIE_NAME,
+];
+
 /**
  * The production dataset name. A local process pointed at THIS database is
  * NOT a safe place to weaken cookie attributes, even over plain HTTP: the
@@ -116,6 +127,38 @@ export function customerSessionCookieName(env: CookiePolicyEnv = process.env): s
   return isDevSessionCookieAllowed(env)
     ? DEV_CUSTOMER_SESSION_COOKIE_NAME
     : PROD_CUSTOMER_SESSION_COOKIE_NAME;
+}
+
+/**
+ * The guest-order ownership cookie name for this process.
+ *
+ * Uses `__Host-guest-order-<orderId>` (with `Secure: true`) in production and
+ * any non-local environment, and `hyper-guest-order-dev-<orderId>` (with
+ * `Secure: false`) only in a verified local development process over HTTP.
+ */
+export function guestOrderCookieName(
+  orderId: string,
+  env: CookiePolicyEnv = process.env,
+): string {
+  const prefix = isDevSessionCookieAllowed(env)
+    ? DEV_GUEST_ORDER_COOKIE_PREFIX
+    : PROD_GUEST_ORDER_COOKIE_PREFIX;
+  return `${prefix}${orderId.toLowerCase()}`;
+}
+
+export function guestOrderCookieNames(orderId: string): readonly [string, string] {
+  const id = orderId.toLowerCase();
+  return [
+    `${PROD_GUEST_ORDER_COOKIE_PREFIX}${id}`,
+    `${DEV_GUEST_ORDER_COOKIE_PREFIX}${id}`,
+  ];
+}
+
+export function isGuestOrderCookieName(name: string): boolean {
+  return (
+    name.startsWith(PROD_GUEST_ORDER_COOKIE_PREFIX) ||
+    name.startsWith(DEV_GUEST_ORDER_COOKIE_PREFIX)
+  );
 }
 
 /**

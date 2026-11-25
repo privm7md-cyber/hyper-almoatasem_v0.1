@@ -6,6 +6,7 @@
 // Self-service mutations unaudited (actorId null, frozen rule).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { assertSameOriginOrThrow } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { uuidSchema } from "@/lib/api/validation";
 import { addressPatchSchema } from "@/lib/customers/validation";
@@ -32,6 +33,12 @@ export async function GET(request: Request, context: { params: Promise<{ address
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ addressId: string }> }) {
+  try {
+    assertSameOriginOrThrow(request);
+  } catch (error) {
+    const r = fail(error);
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const { addressId } = await context.params;
   if (!uuidSchema.safeParse(addressId).success) {
     const r = fail(new ApiError("VALIDATION", "Invalid address id."));
@@ -73,6 +80,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ addre
 
 export async function DELETE(request: Request, context: { params: Promise<{ addressId: string }> }) {
   try {
+    assertSameOriginOrThrow(request);
     const me = await requireCustomer(request);
     const { addressId } = await context.params;
     if (!uuidSchema.safeParse(addressId).success) {

@@ -7,6 +7,10 @@ import { expect, test } from "@playwright/test";
 test.setTimeout(120000);
 
 async function categoryTileCount(page: import("@playwright/test").Page): Promise<number> {
+  await page
+    .locator('main a[href^="/c/"][aria-label], main :text("لا توجد أقسام حاليًا")')
+    .first()
+    .waitFor({ state: "visible" });
   return page.locator('main a[href^="/c/"][aria-label]').count();
 }
 
@@ -22,10 +26,10 @@ test("flow: homepage category tiles resolve their listing (no redirect loop)", a
   await first.click();
   // Landing on a rendered document proves the request survived: a 308-loop would end
   // in ERR_TOO_MANY_REDIRECTS and never produce a real page.
-  // The tile click is a client-side navigation: wait for the new URL to land
-  // before asserting the destination heading (the old page still has a <main>).
+  // The tile click is a client-side navigation: wait for the streamed category shell
+  // to replace root StoreLoading before asserting the destination heading.
   await page.waitForURL(/\/c\//);
-  await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
   if (label) await expect(page.getByRole("heading", { name: label })).toBeVisible();
 });
 
@@ -37,6 +41,8 @@ test("flow: category listing cards navigate to a rendered PDP", async ({ page })
     return;
   }
   await page.locator('main a[href^="/c/"][aria-label]').first().click();
+  await page.waitForURL(/\/c\//);
+  await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
   const cardLinks = page.locator('main a[href^="/p/"]');
   const m = await cardLinks.count();
   if (m === 0) {
@@ -48,6 +54,7 @@ test("flow: category listing cards navigate to a rendered PDP", async ({ page })
   const href = await cardLinks.first().getAttribute("href");
   expect(href).toMatch(/^\/p\/[0-9a-f-]{36}\/.+/);
   await cardLinks.first().click();
+  await page.waitForURL(/\/p\//);
   await expect(page.locator("main h1")).toBeVisible();
 });
 
@@ -77,7 +84,9 @@ test("flow: stale slug survives the canonical redirect (308 followed to rendered
   expect(href).toMatch(/^\/c\/[0-9a-f-]{36}\/.+/);
   const staleHref = href!.replace(/\/[^/]+$/, "/stale-slug");
   await page.goto(staleHref);
-  await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
+  await expect(page.locator("main h1")).toBeVisible();
   await page.goto(href!);
-  await expect(page.locator("main")).toBeVisible();
+  await expect(page.locator('nav[aria-label="مسار التنقل"]')).toBeVisible();
+  await expect(page.locator("main h1")).toBeVisible();
 });

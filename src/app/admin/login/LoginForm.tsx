@@ -2,51 +2,48 @@
 
 import { useActionState } from "react";
 import { loginAction, type LoginActionState } from "@/app/actions/auth";
+import { AdminButton, AdminField, AdminInput } from "@/components/admin/ui/controls";
 
 const initialState: LoginActionState = {};
 
 export function LoginForm() {
   const [state, action, pending] = useActionState(loginAction, initialState);
   return (
-    <form action={action} className="mt-6 flex flex-col gap-4">
-      <div>
-        <label htmlFor="email" className="text-sm font-medium">
-          البريد الإلكتروني
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="username"
-          required
-          className="mt-1 w-full rounded border px-3 py-2"
-        />
-      </div>
-      <div>
-        <label htmlFor="password" className="text-sm font-medium">
-          كلمة المرور
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-          className="mt-1 w-full rounded border px-3 py-2"
-        />
-      </div>
-      {state?.error && (
-        <p role="alert" className="text-sm text-red-600">
+    <form action={action} className="adm-form adm-form--grid" noValidate>
+      <AdminField label="البريد الإلكتروني" required hint="نفس البريد اللي بتدخل بيه للمتجر.">
+        {({ inputId, describedBy }) => (
+          <AdminInput
+            inputId={inputId}
+            describedBy={describedBy}
+            name="email"
+            type="email"
+            autoComplete="username"
+            dir="ltr"
+            required
+          />
+        )}
+      </AdminField>
+      <AdminField label="كلمة المرور" required>
+        {({ inputId, describedBy }) => (
+          <AdminInput
+            inputId={inputId}
+            describedBy={describedBy}
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            dir="ltr"
+            required
+          />
+        )}
+      </AdminField>
+      {state?.error ? (
+        <p role="alert" className="adm-error">
           {state.error}
         </p>
-      )}
-      <button
-        type="submit"
-        disabled={pending}
-        className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-50"
-      >
-        {pending ? "جارٍ الدخول…" : "دخول"}
-      </button>
+      ) : null}
+      <AdminButton type="submit" variant="primary" loading={pending}>
+        {pending ? "جاري الدخول…" : "دخول للوحة"}
+      </AdminButton>
     </form>
   );
 }

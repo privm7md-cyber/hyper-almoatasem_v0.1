@@ -1,10 +1,10 @@
-// BA-10 transaction atomicity suite (real PostgreSQL, scratch-only).
+﻿// BA-10 transaction atomicity suite (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-atomicity.mjs --db <name> --port <port>
 // Drives frozen guards to fail AFTER earlier in-tx writes happened, then
 // proves zero partial commits (rows, counters, holds, movements, usages,
 // discounts, history, audit). Non-drivable micro-steps (post-release
 // failures with all CHECKs satisfied by construction) are code-reviewed,
-// not test-driven — stated honestly, never claimed.
+// not test-driven â€” stated honestly, never claimed.
 //   A1 coupon+promo+stock-short: 409, no order/usage/discounts, counters
 //     and holds untouched, cart ACTIVE.
 //   A2 approve substitute-short: 409, proposal stays PROPOSED, original
@@ -16,6 +16,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -32,7 +33,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -71,6 +75,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const post = async (path, data, cookie = null, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -119,7 +129,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -132,7 +142,7 @@ async function main() {
     await fetch(`${baseUrl}/api/store/cart/items`, { method: "DELETE", headers: H(sessTok) });
     const tok = await mkCart(lines);
     await post(`/api/store/cart/merge`, {}, null, { "x-guest-token": tok, ...H(sessTok) });
-    const body = { addressId: addrId, idempotencyKey: k };
+    const body = { addressId: addrId, idempotencyKey: k, expectedDeliveryFee: FEE };
     if (couponCode) body.couponCode = couponCode;
     const r = await fetch(`${baseUrl}/api/store/orders`, {
       method: "POST",

@@ -15,6 +15,30 @@ export function qtyToThousandths(s: string): number {
   return neg ? -value : value;
 }
 
+/** Bounded NUMERIC(12,3) input for manual facts; never truncate extra decimals. */
+export function boundedThousandths(value: string, signed = false): number {
+  if (!(signed ? /^-?\d+(\.\d{1,3})?$/ : /^\d+(\.\d{1,3})?$/).test(value)) {
+    throw new Error("Invalid quantity.");
+  }
+  const result = qtyToThousandths(value);
+  if (!Number.isSafeInteger(result) || Math.abs(result) > 999_999_999_999) {
+    throw new Error("Quantity exceeds NUMERIC(12,3).");
+  }
+  return result;
+}
+
+export function thousandthsText(value: number): string {
+  if (!Number.isSafeInteger(value) || Math.abs(value) > 999_999_999_999) {
+    throw new Error("Invalid quantity.");
+  }
+  const absolute = Math.abs(value);
+  return `${value < 0 ? "-" : ""}${Math.floor(absolute / 1000)}.${String(absolute % 1000).padStart(3, "0")}`;
+}
+
+export function countedDelta(counted: string, known: string): string {
+  return thousandthsText(boundedThousandths(counted) - boundedThousandths(known));
+}
+
 /** PIECE lines count whole packs: thousandths must be a whole multiple. */
 export function isWholePacks(qty: string): boolean {
   return qtyToThousandths(qty) % 1000 === 0;

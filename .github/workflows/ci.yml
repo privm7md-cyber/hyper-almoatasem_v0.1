@@ -1,85 +1,120 @@
-# Backend CI — hermetic checks only (no database server, no secrets).
-#
-# Scope rationale (documented, do not silently widen):
-# - typecheck + lint + unit suites + component tests (Vitest, jsdom) +
-#   PGlite frozen-SQL suites + build are fully hermetic: they never open a
-#   network connection.
-# - The live-API matrix (scripts/api/t-*.mjs against a scratch PostgreSQL)
-#   stays a LOCAL gate: it needs provisioned fixtures (products, users with
-#   known test passwords) plus login-bucket spacing, neither of which belongs
-#   in CI. The suites themselves refuse any non-scratch database, so even a
-#   misconfiguration fails closed rather than touching production.
-# - `db/tests/*.js` are frozen CommonJS harnesses excluded from lint scope
-#   (see the lint step); they still RUN here via their own package.
-# - `npm run build` gets a dummy DATABASE_URL that is never dialed (Next
-#   prerenders static pages only; API routes are dynamic). If a future change
-#   made the build connect, it would fail closed (connection refused).
-
-name: backend-ci
+name: CI
 
 on:
-  pull_request:
   push:
-    branches: [master]
+    branches:
+      - "**"
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  backend:
+  hermetic-gates:
+    name: Hermetic Quality & Unit Gates
     runs-on: ubuntu-latest
-    # Pinned runtime: must match the supported local runtime (Node 24.x).
-    # No matrix: a second Node major is not a supported configuration.
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 24.x
-          cache: npm
+          node-version: "22"
+          cache: "npm"
 
-      - name: Install dependencies (root)
+      - name: Install root dependencies
         run: npm ci
 
-      - name: Install dependencies (db harness)
-        # The db/tests harness ships package.json without a lockfile, so
-        # npm ci would fail; install from package.json instead.
-        run: npm install --prefix db/tests --no-audit --no-fund
+      - name: Generate Prisma client
+        run: npx prisma generate
 
-      - name: Typecheck
+      - name: TypeScript typecheck
         run: npx tsc --noEmit
 
-      - name: Lint (zero-tolerance scope)
-        # src + scripts only: db/tests/*.js are frozen CommonJS and
-        # intentionally out of lint scope (see above).
+      - name: ESLint check
         run: npx eslint src scripts --max-warnings 0
 
-      - name: API contract drift gate (static, no DB)
-        # Fails on any undocumented route or stale doc entry. Method-level,
-        # envelope-level and permission-level governance live in the
-        # live suites (local scratch gate).
+      - name: OpenAPI route coverage gate
         run: node scripts/api/route-coverage.mjs
 
-      - name: Unit suites (no DB, no server)
+      - name: Domain unit test suites (8 modules)
         run: |
+          node scripts/api/t-admin-unit.mjs
           node scripts/api/t-cart-unit.mjs
-          node scripts/api/t-orders-unit.mjs
+          node scripts/api/t-catalog-unit.mjs
           node scripts/api/t-customers-unit.mjs
           node scripts/api/t-inventory-unit.mjs
+          node scripts/api/t-orders-unit.mjs
           node scripts/api/t-promotions-unit.mjs
           node scripts/api/t-replacements-unit.mjs
-          node scripts/api/t-admin-unit.mjs
 
-      - name: Component & page tests (Vitest, jsdom, no DB)
+      - name: Vitest unit & component tests
         run: npx vitest run
 
-      - name: Frozen-SQL suites (PGlite, no server)
+      - name: PGlite SQL schema & constraint tests
         run: |
+          npm --prefix db/tests ci
           node db/tests/run-tests.js
           node db/tests/run-phase4-tests.js
           node db/tests/run-phase5-tests.js
 
-      - name: Build
+      - name: Next.js production build
+        run: npx next build --webpack
+
+  postgres-integration:
+    name: PostgreSQL 16 Live Schema & API Verification
+    runs-on: ubuntu-latest
+    needs: hermetic-gates
+    services:
+      postgres:
+        image: postgres:16-alpine
         env:
-          # Dummy value: never dialed (see header comment). Present only so
-          # config evaluation has a value to read; no secret, no production.
-          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci_nodb
-        run: npm run build
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: hyper_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:ci_password@localhost:5432/hyper_ci_test
+      REG_RATE_LIMIT_PHONE_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Apply shipped SQL schemas (Phases 1-5 + Customer Auth + Guest Orders)
+        run: |
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase1-schema.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase1-seed-example.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase2-schema.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase2-seed-example.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase3-schema.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase3-seed-example.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase4-schema.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase4-seed-example.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase5-schema.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase5-seed-example.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase5-auth-sessions.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase2_5-customer-auth.sql
+          PGPASSWORD=ci_password psql -h localhost -U postgres -d hyper_ci_test -v ON_ERROR_STOP=1 -f db/phase-bggo-guest-orders.sql
+
+      - name: Verify Prisma schema & client generation against live PostgreSQL
+        run: npx prisma generate

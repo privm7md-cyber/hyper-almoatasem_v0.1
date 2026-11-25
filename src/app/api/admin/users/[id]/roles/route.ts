@@ -6,6 +6,7 @@
 // the actor's (403 otherwise, atomic).
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { created, fail } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
@@ -13,6 +14,10 @@ import { roleAssignSchema } from "@/lib/admin/validation";
 import { assignRole } from "@/lib/admin/writes";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("roles.manage");
   if (auth.ok === false) {
     const r = fail(
@@ -41,7 +46,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json(r.body, { status: r.status });
   }
   try {
-    await assignRole(id, parsed.data.roleId, auth.admin.user.id, auth.admin.permissions);
+    await assignRole(id, parsed.data.roleId, auth.admin.user.id, auth.admin.permissions, auth.admin.roles);
     const r = created({ userId: id, roleId: parsed.data.roleId });
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {

@@ -67,7 +67,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div
         role="region"
         aria-label="التنبيهات"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-toast flex flex-col items-center gap-2 p-4"
+        aria-live="polite"
+        className="pointer-events-none fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-toast flex flex-col items-center gap-2 p-4 md:bottom-0"
       >
         {items.map((item) => {
           const meta = KIND_META[item.kind];
@@ -87,7 +88,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 type="button"
                 onClick={() => dismiss(item.id)}
                 aria-label="إغلاق التنبيه"
-                className="min-h-[44px] min-w-[44px] shrink-0 rounded-control"
+                className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-control text-secondary transition-colors duration-150 hover:bg-purple-surface hover:text-ink"
               >
                 <X size={18} aria-hidden="true" />
               </button>

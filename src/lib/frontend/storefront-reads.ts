@@ -4,11 +4,13 @@
 
 import "server-only";
 
+import * as catalogQueries from "@/lib/catalog/queries";
 import { getBrand, getCategory, getProduct, listBrands, listCategories, listProducts, listVariantsByProduct } from "@/lib/catalog/queries";
-import { getInventory, productHasInventoryRows } from "@/lib/inventory/queries";
+import * as inventoryQueries from "@/lib/inventory/queries";
+import { getInventory, getProductStockStatus } from "@/lib/inventory/queries";
 import { searchProducts } from "@/lib/catalog/search";
+import * as mediaQueries from "@/lib/catalog/media";
 import { listImages } from "@/lib/catalog/media";
-import { getProductStockStatus } from "@/lib/inventory/queries";
 import {
   toBrand,
   toCategory,
@@ -18,6 +20,8 @@ import {
   type CategoryShape,
 } from "@/lib/catalog/serialize";
 import type { ListingQuery } from "./listing-params";
+import { orderCategoriesBySortOrder } from "./category-context";
+import { productStockState } from "@/lib/inventory/stock-coverage";
 
 export interface HomeProductCard {
   id: string;
@@ -36,7 +40,16 @@ export interface HomeProductCard {
   compareAt: string | null;
   stock: "in" | "oos" | "unknown";
   image: string | null;
+  /** A failed media read is distinct from an authoritative empty result. */
+  imageUnavailable?: boolean;
+  /** Admin projection only; omitted for existing public callers. */
+  pricesUnavailable?: boolean;
   brandName: string | null;
+}
+
+export interface CardEnrichmentOptions {
+  withPrices?: boolean;
+  withInventory?: boolean;
 }
 
 const FEATURED_LIMIT = 8;
@@ -87,9 +100,12 @@ export interface HomeCategorySections {
 
 export async function getHomeCategorySections(): Promise<HomeCategorySections> {
   const all = await getAllCategories(); // bounded OPTION_LIMIT fetch
-  const mains = all.filter((c) => c.parentId === null).sort(byName);
+  // CTR-1 display order: approved sortOrder (1..34) wins over the name-asc fetch
+  // order — pure helper, deterministic tie-breaks, no mutation.
+  const ordered = orderCategoriesBySortOrder(all);
+  const mains = ordered.filter((c) => c.parentId === null);
   const byParent = new Map<string, CategoryShape[]>();
-  for (const c of all) {
+  for (const c of ordered) {
     if (c.parentId === null) continue;
     const list = byParent.get(c.parentId) ?? [];
     list.push(c);
@@ -100,15 +116,17 @@ export async function getHomeCategorySections(): Promise<HomeCategorySections> {
   for (const [parentId, children] of byParent) {
     const parent = parentIndex.get(parentId) ?? null;
     if (!parent) continue; // orphan row: omit, never fake a parent label
-    children.sort(byName);
     subs.push({ parent, children });
   }
-  subs.sort((a, b) => byName(a.parent, b.parent));
+  // Same comparator semantics as the mains: approved sortOrder, deterministic
+  // name/id tie-breaks (insertion order never leaks into the display order).
+  subs.sort(
+    (a, b) =>
+      a.parent.sortOrder - b.parent.sortOrder ||
+      (a.parent.name < b.parent.name ? -1 : a.parent.name > b.parent.name ? 1 : 0) ||
+      (a.parent.id < b.parent.id ? -1 : a.parent.id > b.parent.id ? 1 : 0),
+  );
   return { mains, subs };
-}
-
-function byName(a: { name: string }, b: { name: string }): number {
-  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
 /** Enrich list rows with the display facts cards need. Bounded: callers cap input rows.
@@ -125,27 +143,55 @@ export async function enrichCards(
     saleStepGrams: number | null;
     brand: { name: string } | null;
   }[],
+  { withPrices = true, withInventory = true }: CardEnrichmentOptions = {},
 ): Promise<HomeProductCard[]> {
-  return Promise.all(
-    rows.map(async (row) => {
-      const [variants, images, stock, hasInventoryRows] = await Promise.all([
-        listVariantsByProduct(row.id, false, 1, null),
-        listImages(row.id).catch(() => []),
-        getProductStockStatus(row.id).catch(() => null),
-        productHasInventoryRows(row.id).catch(() => false),
-      ]);
-      const first = variants.rows[0] ? toVariant(variants.rows[0]) : null;
-      const primary = images.find((im) => im.isPrimary) ?? images[0] ?? null;
-      // P05 (partial-failure honesty): with inventory rows present but the stock
-      // status read failed (null via catch), availability is UNKNOWN — never "oos".
-      // Claiming "غير متوفر" from a failed read would be a stock claim without data.
-      const stockState: HomeProductCard["stock"] = !hasInventoryRows
-        ? "unknown"
-        : stock === null
-          ? "unknown"
-          : stock.isInStock
-            ? "in"
-            : "oos";
+  if (rows.length === 0) return [];
+
+  // BUG-09 remediation: batch enrichment (4 queries total instead of 4 * N)
+  // whenever the batch helpers are present on the modules. Falls back to the
+  // per-row path only when unit tests mock the modules with single-item stubs
+  // (Vitest's strict mock proxy throws on accessing unmocked exports).
+  let batchFns: {
+    listFirstVariantsForProducts: typeof catalogQueries.listFirstVariantsForProducts;
+    listPrimaryImagesForProducts: typeof mediaQueries.listPrimaryImagesForProducts;
+    getProductsStockBatch: typeof inventoryQueries.getProductsStockBatch;
+  } | null = null;
+  try {
+    if (
+      typeof catalogQueries.listFirstVariantsForProducts === "function" &&
+      typeof mediaQueries.listPrimaryImagesForProducts === "function" &&
+      typeof inventoryQueries.getProductsStockBatch === "function"
+    ) {
+      batchFns = {
+        listFirstVariantsForProducts: catalogQueries.listFirstVariantsForProducts,
+        listPrimaryImagesForProducts: mediaQueries.listPrimaryImagesForProducts,
+        getProductsStockBatch: inventoryQueries.getProductsStockBatch,
+      };
+    }
+  } catch {
+    batchFns = null;
+  }
+
+  if (batchFns) {
+    const productIds = rows.map((r) => r.id);
+    const unknownStock = { hasInventorySet: new Set<string>(), statusByProduct: null };
+    const [firstVariantsByProduct, primaryImagesByProduct, stockBatch] = await Promise.all([
+      withPrices ? batchFns.listFirstVariantsForProducts(productIds, false) : new Map(),
+      batchFns.listPrimaryImagesForProducts(productIds).catch(() => null),
+      withInventory
+        ? batchFns.getProductsStockBatch(productIds).catch(() => unknownStock)
+        : unknownStock,
+    ]);
+
+    return rows.map((row) => {
+      const firstRaw = firstVariantsByProduct.get(row.id);
+      const first = firstRaw ? toVariant(firstRaw) : null;
+      const primary = primaryImagesByProduct?.get(row.id) ?? null;
+      const stock =
+        stockBatch.statusByProduct === null
+          ? null
+          : (stockBatch.statusByProduct.get(row.id) ?? null);
+      const stockState = productStockState(stock);
       return {
         id: row.id,
         name: row.name,
@@ -159,6 +205,41 @@ export async function enrichCards(
         compareAt: first ? first.compareAtPrice : null,
         stock: stockState,
         image: primary ? primary.url : null,
+        ...(primaryImagesByProduct === null ? { imageUnavailable: true } : {}),
+        ...(!withPrices ? { pricesUnavailable: true } : {}),
+        brandName: row.brand ? row.brand.name : null,
+      };
+    });
+  }
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const [variants, images, stock] = await Promise.all([
+        withPrices ? listVariantsByProduct(row.id, false, 1, null) : { rows: [] },
+        listImages(row.id).catch(() => null),
+        withInventory ? getProductStockStatus(row.id).catch(() => null) : null,
+      ]);
+      const first = variants.rows[0] ? toVariant(variants.rows[0]) : null;
+      const primary = images?.find((im) => im.isPrimary) ?? images?.[0] ?? null;
+      // P05 (partial-failure honesty): with inventory rows present but the stock
+      // status read failed (null via catch), availability is UNKNOWN — never "oos".
+      // Claiming "غير متوفر" from a failed read would be a stock claim without data.
+      const stockState = productStockState(stock);
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        unit: row.unit,
+        productType: row.productType === "WEIGHT" ? ("WEIGHT" as const) : ("PIECE" as const),
+        saleStepGrams: row.saleStepGrams ?? null,
+        sizeValue: first ? first.sizeValue : null,
+        sizeUnit: first ? first.sizeUnit : null,
+        price: first ? first.price : null,
+        compareAt: first ? first.compareAtPrice : null,
+        stock: stockState,
+        image: primary ? primary.url : null,
+        ...(images === null ? { imageUnavailable: true } : {}),
+        ...(!withPrices ? { pricesUnavailable: true } : {}),
         brandName: row.brand ? row.brand.name : null,
       };
     }),
@@ -306,13 +387,21 @@ export interface ProductPageVariant {
   stock: "in" | "oos" | "unknown";
 }
 
+/** The product's real category as a breadcrumb link target (parentId drives the chain). */
+export interface ProductCategoryLink {
+  id: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+}
+
 export interface ProductPageData {
   id: string;
   name: string;
   slug: string;
   description: string | null;
   brandName: string | null;
-  categoryName: string;
+  category: ProductCategoryLink;
   productType: "PIECE" | "WEIGHT";
   saleStepGrams: number | null;
   gallery: { url: string; alt: string | null }[];
@@ -360,7 +449,13 @@ export async function getProductPage(id: string): Promise<ProductPageData | null
     slug: row.slug,
     description: row.description,
     brandName: row.brand ? row.brand.name : null,
-    categoryName: row.category.name,
+    category: {
+      id: row.category.id,
+      name: row.category.name,
+      slug: row.category.slug,
+      // Populated by getProduct's additive select; displayed (never stored) data.
+      parentId: row.category.parentId ?? null,
+    },
     productType: row.productType as "PIECE" | "WEIGHT",
     saleStepGrams: row.saleStepGrams,
     gallery: ordered

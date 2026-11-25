@@ -1,6 +1,7 @@
 // FE-3 brand listing (server): same id/slug contract as categories (FP-09 D01).
 
 import type { Metadata } from "next";
+import { canonicalMetadata } from "@/lib/seo/canonical";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { StoreShell } from "@/components/store/store-shell";
@@ -16,7 +17,13 @@ import {
   listBrandProducts,
 } from "@/lib/frontend/storefront-reads";
 import { hasAnyInventoryRows } from "@/lib/inventory/queries";
-import { LISTING_SORT_OPTIONS, loadMoreKey, parseListingParams, sortKeyFor } from "@/lib/frontend/listing-params";
+import {
+  LISTING_SORT_OPTIONS,
+  hasReversedPriceWindow,
+  loadMoreKey,
+  parseListingParams,
+  sortKeyFor,
+} from "@/lib/frontend/listing-params";
 import { slugMatches, wireSlugOf } from "@/lib/frontend/slug";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +36,11 @@ export async function generateMetadata({
   const { id } = await params;
   const brand = await getBrandById(id).catch(() => null);
   if (!brand) return { title: "علامة غير موجودة" };
-  return { title: brand.name, description: `منتجات ${brand.name} في هايبر المعتصم.` };
+  return {
+    title: brand.name,
+    description: `منتجات ${brand.name} في هايبر المعتصم.`,
+    ...canonicalMetadata(`/brand/${brand.id}/${wireSlugOf(brand.slug)}`),
+  };
 }
 
 export default async function BrandPage({
@@ -58,10 +69,17 @@ export default async function BrandPage({
   const availabilityKnown = await hasAnyInventoryRows().catch(() => false);
   const effectiveQuery = availabilityKnown ? query : { ...query, inStock: null };
   let page: Awaited<ReturnType<typeof listBrandProducts>> | null = null;
-  try {
-    page = await listBrandProducts(brand.id, effectiveQuery);
-  } catch {
-    page = null;
+  // P08 (D25 completion): a hand-written URL may carry a contract-invalid price
+  // window (the public listing route would answer 400 "Invalid price window.")
+  // — a window the frontend KNOWS is invalid is never sent; the page answers
+  // the honest state instead of a silent empty result.
+  const reversedWindow = hasReversedPriceWindow(effectiveQuery);
+  if (!reversedWindow) {
+    try {
+      page = await listBrandProducts(brand.id, effectiveQuery);
+    } catch {
+      page = null;
+    }
   }
   const categories = await getAllCategories().catch(() => []);
 
@@ -74,10 +92,10 @@ export default async function BrandPage({
         <span aria-hidden="true"> / </span>
         <span aria-current="page">{brand.name}</span>
       </nav>
-      <div className="mt-2">
+      <div className="mt-3 rounded-card border border-line bg-white p-5 shadow-xs">
         <PageTitle>{brand.name}</PageTitle>
       </div>
-      <div className="mt-3">
+      <div className="mt-4">
         <FilterPanel
           query={effectiveQuery}
           brands={[]}
@@ -89,7 +107,14 @@ export default async function BrandPage({
           availabilityKnown={availabilityKnown}
         />
       </div>
-      {page === null ? (
+      {reversedWindow ? (
+        <div className="mt-4">
+          <EmptyState
+            title="نطاق السعر غير صالح"
+            hint="الحد الأول أكبر من الثاني — عدّل النطاق ثم أعد المحاولة."
+          />
+        </div>
+      ) : page === null ? (
         <div className="mt-4">
           <ErrorState title="تعذّر تحميل المنتجات" text="حاول إعادة تحميل الصفحة." />
         </div>
@@ -105,11 +130,16 @@ export default async function BrandPage({
           )}
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {page.cards.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
+        <section aria-labelledby="brand-products-heading">
+          <h2 id="brand-products-heading" className="sr-only">
+            منتجات العلامة التجارية
+          </h2>
+          <div className="mt-4 grid grid-cols-2 gap-3.5 md:grid-cols-4 md:gap-4">
+            {page.cards.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        </section>
       )}
       {page !== null ? (
         <LoadMore

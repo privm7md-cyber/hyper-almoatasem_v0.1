@@ -1,4 +1,4 @@
-// BA-6 orders API suite (scratch-only, needs built server pointed at DB).
+﻿// BA-6 orders API suite (scratch-only, needs built server pointed at DB).
 // Usage: node scripts/api/t-orders.mjs --db <name> --port <port>
 // Covers: creation (snapshots, reserve, history, CHECKED_OUT), price drift,
 // line revalidation (dead/unit/step), stock-failure atomicity, idempotent
@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -25,7 +26,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -70,6 +74,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const get = async (path, token = null, extra = {}) => {
     const r = await fetch(`${baseUrl}${path}`, { headers: { ...(token ? { "x-guest-token": token } : {}), ...extra } });
@@ -86,7 +96,7 @@ async function main() {
   const H = (tok) => ({ "x-customer-token": tok });
   const CPW = "Cust-Test-Pass-0001!";
   const sess = async (phone, firstName) => {
-    // PHASE 2.5: register (fresh → 201 + session) or login (existing → 200).
+    // PHASE 2.5: register (fresh â†’ 201 + session) or login (existing â†’ 200).
     const reg = await post(`/api/store/customers/register`, { phone, firstName, password: CPW });
     if (reg.status === 201) {
       return { id: reg.body?.data?.customer?.id ?? null, tok: reg.body?.data?.customerToken ?? null };
@@ -180,11 +190,11 @@ async function main() {
     const mvRomi = await movCount(ROMI_V);
     const g1 = await mkGuestCart([[P330, "2"], [ROMI_V, "0.500"]]);
     await mergeTo(g1.token, tC1);
-    const o1 = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-0001" }, null, H(tC1));
+    const o1 = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-0001", expectedDeliveryFee: FEE }, null, H(tC1));
     trackOrder(o1.body);
     const O1 = o1.body?.data?.order;
     t("create-201", o1.status === 201 && O1 && O1.status === "CONFIRMED" && /^HM-[0-9]{8}-[0-9]{6}$/.test(O1.orderNumber));
-    // Decimals normalize trailing zeros ("190.00" -> "190") — numerically
+    // Decimals normalize trailing zeros ("190.00" -> "190") â€” numerically
     // exact; clients parse as decimal (BA-2 precedent). Compare via num().
     t("create-totals", O1 && num(O1.subtotalEstimated) === 190 && num(O1.discountTotal) === 0 && num(O1.deliveryFee) === 20 && num(O1.totalEstimated) === 210);
     t("create-snapshots", O1 && O1.items.length === 2
@@ -195,13 +205,58 @@ async function main() {
         && num(i.estimatedTotal) === 160 && i.unit === "KG" && i.productCode === "2010106" && i.codeType === "INTERNAL_CODE"));
     t("create-customer-snapshot", O1 && O1.customerName === "Order1" && O1.customerPhone === CANON(P_C1)
       && O1.delivery.city === "Cairo" && O1.delivery.phone === CANON(P_C1));
-    t("create-history", O1 && O1.history.length === 2 && O1.history[0].oldStatus === null && O1.history[0].newStatus === "NEW"
-      && O1.history[1].oldStatus === "NEW" && O1.history[1].newStatus === "CONFIRMED"
-      && O1.history.every((h) => h.actorType === "CUSTOMER"));
+    // Owner Decision Execution: bounded polling for history records. History
+    // rows may be written asynchronously after the checkout response; poll the
+    // order detail endpoint with a hard cap instead of asserting immediately
+    // (no long sleeps, no race-condition masking).
+    let O1Hist = O1?.history ?? [];
+    let histPolls = 0;
+    while (histPolls < 20 && (!Array.isArray(O1Hist) || O1Hist.length < 2)) {
+      await new Promise((r) => setTimeout(r, 100));
+      const refreshed = await get(`/api/store/orders/${O1.id}`, null, H(tC1));
+      O1Hist = refreshed.body?.data?.order?.history ?? [];
+      histPolls += 1;
+    }
+    t("create-history", O1 && Array.isArray(O1Hist) && O1Hist.length === 2 && O1Hist[0].oldStatus === null && O1Hist[0].newStatus === "NEW"
+      && O1Hist[1].oldStatus === "NEW" && O1Hist[1].newStatus === "CONFIRMED"
+      && O1Hist.every((h) => h.actorType === "CUSTOMER"));
     t("create-reserved", (await reservedOf(P330)) === "2.000" && (await reservedOf(ROMI_V)) === "0.500");
     t("create-no-movements", (await movCount(P330)) === mvP330 && (await movCount(ROMI_V)) === mvRomi);
     const cartGone = await get(`/api/store/cart`, g1.token);
     t("cart-checked-out", cartGone.status === 404);
+
+    // ---------- D2: the reviewed fee is REQUIRED (no order without a price) ----------
+    // A NEW order without the reviewed fee is rejected with 400 VALIDATION and
+    // NOTHING is written: no order row, no reservation, the cart stays ACTIVE.
+    const gNoFee = await mkGuestCart([[P330, "1"]]);
+    await mergeTo(gNoFee.token, tC1);
+    const resBeforeNoFee = await reservedOf(P330);
+    const noFee = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-nofee" }, null, H(tC1));
+    t("fee-missing-400", noFee.status === 400 && noFee.body?.error?.code === "VALIDATION",
+      `${noFee.status}/${noFee.body?.error?.code}`);
+    const noFeeRows = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = 'ba6-k-nofee'`);
+    t("fee-missing-no-order", noFeeRows[0].n === 0 && (await reservedOf(P330)) === resBeforeNoFee
+      && (await get(`/api/store/cart`, null, H(tC1))).status === 200, "nothing written");
+
+    // A MISMATCHED fee is a 409 CONFLICT: the server resolves the fee itself
+    // and wins, so the customer must re-confirm the new total. Nothing is
+    // written either (the cart stays ACTIVE for the next attempt).
+    const resBeforeBadFee = await reservedOf(P330);
+    const badFee = await post(`/api/store/orders`,
+      { addressId: idA1, idempotencyKey: "ba6-k-badfee", expectedDeliveryFee: "19.99" }, null, H(tC1));
+    t("fee-mismatch-409", badFee.status === 409 && badFee.body?.error?.code === "CONFLICT"
+      && badFee.body?.error?.details?.reason === "DELIVERY_FEE_CHANGED",
+      `${badFee.status}/${badFee.body?.error?.code}/${badFee.body?.error?.details?.reason}`);
+    const badFeeRows = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = 'ba6-k-badfee'`);
+    t("fee-mismatch-no-order", badFeeRows[0].n === 0 && (await reservedOf(P330)) === resBeforeBadFee
+      && (await get(`/api/store/cart`, null, H(tC1))).status === 200, "nothing written");
+    // The corrected value (the fee the server actually quotes) succeeds on the
+    // SAME cart and key: a rejection never burns the customer's attempt.
+    const fixedFee = await post(`/api/store/orders`,
+      { addressId: idA1, idempotencyKey: "ba6-k-badfee", expectedDeliveryFee: FEE }, null, H(tC1));
+    trackOrder(fixedFee.body);
+    t("fee-corrected-201", fixedFee.status === 201 && fixedFee.body?.data?.order?.id !== undefined,
+      `${fixedFee.status}`);
 
     // ---------- snapshot immunity (live price moves, order frozen) ----------
     const { status: pstat } = await (async () => {
@@ -236,7 +291,7 @@ async function main() {
     });
     const beforeDrift = await reservedOf(P330);
     await mergeTo(gD.token, tC1);
-    const drift = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-drift" }, null, H(tC1));
+    const drift = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-drift", expectedDeliveryFee: FEE }, null, H(tC1));
     t("drift-409", drift.status === 409 && drift.body.error.code === "CONFLICT");
     t("drift-no-side-effects", (await reservedOf(P330)) === beforeDrift
       && (await get(`/api/store/cart`, null, H(tC1))).status === 200);
@@ -250,7 +305,7 @@ async function main() {
     const gDead = await mkGuestCart([[P1L, "1"]]);
     await db.query(`UPDATE product_variants SET is_active = FALSE WHERE id = $1`, [P1L]);
     await mergeTo(gDead.token, ncDead.tok);
-    const dead = await post(`/api/store/orders`, { addressId: ncDead.addr, idempotencyKey: "ba6-k-dead" }, null, H(ncDead.tok));
+    const dead = await post(`/api/store/orders`, { addressId: ncDead.addr, idempotencyKey: "ba6-k-dead", expectedDeliveryFee: FEE }, null, H(ncDead.tok));
     t("dead-variant-422", dead.status === 422);
     await db.query(`UPDATE product_variants SET is_active = TRUE WHERE id = $1`, [P1L]);
     const ncStep = await newCust("01092000032", "OrderStep");
@@ -258,35 +313,35 @@ async function main() {
     await db.query(`INSERT INTO cart_items (id, cart_id, product_variant_id, quantity, unit_snapshot, unit_price_snapshot, price_checked_at)
       VALUES (gen_random_uuid(), $1, $2, 0.100, 'KG', 320.00, now())`, [gStep.id, ROMI_V]);
     await mergeTo(gStep.token, ncStep.tok);
-    const step = await post(`/api/store/orders`, { addressId: ncStep.addr, idempotencyKey: "ba6-k-step" }, null, H(ncStep.tok));
+    const step = await post(`/api/store/orders`, { addressId: ncStep.addr, idempotencyKey: "ba6-k-step", expectedDeliveryFee: FEE }, null, H(ncStep.tok));
     t("step-violation-422", step.status === 422);
     const ncUnit = await newCust("01092000033", "OrderUnit");
     const gUnit = await mkGuestCart([[P330, "1"]]);
     await db.query(`UPDATE cart_items SET unit_snapshot = 'GRAM' WHERE cart_id = $1 AND product_variant_id = $2`, [gUnit.id, P330]);
     await mergeTo(gUnit.token, ncUnit.tok);
-    const unit = await post(`/api/store/orders`, { addressId: ncUnit.addr, idempotencyKey: "ba6-k-unit" }, null, H(ncUnit.tok));
+    const unit = await post(`/api/store/orders`, { addressId: ncUnit.addr, idempotencyKey: "ba6-k-unit", expectedDeliveryFee: FEE }, null, H(ncUnit.tok));
     t("unit-mismatch-422", unit.status === 422);
     const ncEmpty = await newCust("01092000034", "OrderEmpty");
     const gEmpty = await post(`/api/store/cart`, {});
     trackCart(gEmpty.body);
     await mergeTo(gEmpty.body.data.guestToken, ncEmpty.tok);
-    const empty = await post(`/api/store/orders`, { addressId: ncEmpty.addr, idempotencyKey: "ba6-k-empty" }, null, H(ncEmpty.tok));
+    const empty = await post(`/api/store/orders`, { addressId: ncEmpty.addr, idempotencyKey: "ba6-k-empty", expectedDeliveryFee: FEE }, null, H(ncEmpty.tok));
     t("empty-cart-422", empty.status === 422);
     const ncNoCart = await newCust("01092000035", "OrderNoCart");
-    const noCart = await post(`/api/store/orders`, { addressId: ncNoCart.addr, idempotencyKey: "ba6-k-nocart" }, null, H(ncNoCart.tok));
+    const noCart = await post(`/api/store/orders`, { addressId: ncNoCart.addr, idempotencyKey: "ba6-k-nocart", expectedDeliveryFee: FEE }, null, H(ncNoCart.tok));
     t("missing-cart-404", noCart.status === 404);
     const gBadCust = await mkGuestCart([[P330, "1"]]);
     await mergeTo(gBadCust.token, tC1);
-    const badSess = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-badsess" }, null,
+    const badSess = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "ba6-k-badsess", expectedDeliveryFee: FEE }, null,
       H("v1.04800000-0000-7000-8000-000000009999.1790000000." + "ab".repeat(32)));
     t("forged-session-401", badSess.status === 401);
-    const badAddr = await post(`/api/store/orders`, { addressId: UNKNOWN, idempotencyKey: "ba6-k-badaddr" }, null, H(tC1));
+    const badAddr = await post(`/api/store/orders`, { addressId: UNKNOWN, idempotencyKey: "ba6-k-badaddr", expectedDeliveryFee: FEE }, null, H(tC1));
     t("unknown-address-404", badAddr.status === 404);
-    const crossAddr = await post(`/api/store/orders`, { addressId: idA2, idempotencyKey: "ba6-k-xaddr" }, null, H(tC1));
+    const crossAddr = await post(`/api/store/orders`, { addressId: idA2, idempotencyKey: "ba6-k-xaddr", expectedDeliveryFee: FEE }, null, H(tC1));
     t("cross-address-404", crossAddr.status === 404);
-    const badKey = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "has space" }, null, H(tC1));
+    const badKey = await post(`/api/store/orders`, { addressId: idA1, idempotencyKey: "has space", expectedDeliveryFee: FEE }, null, H(tC1));
     t("bad-key-400", badKey.status === 400);
-    const noKey = await post(`/api/store/orders`, { addressId: idA1 }, null, H(tC1));
+    const noKey = await post(`/api/store/orders`, { addressId: idA1, expectedDeliveryFee: FEE }, null, H(tC1));
     t("missing-key-400", noKey.status === 400);
 
     // ---------- stock-failure atomicity (multi-line, second line short) ----------
@@ -295,7 +350,7 @@ async function main() {
     const gShort = await mkGuestCart([[P330, "1"], [P25L, "150"]]);
     await mergeTo(gShort.token, ncShort.tok);
     const resBefore = await reservedOf(P330);
-    const short = await post(`/api/store/orders`, { addressId: ncShort.addr, idempotencyKey: "ba6-k-short" }, null, H(ncShort.tok));
+    const short = await post(`/api/store/orders`, { addressId: ncShort.addr, idempotencyKey: "ba6-k-short", expectedDeliveryFee: FEE }, null, H(ncShort.tok));
     t("short-409", short.status === 409);
     const noOrder = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = 'ba6-k-short'`);
     t("short-no-partial", noOrder[0].n === 0 && (await reservedOf(P330)) === resBefore
@@ -306,17 +361,23 @@ async function main() {
     const ncRp = await newCust("01092000037", "OrderReplay");
     const gRp = await mkGuestCart([[P330, "1"]]);
     await mergeTo(gRp.token, ncRp.tok);
-    const rp1 = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay" }, null, H(ncRp.tok));
+    const rp1 = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay", expectedDeliveryFee: FEE }, null, H(ncRp.tok));
     trackOrder(rp1.body);
     const resAfterFirst = await reservedOf(P330);
-    const rp2 = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay" }, null, H(ncRp.tok));
+    const rp2 = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay", expectedDeliveryFee: FEE }, null, H(ncRp.tok));
     t("replay-200", rp2.status === 200 && rp2.body.meta?.replay === true && rp2.body.data.order.id === rp1.body.data.order.id);
     t("replay-no-dup-reserve", (await reservedOf(P330)) === resAfterFirst);
     const keyRows = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = 'ba6-k-replay'`);
     t("replay-single-row", keyRows[0].n === 1);
+    // A same-key VERIFICATION may omit the reviewed fee: the idempotency
+    // lookup answers the committed attempt BEFORE any pricing, so the
+    // customer can always open the order their first attempt created.
+    const rp3 = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay" }, null, H(ncRp.tok));
+    t("replay-without-fee-200", rp3.status === 200 && rp3.body.meta?.replay === true
+      && rp3.body.data.order.id === rp1.body.data.order.id, `${rp3.status}`);
     const gCf = await mkGuestCart([[P330, "1"]]);
     await mergeTo(gCf.token, ncRp.tok);
-    const cf = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay" }, null, H(ncRp.tok));
+    const cf = await post(`/api/store/orders`, { addressId: ncRp.addr, idempotencyKey: "ba6-k-replay", expectedDeliveryFee: FEE }, null, H(ncRp.tok));
     t("key-conflict-409", cf.status === 409);
 
     // ---------- reads ----------
@@ -340,7 +401,7 @@ async function main() {
     t("cancel-200", cx.status === 200 && CX.status === "CANCELLED"
       && CX.history.some((h) => h.newStatus === "CANCELLED" && h.actorType === "CUSTOMER"));
     // O1 held P330x2 of the outstanding reservations (the replay order holds
-    // its own x1) — cancel must release exactly O1's share; Romi returns to 0.
+    // its own x1) â€” cancel must release exactly O1's share; Romi returns to 0.
     t("cancel-released", num(resBeforeCancel) - num(await reservedOf(P330)) === 2 && (await reservedOf(ROMI_V)) === "0.000");
     t("cancel-no-movements", (await movCount(P330)) === mvBeforeCancel);
     const cx2 = await post(`/api/store/orders/${O1.id}/cancel`, {}, null, H(tC1));
@@ -352,7 +413,7 @@ async function main() {
     const ncAd = await newCust("01092000038", "OrderAdmin");
     const gAd = await mkGuestCart([[P330, "1"]]);
     await mergeTo(gAd.token, ncAd.tok);
-    const oAd = await post(`/api/store/orders`, { addressId: ncAd.addr, idempotencyKey: "ba6-k-admin" }, null, H(ncAd.tok));
+    const oAd = await post(`/api/store/orders`, { addressId: ncAd.addr, idempotencyKey: "ba6-k-admin", expectedDeliveryFee: FEE }, null, H(ncAd.tok));
     trackOrder(oAd.body);
     const idAd = oAd.body.data.order.id;
     const anonAdmin = await get(`/api/admin/orders?limit=5`);
@@ -379,12 +440,12 @@ async function main() {
     t("admin-cancel-bare-403", bareCancel.status === 403);
     // PREPARING-unpicked cancel is fulfillment scope (Phase 4 widened cancel
     // to the frozen machine: NEW|CONFIRMED|PREPARING when nothing is picked).
-    // Real PREPARING order via API (no SQL-forged states): checkout → prepare.
+    // Real PREPARING order via API (no SQL-forged states): checkout â†’ prepare.
     // Dedicated customer: the shared carts above carry leftover lines.
     const ncPrep = await newCust("01092000039", "OrderPrepCancel");
     const gPrep = await mkGuestCart([[P330, "1"]]);
     await mergeTo(gPrep.token, ncPrep.tok);
-    const oPrep = await post(`/api/store/orders`, { addressId: ncPrep.addr, idempotencyKey: "ba6-k-prepcancel" }, null, H(ncPrep.tok));
+    const oPrep = await post(`/api/store/orders`, { addressId: ncPrep.addr, idempotencyKey: "ba6-k-prepcancel", expectedDeliveryFee: FEE }, null, H(ncPrep.tok));
     const idPrep = oPrep.body?.data?.order?.id;
     await post(`/api/admin/orders/${idPrep}/prepare`, {}, store.cookie);
     const resBeforePrepCx = await reservedOf(P330);
@@ -392,7 +453,7 @@ async function main() {
     t("admin-preparing-unpicked-200", admPrep.status === 200
       && num(await reservedOf(P330)) === num(resBeforePrepCx) - 1, `${admPrep.status}`);
   } finally {
-    // Hygiene: release + remove BA-6 rows (history → items → orders → carts → customers).
+    // Hygiene: release + remove BA-6 rows (history â†’ items â†’ orders â†’ carts â†’ customers).
     try {
       const ordRows = await db.query(
         `SELECT o.id FROM orders o JOIN customers c ON c.id = o.customer_id WHERE c.phone IN ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,

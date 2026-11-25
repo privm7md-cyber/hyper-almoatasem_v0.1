@@ -1,4 +1,4 @@
-// BA-9 admin API suite (scratch-only, needs built server pointed at DB).
+﻿// BA-9 admin API suite (scratch-only, needs built server pointed at DB).
 // Usage: node scripts/api/t-admin.mjs --db <name> --port <port>
 // Covers: users (list/get/create/patch/password/activate/roles), roles
 // (list/get/create/patch/delete/grants + SUPER_ADMIN protection),
@@ -6,7 +6,7 @@
 // (filters/pagination/immutability/no-secret payloads), and the full
 // anon/store/owner/roleless matrix (store lacks the 7 security keys).
 // All rows BA9-prefixed; users/roles removed in cleanup (audit history
-// stays by design — actors pinned, entities referenced by id only).
+// stays by design â€” actors pinned, entities referenced by id only).
 // Prints JSON, never passwords, hashes, or tokens.
 import "dotenv/config";
 import { extractSessionCookie } from "./_session-cookie.mjs";
@@ -27,7 +27,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_seed_20260923",
   "hyper_almoatasem_auth_20260923",
@@ -114,8 +117,12 @@ async function main() {
     t("logins-ok", owner.status === 201 && store.status === 201 && bare.status === 201);
 
     // ---------- users ----------
+    // Layout-proof decoupled from data ordering (Phase-14 A3 fix): the list
+    // endpoint must be authorized and leak no secrets; the OWNER row's
+    // retrievability is asserted through the search endpoint below, which is
+    // independent of residue rows shifting the default page.
     const ulist = await get(`/api/admin/users?limit=5`, owner.cookie);
-    t("users-list-200", ulist.status === 200 && ulist.body.data.some((u) => u.email === OWNER_EMAIL)
+    t("users-list-200", ulist.status === 200 && ulist.body.data.length >= 1
       && ulist.body.data.every((u) => noSecrets(u)));
     const uAnon = await get(`/api/admin/users?limit=5`);
     t("users-anon-401", uAnon.status === 401);
@@ -124,7 +131,8 @@ async function main() {
     const uBare = await get(`/api/admin/users?limit=5`, bare.cookie);
     t("users-bare-403", uBare.status === 403);
     const uSearch = await get(`/api/admin/users?search=${encodeURIComponent("owner@hyper")}&limit=5`, owner.cookie);
-    t("users-search-200", uSearch.status === 200 && uSearch.body.data.length >= 1);
+    t("users-search-200", uSearch.status === 200 && uSearch.body.data.some((u) => u.email === OWNER_EMAIL)
+      && uSearch.body.data.every((u) => noSecrets(u)));
     const uBadPage = await get(`/api/admin/users?limit=500`, owner.cookie);
     t("users-bad-page-400", uBadPage.status === 400);
     const uMiss = await get(`/api/admin/users/${UNKNOWN}`, owner.cookie);
@@ -303,7 +311,7 @@ async function main() {
     });
     t("audit-immutable", aPatch.status === 404 || aPatch.status === 405);
   } finally {
-    // Hygiene: remove BA-9 rows (mappings → users/roles). Audit history
+    // Hygiene: remove BA-9 rows (mappings â†’ users/roles). Audit history
     // stays by design (actors pinned, entities referenced by id only).
     // Sessions for removed users revoked first (RESTRICT pins actors).
     try {
@@ -316,7 +324,7 @@ async function main() {
         await db.query(`DELETE FROM user_roles WHERE user_id = $1`, [uid]).catch(() => {});
         await db.query(`DELETE FROM users WHERE id = $1`, [uid]).catch(() => {});
         // Entity-side rows for removed test users (BA-A: owner-actor history
-        // references entities by id only — drop this suite's own so later
+        // references entities by id only â€” drop this suite's own so later
         // audit-feed pages stay deterministic).
         await db.query(`DELETE FROM audit_logs WHERE entity_id = $1`, [uid]).catch(() => {});
       }

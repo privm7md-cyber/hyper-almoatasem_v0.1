@@ -30,9 +30,9 @@ export default async function RegisterPage({
         <div className="mt-3">
           <RegisterForm />
         </div>
-        <p className="mt-3 text-sm">
-          لديك حساب؟{" "}
-          <Link href={loginHref} className="font-semibold text-brand">
+        <p className="mt-3 flex items-center gap-1.5 text-sm">
+          <span>لديك حساب؟</span>
+          <Link href={loginHref} className="inline-flex min-h-[44px] items-center font-semibold text-brand">
             سجّل الدخول
           </Link>
         </p>

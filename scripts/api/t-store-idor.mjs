@@ -1,4 +1,4 @@
-// PHASE 2 IDOR + authentication-boundary audit (real PostgreSQL, scratch-only).
+﻿// PHASE 2 IDOR + authentication-boundary audit (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-store-idor.mjs --db <name> --port <port>
 // Proves, through the REAL routes: no customer can read/mutate/cancel/decide
 // another customer's cart, orders, replacements, addresses, or customer data;
@@ -9,6 +9,7 @@
 // Prints JSON, no secrets.
 import "dotenv/config";
 import { Client } from "pg";
+import { baseDeliveryFee } from "./_fee.mjs";
 
 const args = process.argv.slice(2);
 const dbFlag = args.indexOf("--db");
@@ -25,7 +26,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -60,6 +64,12 @@ async function main() {
   const db = new Client({ connectionString: scratchUrl, connectionTimeoutMillis: 5000 });
   await db.connect();
   const q = async (sql, params = []) => (await db.query(sql, params)).rows;
+  // D2: the delivery fee the server resolves for the seeded fixtures. The
+  // storefront asserts the fee it reviewed on every NEW order; the server
+  // value always wins and a mismatch is rejected with 409 DELIVERY_FEE_CHANGED.
+  // `delivery_zones` is admin-managed and empty in the seed, so the base
+  // setting IS the resolved fee â€” the helper asserts that precondition.
+  const FEE = await baseDeliveryFee(q, t);
 
   const jcall = async (method, path, body, headers = {}) => {
     const r = await fetch(`${baseUrl}${path}`, {
@@ -134,7 +144,7 @@ async function main() {
     t("addr-B-delete-404", dAddrB.status === 404, `${dAddrB.status}`);
 
     // ---------- orders: A checks out, B cannot read/cancel ----------
-    const oA = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("a") }, H(sA.tok));
+    const oA = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("a"), expectedDeliveryFee: FEE }, H(sA.tok));
     const idOrdA = oA.body?.data?.order?.id ?? null;
     t("order-A-201", oA.status === 201 && !!idOrdA, `${oA.status}`);
     const gOrdB = await get(`/api/store/orders/${idOrdA}`, H(sB.tok));
@@ -142,7 +152,7 @@ async function main() {
     t("order-B-get-404", gOrdB.status === 404, `${gOrdB.status}`);
     t("order-B-cancel-404", cOrdB.status === 404, `${cOrdB.status}`);
     // Forged customerId claims are rejected as unknown fields (strict), never honored.
-    const claimOrder = await post(`/api/store/orders`, { customerId: sB.id, addressId: idAddrA, idempotencyKey: key("claim") }, H(sA.tok));
+    const claimOrder = await post(`/api/store/orders`, { customerId: sB.id, addressId: idAddrA, idempotencyKey: key("claim"), expectedDeliveryFee: FEE }, H(sA.tok));
     t("order-customerId-claim-400", claimOrder.status === 400, `${claimOrder.status}`);
     const claimCancel = await post(`/api/store/orders/${idOrdA}/cancel`, { customerId: sB.id }, H(sA.tok));
     t("cancel-customerId-claim-400", claimCancel.status === 400, `${claimCancel.status}`);
@@ -152,7 +162,7 @@ async function main() {
     t("estimate-customerId-claim-400", claimEst.status === 400, `${claimEst.status}`);
 
     // ---------- replacements: B cannot list on A's real order ----------
-    // (A's order exists → 404 proves foreign-rejection, not just unknown.
+    // (A's order exists â†’ 404 proves foreign-rejection, not just unknown.
     // Decide-side foreign rejection is covered in t-replacements.)
     const repListB = await get(`/api/store/orders/${idOrdA}/replacements`, H(sB.tok));
     t("repl-B-list-404", repListB.status === 404, `${repListB.status}`);
@@ -166,7 +176,7 @@ async function main() {
     const tokG = gG.body?.data?.guestToken;
     const gidG = gG.body?.data?.cart?.id;
     await post(`/api/store/cart/items`, { productVariantId: P330, quantity: "1" }, { "x-guest-token": tokG });
-    const gCo = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("guest") }, { "x-guest-token": tokG });
+    const gCo = await post(`/api/store/orders`, { addressId: idAddrA, idempotencyKey: key("guest"), expectedDeliveryFee: FEE }, { "x-guest-token": tokG });
     t("checkout-guest-addressId-400", gCo.status === 400, `${gCo.status}`);
     await db.query(`DELETE FROM cart_items WHERE cart_id = $1`, [gidG]).catch(() => {});
     await db.query(`DELETE FROM carts WHERE id = $1`, [gidG]).catch(() => {});

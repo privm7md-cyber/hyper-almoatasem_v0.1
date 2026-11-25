@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
 import { fail, ok } from "@/lib/api/respond";
-import { adminOrDenyAll, denyUnlessAll } from "@/lib/api/route-auth";
+import { adminOrDenyAll } from "@/lib/api/route-auth";
 import { uuidSchema } from "@/lib/api/validation";
 import { variantPatchSchema } from "@/lib/catalog/validation";
 import { getVariant } from "@/lib/catalog/queries";
@@ -15,8 +15,8 @@ import { toAdminVariant } from "@/lib/catalog/serialize";
 import { emptyPatchResponse, isEmptyPatchBody } from "@/lib/api/patch";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  const denied = await denyUnlessAll(["products.view", "prices.view"]);
-  if (denied) return denied;
+  const gate = await adminOrDenyAll(["products.view", "prices.view"]);
+  if ("denied" in gate) return gate.denied;
   const { id } = await context.params;
   if (!uuidSchema.safeParse(id).success) {
     const r = fail(new ApiError("VALIDATION", "Invalid variant id."));
@@ -27,7 +27,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const r = fail(new ApiError("NOT_FOUND", "Variant not found."));
     return NextResponse.json(r.body, { status: r.status });
   }
-  const r = ok(toAdminVariant(row));
+  const r = ok(toAdminVariant(row, gate.admin.permissions));
   return NextResponse.json(r.body, { status: r.status });
 }
 
@@ -69,7 +69,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const r = fail(new ApiError("NOT_FOUND", "Variant not found."));
       return NextResponse.json(r.body, { status: r.status });
     }
-    const r = ok(toAdminVariant(row));
+    const r = ok(toAdminVariant(row, gate.admin.permissions));
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {
     const r = fail(error);

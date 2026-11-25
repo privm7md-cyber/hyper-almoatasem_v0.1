@@ -5,6 +5,11 @@
 // services, enforcement in the database. Zod only — no new library.
 import { z } from "zod";
 
+// P12-07 SEC-07: Disable Zod v4 `new Function("")` JIT codegen probe before any
+// `z.object(...)` schema is evaluated in shared/client-imported modules so
+// strict CSP (`script-src` without `'unsafe-eval'`) never emits eval violations.
+z.config({ jitless: true });
+
 /** UUID path/body field (frozen PK shape everywhere). */
 export const uuidSchema = z.string().uuid();
 

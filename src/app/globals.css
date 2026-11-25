@@ -39,36 +39,102 @@
   --overlay-scrim: rgba(27, 21, 48, 0.5);
   --focus-ring: var(--brand-purple);
 
-  /* Shape / elevation / motion / layers (FP-10 §13, DS §2). */
-  --radius-control: 8px;
-  --radius-card: 12px;
-  --radius-dialog: 16px;
+  /* Shape / radius (P12-01 unified hierarchy: controls 10px, cards 14px, dialogs 18px). */
+  --radius-xs: 6px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-dialog: 18px;
+  --radius-panel: 18px;
   --radius-badge: 9999px;
+
+  /* Surface levels & border semantics. */
+  --surface-canvas: var(--surface-subtle);
+  --surface-elevated: #ffffff;
+  --surface-sunken: #f1eff6;
+  --surface-interactive-hover: color-mix(in srgb, var(--surface-purple) 65%, #ffffff);
+  --surface-interactive-active: var(--surface-purple);
+  --border-subtle: #eeebf5;
+  --border-interactive: var(--border-strong);
+  --border-focus: var(--brand-purple);
+  --border-brand-tint: color-mix(in srgb, var(--brand-purple) 22%, transparent);
+  --border-accent-tint: color-mix(in srgb, var(--brand-orange) 28%, transparent);
+
+  /* Focus ring system. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-alpha: color-mix(in srgb, var(--brand-purple) 22%, transparent);
+  --focus-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-purple) 20%, transparent);
+
+  /* Elevation scale. */
+  --shadow-xs: 0 1px 2px rgba(27, 21, 48, 0.04);
   --shadow-subtle: 0 1px 2px rgba(27, 21, 48, 0.06);
+  --shadow-card: 0 2px 8px rgba(27, 21, 48, 0.06), 0 1px 2px rgba(27, 21, 48, 0.04);
   --shadow-elevated: 0 8px 24px rgba(27, 21, 48, 0.16);
   --shadow-lift: 0 10px 30px rgba(27, 21, 48, 0.1);
+  --shadow-dialog: 0 20px 48px rgba(27, 21, 48, 0.2), 0 6px 16px rgba(27, 21, 48, 0.1);
+
+  /* Interactive & motion tokens (aligned with src/lib/motion-tokens.ts). */
   --motion-micro: 120ms;
+  --motion-fast: 170ms;
   --motion-short: 200ms;
+  --motion-normal: 250ms;
   --motion-med: 320ms;
+  --motion-surface: 340ms;
+  --motion-enter: 460ms;
   --motion-section: 520ms;
   --motion-hero: 640ms;
   --motion-ease: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-symmetric: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --ink-purple-deep: color-mix(in srgb, var(--brand-purple) 82%, var(--text-ink));
   --ink-purple-soft: color-mix(in srgb, var(--brand-purple) 55%, var(--text-ink));
+  --state-brand-hover: var(--ink-purple-deep);
+  --state-brand-active: var(--ink-purple-soft);
+  --state-secondary-hover: var(--surface-purple);
+  --state-secondary-active: color-mix(in srgb, var(--surface-purple) 80%, var(--border-default));
+  --state-danger-hover: color-mix(in srgb, var(--status-error) 86%, var(--text-ink));
+  --state-danger-active: color-mix(in srgb, var(--status-error) 74%, var(--text-ink));
+  --scale-press: 0.985;
   --z-sticky: 10;
   --z-drawer: 40;
   --z-dialog: 50;
   --z-toast: 60;
   --opacity-disabled: 0.55;
 
-  /* Spacing base (4px system, FP-10 §10). */
+  /* Spacing & container hierarchy (4px base system, FP-10 §10). */
+  --space-2xs: 2px;
   --space-xs: 4px;
   --space-sm: 8px;
+  --space-compact: 12px;
   --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
+  --space-section: 40px;
   --space-2xl: 48px;
+  --space-3xl: 64px;
+  --container-sm: 560px;
+  --container-md: 1200px;
+  --container-lg: 1280px;
+  --target-min: 44px;
+
+  /* Typography hierarchy (Cairo UI scale). */
+  --text-display-size: clamp(1.75rem, 2.5vw + 1rem, 2.5rem);
+  --text-h1-size: clamp(1.375rem, 1.2vw + 1.1rem, 1.75rem);
+  --text-h2-size: clamp(1.15rem, 0.8vw + 0.95rem, 1.375rem);
+  --text-h3-size: 1.0625rem;
+  --text-body-size: 1rem;
+  --text-sm-size: 0.875rem;
+  --text-xs-size: 0.75rem;
+  --leading-tight: 1.3;
+  --leading-heading: 1.35;
+  --leading-body: 1.65;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
 }
 
 @theme inline {
@@ -83,27 +149,131 @@
   --color-success-ink: var(--status-success-ink);
   --color-focus: var(--focus-ring);
   --color-line: var(--border-default);
+  --color-line-subtle: var(--border-subtle);
   --color-line-strong: var(--border-strong);
   --color-purple-surface: var(--surface-purple);
   --color-orange-surface: var(--surface-orange);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-sunken: var(--surface-sunken);
   --color-warning-fg: var(--warning-fg);
   /* DS-07 hygiene: utilities read the same-name token value defined on :root;
      only one theme key per namespace entry. */
   --z-toast: var(--z-toast);
+  --shadow-xs: var(--shadow-xs);
   --shadow-subtle: var(--shadow-subtle);
+  --shadow-card: var(--shadow-card);
   --shadow-elevated: var(--shadow-elevated);
+  --shadow-lift: var(--shadow-lift);
+  --shadow-dialog: var(--shadow-dialog);
+  --radius-xs: var(--radius-xs);
   --radius-control: var(--radius-control);
   --radius-card: var(--radius-card);
   --radius-dialog: var(--radius-dialog);
+  --radius-panel: var(--radius-panel);
   --radius-badge: var(--radius-badge);
-  --font-sans: var(--font-cairo);
+  --font-sans: var(--font-cairo), "Cairo Arabic Fallback", "Cairo Arabic System Fallback", "Cairo Space Fallback", "Cairo Latin Fallback", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
+}
+
+/* Metric-calibrated font fallback stack matching Cairo's Arabic, word-space, and Latin
+   advance widths plus vertical ascent/descent (`130.3%` / `57.1%` effective EM height) so cold
+   font swaps preserve line breaks across mobile (320-430px) and desktop viewports. */
+@font-face {
+  font-family: "Cairo Space Fallback";
+  src: local("Arial"), local("Tahoma");
+  font-style: normal;
+  font-weight: 400 900;
+  unicode-range: U+0020;
+  size-adjust: 65%;
+  ascent-override: 200.4%;
+  descent-override: 87.8%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Cairo Arabic Fallback";
+  src: local("Tahoma");
+  font-style: normal;
+  font-weight: 400 500;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+  size-adjust: 100%;
+  ascent-override: 130.3%;
+  descent-override: 57.1%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Cairo Arabic Fallback";
+  src: local("Tahoma Bold"), local("Tahoma");
+  font-style: normal;
+  font-weight: 600;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+  size-adjust: 90%;
+  ascent-override: 144.8%;
+  descent-override: 63.4%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Cairo Arabic Fallback";
+  src: local("Tahoma Bold"), local("Tahoma");
+  font-style: normal;
+  font-weight: 700;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+  size-adjust: 91%;
+  ascent-override: 143.2%;
+  descent-override: 62.7%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Cairo Arabic Fallback";
+  src: local("Tahoma Bold"), local("Tahoma");
+  font-style: normal;
+  font-weight: 800 900;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+  size-adjust: 97%;
+  ascent-override: 134.3%;
+  descent-override: 58.9%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Cairo Arabic System Fallback";
+  src: local("Geeza Pro"), local("Noto Sans Arabic"), local("Arial");
+  font-style: normal;
+  font-weight: 400 900;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+  size-adjust: 126%;
+  ascent-override: 103.4%;
+  descent-override: 45.3%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Cairo Latin Fallback";
+  src: local("Arial");
+  font-style: normal;
+  font-weight: 400 900;
+  unicode-range: U+0000-001F, U+0021-05FF, U+1E00-27FF;
+  size-adjust: 94.66%;
+  ascent-override: 137.65%;
+  descent-override: 60.32%;
+  line-gap-override: 0%;
+}
+
+html:root {
+  /* Guarantee `--font-cairo` never injects next/font's un-ranged `"Cairo Fallback"` ahead of `"Cairo Arabic Fallback"`. */
+  --font-cairo: "Cairo";
+  /* Keep focused targets / fragment jumps visible below sticky headers & above mobile fixed bars (WCAG 2.4.11). */
+  scroll-padding-top: 88px;
+  scroll-padding-bottom: 84px;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-cairo), system-ui, "Segoe UI", Tahoma, Arial, sans-serif;
+  font-family: var(--font-cairo), "Cairo Arabic Fallback", "Cairo Arabic System Fallback", "Cairo Space Fallback", "Cairo Latin Fallback", system-ui, "Segoe UI", Tahoma, Arial, sans-serif;
 }
 
 /* Visible keyboard focus everywhere (contract: never rely on color alone). */
@@ -144,8 +314,8 @@ body {
 
 @keyframes vxp-rise {
   from {
-    opacity: 0;
-    transform: translateY(14px);
+    opacity: 0.85;
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -155,7 +325,7 @@ body {
 
 @keyframes vxp-fade {
   from {
-    opacity: 0;
+    opacity: 0.85;
   }
   to {
     opacity: 1;
@@ -164,8 +334,8 @@ body {
 
 @keyframes vxp-scale-in {
   from {
-    opacity: 0;
-    transform: scale(0.96) translateY(10px);
+    opacity: 0.9;
+    transform: scale(0.98) translateY(8px);
   }
   to {
     opacity: 1;
@@ -174,22 +344,31 @@ body {
 }
 
 .hero-enter {
-  opacity: 0;
-  animation: vxp-rise var(--motion-hero) var(--motion-ease-soft) forwards;
+  opacity: 1;
+  animation: vxp-rise var(--motion-hero) var(--motion-ease-soft) both;
   animation-delay: var(--enter-delay, 0ms);
 }
 
 .hero-enter-fade {
-  opacity: 0;
-  animation: vxp-fade 900ms var(--motion-ease) forwards;
+  opacity: 1;
+  animation: vxp-fade 900ms var(--motion-ease) both;
   animation-delay: var(--enter-delay, 0ms);
 }
 
 .hero-enter-pop {
-  opacity: 0;
-  animation: vxp-scale-in 700ms var(--motion-ease-soft) forwards;
+  opacity: 1;
+  animation: vxp-scale-in 700ms var(--motion-ease-soft) both;
   animation-delay: var(--enter-delay, 0ms);
 }
+
+.hero-delay-60 { --enter-delay: 60ms; }
+.hero-delay-120 { --enter-delay: 120ms; }
+.hero-delay-180 { --enter-delay: 180ms; }
+.hero-delay-240 { --enter-delay: 240ms; }
+.hero-delay-260 { --enter-delay: 260ms; }
+.hero-delay-300 { --enter-delay: 300ms; }
+.hero-delay-320 { --enter-delay: 320ms; }
+.hero-delay-360 { --enter-delay: 360ms; }
 
 /* IntersectionObserver-driven section reveal (client Reveal wrapper). */
 [data-reveal] {
@@ -201,7 +380,7 @@ body {
 
 [data-reveal="pending"] {
   opacity: 0;
-  transform: translateY(18px);
+  transform: translateY(12px);
 }
 
 [data-reveal="in"] {
@@ -213,6 +392,64 @@ body {
 .no-io [data-reveal] {
   opacity: 1 !important;
   transform: none !important;
+}
+
+/* P12-02: Token-backed RTL drawer, backdrop, badge pulse & surface feedback. */
+@keyframes vxp-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vxp-drawer-rtl-in {
+  from {
+    opacity: 0.92;
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes vxp-cart-badge-pulse {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.vxp-backdrop-enter {
+  animation: vxp-backdrop-in var(--motion-short, 200ms) var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+.vxp-drawer-rtl-enter {
+  animation: vxp-drawer-rtl-in var(--motion-normal, 250ms) var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+[data-cart-pulse="true"] {
+  animation: vxp-cart-badge-pulse var(--motion-short, 200ms) var(--ease-standard, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+[data-subtotal-pulse="true"] {
+  background-color: color-mix(in srgb, var(--surface-purple) 70%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vxp-backdrop-enter,
+  .vxp-drawer-rtl-enter,
+  [data-cart-pulse="true"] {
+    animation: none !important;
+    transform: none !important;
+  }
 }
 
 /* Reusable interactive-card treatment (category tiles, product cards). */
@@ -269,4 +506,38 @@ body {
 .vxp-accent-btn:active {
   transform: translateY(1px);
   filter: brightness(0.97);
+}
+
+/* ======================================================================
+ * Closure perf run (2026-11-06): shimmer loading skeletons.
+ * Layout-contrast to the web platform: a plain background-COLOR block is
+ * NOT an LCP candidate; a block with a background-IMAGE is. Shimmer
+ * skeletons therefore carry the page LCP while their client island loads
+ * (cart / checkout), instead of late post-hydration content winning LCP.
+ * The skeleton is decorative: keep it inside an aria-busy container and
+ * honor prefers-reduced-motion (a static gradient is still an LCP candidate).
+ * ====================================================================== */
+.vxp-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, white 55%, transparent) 50%,
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+  background-size: 200% 100%;
+  animation: vxp-shimmer-slide 1.4s linear infinite;
+}
+@keyframes vxp-shimmer-slide {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vxp-shimmer {
+    animation: none;
+  }
 }

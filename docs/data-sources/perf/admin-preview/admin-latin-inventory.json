@@ -1,0 +1,2212 @@
+{
+  "baseUrl": "http://localhost:3132",
+  "routes": {
+    "/admin": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003825"
+        },
+        {
+          "tag": "td",
+          "cls": "",
+          "text": "Expiry Probe"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003824"
+        },
+        {
+          "tag": "td",
+          "cls": "",
+          "text": "Verification Run"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003823"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003822"
+        }
+      ]
+    },
+    "/admin/orders": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003825"
+        },
+        {
+          "tag": "td",
+          "cls": "",
+          "text": "Expiry Probe"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003824"
+        },
+        {
+          "tag": "td",
+          "cls": "",
+          "text": "Verification Run"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003823"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "HM-20261030-003822"
+        }
+      ]
+    },
+    "/admin/products": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4bqn3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4lpj3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4lwzb"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6qvzh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6r3uo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6u71m"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk7sdds"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk8w1cn"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mun87jab"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muoomk35"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mupxwj1j"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muq9dbug"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqphen5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqt75ch"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqwiczm"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqze6ia"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat murd1fl8"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat murfp3zo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat musqd0p3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muswcras"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat musyg2gd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mut2thsw"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muu90tjh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muuhws5s"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muvv0l32"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mux4s355"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxjupra"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxlq9q5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxpa9nd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mv00b16k"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwlnw9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwm2sf"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwxwlr"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwyll4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxa0i5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxiw0e"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxjted"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8n5li"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8ohiw"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8oyhu"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqoccii"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqocpas"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqoebo6"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqt869q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqt91jt"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqta3ax"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqvoe9z"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz64o4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz75s4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz94k7"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz9yor"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqzawmo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musqzpi7"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswjl9c"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswkcgt"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswl1ye"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyo53q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyp4wf"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyprmz"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mut32e8n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mut33x7l"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muu98xz9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muuj81n5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxel7my"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxpew4q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxpfpt1"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxphlu0"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00jnzj"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00kcww"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00tt35"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Cat Test mvjhgra3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvj9vnyg"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvj9yj27"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvja5a0n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjabjm9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjajrsu"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjbp156"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgo91y"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgs647"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgtm2v"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjhpjnh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjhsrkl"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjnj1ws"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjnmzxd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjp1rgd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjp4p8u"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAAC X mun6kh2n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAAC X mun6kuo1"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Pepsi"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-ui-mvjp4p8u"
+        },
+        {
+          "tag": "span",
+          "cls": "",
+          "text": "BA11A Cat muk4bqn3"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-ui-mvjp1rgd"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-ui-mvjnmzxd"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-ui-mvjnj1ws"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-ui-mvjhsrkl"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-ui-mvjhpjnh"
+        }
+      ]
+    },
+    "/admin/products/new": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4bqn3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4lpj3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4lwzb"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6qvzh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6r3uo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6u71m"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk7sdds"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk8w1cn"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mun87jab"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muoomk35"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mupxwj1j"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muq9dbug"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqphen5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqt75ch"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqwiczm"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqze6ia"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat murd1fl8"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat murfp3zo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat musqd0p3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muswcras"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat musyg2gd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mut2thsw"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muu90tjh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muuhws5s"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muvv0l32"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mux4s355"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxjupra"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxlq9q5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxpa9nd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mv00b16k"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwlnw9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwm2sf"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwxwlr"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwyll4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxa0i5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxiw0e"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxjted"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8n5li"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8ohiw"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8oyhu"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqoccii"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqocpas"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqoebo6"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqt869q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqt91jt"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqta3ax"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqvoe9z"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz64o4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz75s4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz94k7"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz9yor"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqzawmo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musqzpi7"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswjl9c"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswkcgt"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswl1ye"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyo53q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyp4wf"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyprmz"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mut32e8n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mut33x7l"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muu98xz9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muuj81n5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxel7my"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxpew4q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxpfpt1"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxphlu0"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00jnzj"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00kcww"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00tt35"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Cat Test mvjhgra3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvj9vnyg"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvj9yj27"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvja5a0n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjabjm9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjajrsu"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjbp156"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgo91y"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgs647"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgtm2v"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjhpjnh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjhsrkl"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjnj1ws"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjnmzxd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjp1rgd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjp4p8u"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAAC X mun6kh2n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAAC X mun6kuo1"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Pepsi"
+        }
+      ]
+    },
+    "/admin/taxonomy": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk4bqn3"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk4lpj3"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk4lwzb"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk6qvzh"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk6r3uo"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk6u71m"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk7sdds"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muk8w1cn"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat mun87jab"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muoomk35"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat mupxwj1j"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muq9dbug"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muqphen5"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muqt75ch"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muqwiczm"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muqze6ia"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat murd1fl8"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat murfp3zo"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat musqd0p3"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BA11A Cat muswcras"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4bqn3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4lpj3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk4lwzb"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6qvzh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6r3uo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk6u71m"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk7sdds"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muk8w1cn"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mun87jab"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muoomk35"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mupxwj1j"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muq9dbug"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqphen5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqt75ch"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqwiczm"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muqze6ia"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat murd1fl8"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat murfp3zo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat musqd0p3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muswcras"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat musyg2gd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mut2thsw"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muu90tjh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muuhws5s"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muvv0l32"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mux4s355"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxjupra"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxlq9q5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat muxpa9nd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BA11A Cat mv00b16k"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwlnw9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwm2sf"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwxwlr"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupwyll4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxa0i5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxiw0e"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mupxjted"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8n5li"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8ohiw"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muq8oyhu"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqoccii"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqocpas"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqoebo6"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqt869q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqt91jt"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqta3ax"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqvoe9z"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz64o4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz75s4"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz94k7"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqz9yor"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muqzawmo"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musqzpi7"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswjl9c"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswkcgt"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muswl1ye"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyo53q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyp4wf"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P musyprmz"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mut32e8n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mut33x7l"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muu98xz9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muuj81n5"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxel7my"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxpew4q"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxpfpt1"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P muxphlu0"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00jnzj"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00kcww"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAB Tree P mv00tt35"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Cat Test mvjhgra3"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvj9vnyg"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvj9yj27"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvja5a0n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjabjm9"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjajrsu"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjbp156"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgo91y"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgs647"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjgtm2v"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjhpjnh"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjhsrkl"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjnj1ws"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjnmzxd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjp1rgd"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "phase10-ui-cat-mvjp4p8u"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BAAC X mun6kh2n"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "BAAC X mun6kuo1"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "Pepsi"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAAC X mun6kh2n"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "BAAC X mun6kuo1"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Pepsi"
+        }
+      ]
+    },
+    "/admin/inventory": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "Pepsi"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-sub",
+          "text": "330 ML"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-sub",
+          "text": "1 L"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-sub",
+          "text": "2.5 L"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-sub",
+          "text": "KG"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "Pepsi"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "330 ML"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "1 L"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "2.5 L"
+        },
+        {
+          "tag": "option",
+          "cls": "",
+          "text": "KG"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "Pepsi"
+        }
+      ]
+    },
+    "/admin/promotions": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-g05-mvjhtaek"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-g05-mvjnjljo"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-g05-mvjnnhdo"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-g05-mvjp273l"
+        },
+        {
+          "tag": "a",
+          "cls": "adm-cell-title",
+          "text": "phase10-g05-mvjp54v4"
+        }
+      ]
+    },
+    "/admin/coupons": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        }
+      ]
+    },
+    "/admin/customers": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "P13RC"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "P13RB"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "P13RA"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "P10 E2E"
+        }
+      ]
+    },
+    "/admin/users": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "P10 Probe"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custwriter-mvjp4z9m@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custreader-mvjp4z9m@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-pricewriter-mvjp4z9m@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-pricereader-mvjp4z9m@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-viewer-mvjp4p8u@example.com"
+        },
+        {
+          "tag": "a",
+          "cls": "",
+          "text": "P10 Store"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-store-mvjp4p8u@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custwriter-mvjp21wb@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custreader-mvjp21wb@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-pricewriter-mvjp21wb@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-pricereader-mvjp21wb@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-viewer-mvjp1rgd@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-store-mvjp1rgd@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custwriter-mvjnnatn@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custreader-mvjnnatn@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-pricewriter-mvjnnatn@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-pricereader-mvjnnatn@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-viewer-mvjnmzxd@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-store-mvjnmzxd@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custwriter-mvjnjec1@example.com"
+        },
+        {
+          "tag": "bdi",
+          "cls": "",
+          "text": "p10e2e-custreader-mvjnjec1@example.com"
+        }
+      ]
+    },
+    "/admin/roles": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        }
+      ]
+    },
+    "/admin/permissions": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "products.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "products.create"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "products.update"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "products.delete"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "prices.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "prices.update"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "inventory.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "inventory.adjust"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "orders.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "orders.update"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "orders.cancel"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "customers.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "customers.manage"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "promotions.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "promotions.create"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "promotions.update"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "promotions.disable"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "coupons.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "coupons.create"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "coupons.update"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "coupons.disable"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "delivery.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "delivery.assign"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "users.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "users.manage"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "roles.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "roles.manage"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "settings.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "settings.manage"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "audit_logs.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "reports.view"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "notifications.view"
+        }
+      ]
+    },
+    "/admin/settings": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "EGP"
+        },
+        {
+          "tag": "span",
+          "cls": "",
+          "text": "store@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "span",
+          "cls": "",
+          "text": "Hyper Al-Moatasem"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-id",
+          "text": "Africa/Cairo"
+        }
+      ]
+    },
+    "/admin/delivery-zones": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        }
+      ]
+    },
+    "/admin/audit-logs": {
+      "status": 200,
+      "hits": [
+        {
+          "tag": "span",
+          "cls": "adm-rail-user-mail",
+          "text": "owner@hyper-al-moatasem.local"
+        },
+        {
+          "tag": "span",
+          "cls": "adm-cell-title",
+          "text": "System Owner"
+        }
+      ]
+    }
+  },
+  "buckets": {
+    "معرّف: بريد إلكتروني": {
+      "count": 36,
+      "samples": [
+        "owner@hyper-al-moatasem.local",
+        "p10e2e-custwriter-mvjp4z9m@example.com",
+        "p10e2e-custreader-mvjp4z9m@example.com",
+        "p10e2e-pricewriter-mvjp4z9m@example.com",
+        "p10e2e-pricereader-mvjp4z9m@example.com"
+      ],
+      "routes": [
+        "/admin",
+        "/admin/orders",
+        "/admin/products",
+        "/admin/products/new",
+        "/admin/taxonomy",
+        "/admin/inventory",
+        "/admin/promotions",
+        "/admin/coupons",
+        "/admin/customers",
+        "/admin/users",
+        "/admin/roles",
+        "/admin/permissions",
+        "/admin/settings",
+        "/admin/delivery-zones",
+        "/admin/audit-logs"
+      ]
+    },
+    "معرّف: رقم طلب": {
+      "count": 8,
+      "samples": [
+        "HM-20261030-003825",
+        "HM-20261030-003824",
+        "HM-20261030-003823",
+        "HM-20261030-003822"
+      ],
+      "routes": [
+        "/admin",
+        "/admin/orders"
+      ]
+    },
+    "اسم محفوظ (عميل أو حساب فريق أو ملاحظة طلب)": {
+      "count": 23,
+      "samples": [
+        "Expiry Probe",
+        "Verification Run",
+        "Pepsi",
+        "phase10-g05-mvjhtaek",
+        "phase10-g05-mvjnjljo"
+      ],
+      "routes": [
+        "/admin",
+        "/admin/orders",
+        "/admin/products",
+        "/admin/products/new",
+        "/admin/taxonomy",
+        "/admin/inventory",
+        "/admin/promotions",
+        "/admin/customers",
+        "/admin/users",
+        "/admin/audit-logs"
+      ]
+    },
+    "اسم محفوظ في الكتالوج": {
+      "count": 293,
+      "samples": [
+        "BA11A Cat muk4bqn3",
+        "BA11A Cat muk4lpj3",
+        "BA11A Cat muk4lwzb",
+        "BA11A Cat muk6qvzh",
+        "BA11A Cat muk6r3uo"
+      ],
+      "routes": [
+        "/admin/products",
+        "/admin/products/new",
+        "/admin/taxonomy"
+      ]
+    },
+    "رمز تجاري: وحدة قياس": {
+      "count": 8,
+      "samples": [
+        "330 ML",
+        "1 L",
+        "2.5 L",
+        "KG"
+      ],
+      "routes": [
+        "/admin/inventory"
+      ]
+    },
+    "معرّف: مفتاح صلاحية": {
+      "count": 32,
+      "samples": [
+        "products.view",
+        "products.create",
+        "products.update",
+        "products.delete",
+        "prices.view"
+      ],
+      "routes": [
+        "/admin/permissions"
+      ]
+    },
+    "قيمة إعداد محفوظة": {
+      "count": 3,
+      "samples": [
+        "EGP",
+        "Hyper Al-Moatasem",
+        "Africa/Cairo"
+      ],
+      "routes": [
+        "/admin/settings"
+      ]
+    }
+  },
+  "total": 403,
+  "englishWrittenByThePanel": 0
+}

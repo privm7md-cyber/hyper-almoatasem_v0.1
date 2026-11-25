@@ -11,6 +11,7 @@
 // variant read route.
 import { NextResponse } from "next/server";
 import { ApiError } from "@/lib/api/errors";
+import { verifySameOrigin } from "@/lib/api/request-context";
 import { fail, ok } from "@/lib/api/respond";
 import { checkPermission } from "@/lib/auth/rbac";
 import { uuidSchema } from "@/lib/api/validation";
@@ -20,6 +21,10 @@ import { updateVariantPrice } from "@/lib/catalog/writes";
 import { toAdminVariant } from "@/lib/catalog/serialize";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!verifySameOrigin(request.headers, request.url)) {
+    const r = fail(new ApiError("FORBIDDEN", "Cross-origin mutation is not permitted."));
+    return NextResponse.json(r.body, { status: r.status });
+  }
   const auth = await checkPermission("prices.update");
   if (auth.ok === false) {
     const r = fail(
@@ -58,7 +63,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const r = fail(new ApiError("NOT_FOUND", "Variant not found."));
       return NextResponse.json(r.body, { status: r.status });
     }
-    const r = ok(toAdminVariant(full));
+    const r = ok(toAdminVariant(full, auth.admin.permissions));
     return NextResponse.json(r.body, { status: r.status });
   } catch (error) {
     const r = fail(error);

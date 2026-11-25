@@ -1,0 +1,180 @@
+▲ Next.js 16.3.8 (Turbopack)
+- Environments: .env.local, .env
+✓ Running next.config.ts took 94ms
+- Experiments (use with caution):
+  ✓ authInterrupts
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 8.4s
+  Running TypeScript ...
+  Finished TypeScript in 20.1s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/55) ...
+  Generating static pages using 7 workers (13/55) 
+  Generating static pages using 7 workers (27/55) 
+  Generating static pages using 7 workers (41/55) 
+✓ Generating static pages using 7 workers (55/55) in 3.2s
+  Finalizing page optimization ...
+
+Route (app)                                                     Revalidate  Expire
+┌ ƒ /
+├ ○ /_not-found
+├ ○ /about
+├ ƒ /account
+├ ƒ /account/addresses
+├ ƒ /admin
+├ ƒ /admin/audit-logs
+├ ƒ /admin/audit-logs/[id]
+├ ƒ /admin/coupons
+├ ƒ /admin/coupons/[id]
+├ ƒ /admin/customers
+├ ƒ /admin/customers/[id]
+├ ƒ /admin/delivery-zones
+├ ƒ /admin/inventory
+├ ƒ /admin/login
+├ ƒ /admin/orders
+├ ƒ /admin/orders/[id]
+├ ƒ /admin/permissions
+├ ƒ /admin/products
+├ ƒ /admin/products/[id]
+├ ƒ /admin/products/new
+├ ƒ /admin/promotions
+├ ƒ /admin/promotions/[id]
+├ ƒ /admin/roles
+├ ƒ /admin/roles/[id]
+├ ƒ /admin/settings
+├ ƒ /admin/taxonomy
+├ ƒ /admin/users
+├ ƒ /admin/users/[id]
+├ ƒ /api/admin/audit-logs
+├ ƒ /api/admin/audit-logs/[id]
+├ ƒ /api/admin/catalog/brands
+├ ƒ /api/admin/catalog/brands/[id]
+├ ƒ /api/admin/catalog/categories
+├ ƒ /api/admin/catalog/categories/[id]
+├ ƒ /api/admin/catalog/codes
+├ ƒ /api/admin/catalog/codes/[id]
+├ ƒ /api/admin/catalog/images/[id]
+├ ƒ /api/admin/catalog/products
+├ ƒ /api/admin/catalog/products/[id]
+├ ƒ /api/admin/catalog/products/[id]/images
+├ ƒ /api/admin/catalog/products/[id]/variants
+├ ƒ /api/admin/catalog/variants/[id]
+├ ƒ /api/admin/catalog/variants/[id]/price
+├ ƒ /api/admin/coupons
+├ ƒ /api/admin/coupons/[id]
+├ ƒ /api/admin/coupons/[id]/usages
+├ ƒ /api/admin/customers
+├ ƒ /api/admin/customers/[id]
+├ ƒ /api/admin/customers/[id]/addresses
+├ ƒ /api/admin/customers/[id]/addresses/[addressId]
+├ ƒ /api/admin/customers/[id]/register
+├ ƒ /api/admin/delivery-zones
+├ ƒ /api/admin/delivery-zones/[id]
+├ ƒ /api/admin/inventory
+├ ƒ /api/admin/inventory/[variantId]
+├ ƒ /api/admin/inventory/adjust
+├ ƒ /api/admin/inventory/commit
+├ ƒ /api/admin/inventory/initialize
+├ ƒ /api/admin/inventory/movements
+├ ƒ /api/admin/inventory/movements/[id]
+├ ƒ /api/admin/inventory/release
+├ ƒ /api/admin/inventory/reserve
+├ ƒ /api/admin/orders
+├ ƒ /api/admin/orders/[id]
+├ ƒ /api/admin/orders/[id]/cancel
+├ ƒ /api/admin/orders/[id]/credential/revoke
+├ ƒ /api/admin/orders/[id]/credential/rotate
+├ ƒ /api/admin/orders/[id]/deliver
+├ ƒ /api/admin/orders/[id]/dispatch
+├ ƒ /api/admin/orders/[id]/items/[itemId]/pick
+├ ƒ /api/admin/orders/[id]/items/[itemId]/replacements
+├ ƒ /api/admin/orders/[id]/items/[itemId]/unavailable
+├ ƒ /api/admin/orders/[id]/prepare
+├ ƒ /api/admin/orders/[id]/ready
+├ ƒ /api/admin/orders/[id]/replacements
+├ ƒ /api/admin/permissions
+├ ƒ /api/admin/permissions/[id]
+├ ƒ /api/admin/promotions
+├ ƒ /api/admin/promotions/[id]
+├ ƒ /api/admin/promotions/[id]/buy-get
+├ ƒ /api/admin/promotions/[id]/rules
+├ ƒ /api/admin/promotions/[id]/targets
+├ ƒ /api/admin/promotions/[id]/targets/[targetId]
+├ ƒ /api/admin/replacements/[id]/auto-accept
+├ ƒ /api/admin/replacements/[id]/withdraw
+├ ƒ /api/admin/roles
+├ ƒ /api/admin/roles/[id]
+├ ƒ /api/admin/roles/[id]/grants
+├ ƒ /api/admin/roles/[id]/grants/[permissionId]
+├ ƒ /api/admin/roles/[id]/members
+├ ƒ /api/admin/session
+├ ƒ /api/admin/settings
+├ ƒ /api/admin/settings/[key]
+├ ƒ /api/admin/users
+├ ƒ /api/admin/users/[id]
+├ ƒ /api/admin/users/[id]/password
+├ ƒ /api/admin/users/[id]/roles
+├ ƒ /api/admin/users/[id]/roles/[roleId]
+├ ƒ /api/health
+├ ƒ /api/store/cart
+├ ƒ /api/store/cart/items
+├ ƒ /api/store/cart/items/[variantId]
+├ ƒ /api/store/cart/merge
+├ ƒ /api/store/cart/reprice
+├ ƒ /api/store/catalog/brands
+├ ƒ /api/store/catalog/brands/[id]
+├ ƒ /api/store/catalog/categories
+├ ƒ /api/store/catalog/categories/[id]
+├ ƒ /api/store/catalog/codes/lookup
+├ ƒ /api/store/catalog/products
+├ ƒ /api/store/catalog/products/[id]
+├ ƒ /api/store/catalog/products/[id]/images
+├ ƒ /api/store/catalog/products/[id]/variants
+├ ƒ /api/store/catalog/search
+├ ƒ /api/store/catalog/variants/[id]
+├ ƒ /api/store/customers/addresses
+├ ƒ /api/store/customers/addresses/[addressId]
+├ ƒ /api/store/customers/identify
+├ ƒ /api/store/customers/password
+├ ƒ /api/store/customers/register
+├ ƒ /api/store/customers/session
+├ ƒ /api/store/inventory/products/[id]
+├ ƒ /api/store/inventory/variants/[id]
+├ ƒ /api/store/orders
+├ ƒ /api/store/orders/[id]
+├ ƒ /api/store/orders/[id]/cancel
+├ ƒ /api/store/orders/[id]/replacements
+├ ƒ /api/store/orders/[id]/replacements/[replacementId]/decide
+├ ƒ /api/store/orders/checkout-session
+├ ƒ /api/store/orders/estimate
+├ ƒ /brand/[id]/[slug]
+├ ƒ /brands
+├ ƒ /c/[id]/[slug]
+├ ○ /cancellation
+├ ƒ /cart
+├ ƒ /categories
+├ ƒ /checkout
+├ ○ /contact
+├ ○ /delivery
+├ ○ /faq
+├ ƒ /login
+├ ○ /opengraph-image
+├ ƒ /order-confirmation/[id]
+├ ○ /order-help
+├ ƒ /orders
+├ ƒ /orders/[id]
+├ ƒ /p/[id]/[slug]
+├ ƒ /register
+├ ○ /replacement
+├ ○ /robots.txt
+├ ƒ /search
+└ ○ /sitemap.xml                                                        1h      1y
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+

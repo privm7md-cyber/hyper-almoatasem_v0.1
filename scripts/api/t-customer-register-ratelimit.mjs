@@ -1,4 +1,4 @@
-// G5 registration rate-limit verification (real PostgreSQL, scratch-only).
+﻿// G5 registration rate-limit verification (real PostgreSQL, scratch-only).
 // Usage: node scripts/api/t-customer-register-ratelimit.mjs --db <name> --port <port>
 // Server under test MUST run with REG_RATE_LIMIT_PHONE_SECRET=<TEST_SECRET below>;
 // phone bucket keys are HMAC-bound (plain-SHA-256 keys are rejected as evidence).
@@ -28,7 +28,10 @@ const done = (code) => {
 };
 
 const ALLOWED = [
+  "hyper_almoatasem_p12full_execution",
   "hyper_almoatasem_scratch",
+  "hyper_almoatasem_e2e_20261106",
+  "hyper_almoatasem_closure_20261030",
   "hyper_almoatasem_scratch_official_20260923",
   "hyper_almoatasem_hardening_20260924",
   "hyper_almoatasem_staging_20260924",
@@ -38,7 +41,7 @@ const ALLOWED = [
 const P = (n) => `0109981${String(n).padStart(4, "0")}`;
 const CANON = (p) => "2010" + p.slice(3);
 // Deterministic harness-only test secret (never real; server under test must
-// run with this same REG_RATE_LIMIT_PHONE_SECRET — see suite header).
+// run with this same REG_RATE_LIMIT_PHONE_SECRET â€” see suite header).
 const TEST_SECRET = "9f".repeat(32);
 const DIGEST = (canon) => createHmac("sha256", Buffer.from(TEST_SECRET, "hex")).update(canon, "utf8").digest("hex");
 const PLAIN = (canon) => createHash("sha256").update(canon, "utf8").digest("hex");

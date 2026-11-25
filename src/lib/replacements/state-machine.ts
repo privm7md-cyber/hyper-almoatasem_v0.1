@@ -7,6 +7,8 @@
 // lines move PENDING→REPLACED (swap) or UNAVAILABLE→REPLACED (OOS);
 // both pairs are trigger-whitelisted in frozen SQL.
 
+import { priceToPiastres } from "@/lib/cart/totals";
+
 export const REPLACEMENT_STATUSES = [
   "PROPOSED",
   "CUSTOMER_APPROVED",
@@ -64,4 +66,28 @@ export function preConsentCovers(
   if (!consent) return false;
   if (diffCents <= 0) return true;
   return 10 * diffCents <= originalEstimateCents && diffCents <= 5000;
+}
+
+/** One row of the R5 pre-consent lookup (a replacement joined to the order's customer). */
+export interface PreConsentLookupRow {
+  consent: boolean;
+  diff: string;
+  est: string;
+}
+
+/**
+ * R5 coverage decision for the AUTO_ACCEPTED branch.
+ *
+ * The lookup joins the order's CUSTOMER row, so a guest order (customer_id IS
+ * NULL) produces no row at all. A guest order carries no pre-consent, so it is
+ * NOT covered and an explicit customer approval stays required — the same
+ * outcome the branch already answers for a customer who never consented.
+ */
+export function preConsentCovered(row: PreConsentLookupRow | undefined): boolean {
+  if (!row) return false;
+  return preConsentCovers(
+    row.consent === true,
+    priceToPiastres(row.diff),
+    priceToPiastres(row.est),
+  );
 }

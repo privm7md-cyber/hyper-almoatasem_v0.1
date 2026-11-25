@@ -75,4 +75,56 @@ describe("Reveal motion wrapper", () => {
     expect(box.dataset.reveal).toBe("pending");
     vi.unstubAllGlobals();
   });
+
+  it("reveals immediately when element starts inside lookahead band above fold+160px", () => {
+    const observe = vi.fn();
+    class FakeIO {
+      observe = observe;
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    }
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+    const origRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = () =>
+      ({ top: 900, bottom: 1300, left: 0, right: 1200, width: 1200, height: 400, x: 0, y: 900, toJSON: () => ({}) }) as DOMRect;
+    try {
+      render(
+        <Reveal>
+          <p>قريب من الطيّة</p>
+        </Reveal>,
+      );
+      const box = screen.getByText("قريب من الطيّة").closest("[data-reveal]") as HTMLElement;
+      expect(box.dataset.reveal).toBe("in");
+      expect(observe).not.toHaveBeenCalled();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = origRect;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("promotes pending reveal via bounded safety timer if observer never fires", () => {
+    vi.useFakeTimers();
+    const disconnect = vi.fn();
+    class FakeIO {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+    try {
+      render(
+        <Reveal>
+          <p>قسم مؤجل</p>
+        </Reveal>,
+      );
+      const box = screen.getByText("قسم مؤجل").closest("[data-reveal]") as HTMLElement;
+      expect(box.dataset.reveal).toBe("pending");
+      vi.advanceTimersByTime(200);
+      expect(box.dataset.reveal).toBe("in");
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
 });

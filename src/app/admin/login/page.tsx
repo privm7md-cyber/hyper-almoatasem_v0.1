@@ -1,22 +1,39 @@
+// ADMIN LOGIN — the only screen an operator sees before the session exists.
+//
+// It uses the same identity as the panel it opens (graphite + bone + jade),
+// and it explains itself: what this screen is, what it is for, and what to
+// do if the sign-in fails.
+
 import { redirect } from "next/navigation";
 import { getCurrentAdmin } from "@/lib/auth/rbac";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = {
-  title: "تسجيل الدخول",
+  title: "تسجيل دخول الإدارة",
   robots: { index: false, follow: false },
 };
 
 export default async function AdminLoginPage() {
   const admin = await getCurrentAdmin();
   if (admin) redirect("/admin");
+
   return (
-    <div dir="rtl" className="flex min-h-screen items-center justify-center bg-zinc-50">
-      <main className="w-full max-w-sm rounded-2xl bg-white p-8 shadow">
-        <h1 className="text-xl font-semibold">تسجيل دخول الإدارة</h1>
-        <p className="mt-1 text-sm text-zinc-600">هايبر المعتصم — لوحة الإدارة</p>
+    <div className="adm-login">
+      <section className="adm-login-card" aria-labelledby="admin-login-title">
+        <span className="adm-login-mark" aria-hidden="true">
+          ها
+        </span>
+        <div className="adm-login-copy">
+          <h1 id="admin-login-title" className="adm-login-title">تسجيل دخول الإدارة</h1>
+          <p className="adm-login-sub">
+            بوابة التشغيل المركزية لفريق هايبر المعتصم لإدارة الطلبات، المنتجات، المخزون، والعروض.
+          </p>
+        </div>
         <LoginForm />
-      </main>
+        <p className="adm-login-foot">
+          يتم إنشاء حسابات الفريق عبر مالك المتجر ولا يمكن التسجيل الذاتي من هذه الشاشة. عند نسيان البيانات، راجع مسؤول النظام.
+        </p>
+      </section>
     </div>
   );
 }

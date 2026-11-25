@@ -190,11 +190,8 @@ function matchingArmsSql(filter: SearchFilter): string {
      WHERE ${armsActive} AND hyper_norm_ar(c.name) % hyper_norm_ar($1)`;
 }
 
-/**
- * Text search over live products. Empty/blank queries are rejected by the
- * caller (400); normalized-to-empty likewise. Throws ApiError (400/404).
- */
-export async function searchProducts(rawQuery: string, filter: SearchFilter): Promise<SearchPage> {
+/** Shared candidate filters for the page and its actual total (never page length). */
+async function buildSearchWhere(rawQuery: string, filter: SearchFilter) {
   if (rawQuery.trim() === "") throw new ApiError("VALIDATION", "Search query is required.", null);
   // Param ownership is per-branch (every bound value MUST be referenced in
   // its SQL text — a dangling $N fails with 42P18 under the extended
@@ -219,26 +216,21 @@ export async function searchProducts(rawQuery: string, filter: SearchFilter): Pr
     if (filter.productType !== null && filter.productType !== undefined) {
       conds.push(push(`p.product_type = ?`, filter.productType));
     }
+    // Both bounds must match ONE sellable variant, not different variants.
+    const prices: string[] = [];
     if (filter.minPrice !== null && filter.minPrice !== undefined) {
-      conds.push(
-        push(
-          `EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id
-            AND v.is_active AND v.deleted_at IS NULL AND v.price >= ?::numeric)`,
-          filter.minPrice,
-        ),
-      );
+      prices.push(push(`v.price >= ?::numeric`, filter.minPrice));
     }
     if (filter.maxPrice !== null && filter.maxPrice !== undefined) {
-      conds.push(
-        push(
-          `EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id
-            AND v.is_active AND v.deleted_at IS NULL AND v.price <= ?::numeric)`,
-          filter.maxPrice,
-        ),
-      );
+      prices.push(push(`v.price <= ?::numeric`, filter.maxPrice));
     }
-    if (filter.inStock === true) {
-      conds.push(`EXISTS (SELECT 1 FROM product_variants v JOIN inventory i
+    if (prices.length) {
+      conds.push(`EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id
+        AND v.is_active AND v.deleted_at IS NULL AND ${prices.join(" AND ")})`);
+    }
+    if (filter.inStock === true || filter.inStock === false) {
+      // No positive inventory is NOT proof of zero stock; cards retain unknown.
+      conds.push(`${filter.inStock === false ? "NOT " : ""}EXISTS (SELECT 1 FROM product_variants v JOIN inventory i
         ON i.product_variant_id = v.id WHERE v.product_id = p.id
         AND v.is_active AND v.deleted_at IS NULL AND i.available_quantity > 0)`);
     }
@@ -246,6 +238,12 @@ export async function searchProducts(rawQuery: string, filter: SearchFilter): Pr
   };
   const params: unknown[] = [rawQuery.trim()];
   const filterWhere = buildConds(params);
+  return { params, filterWhere };
+}
+
+/** Text search over live products; the database owns ranking and order. */
+export async function searchProducts(rawQuery: string, filter: SearchFilter): Promise<SearchPage> {
+  const { params, filterWhere } = await buildSearchWhere(rawQuery, filter);
 
   // ---- shared candidate set (both sorts) ----
   // The matching arms define WHAT matches; the sort only decides HOW the
@@ -267,8 +265,8 @@ export async function searchProducts(rawQuery: string, filter: SearchFilter): Pr
       if (Number.isNaN(at.getTime())) throw new ApiError("VALIDATION", "Invalid search cursor.", null);
       params.push(at.toISOString(), cursor.id);
       const n = params.length;
-      keyset = ` AND (p.created_at < $${n - 2}::timestamptz OR
-        (p.created_at = $${n - 2}::timestamptz AND p.id > $${n - 1}::uuid))`;
+      keyset = ` AND (p.created_at < $${n - 1}::timestamptz OR
+        (p.created_at = $${n - 1}::timestamptz AND p.id > $${n}::uuid))`;
     }
     params.push(filter.limit + 1);
     // Same scoped similarity threshold as the relevance path (SET LOCAL in a
@@ -348,4 +346,22 @@ export async function searchProducts(rawQuery: string, filter: SearchFilter): Pr
   const page = hits.slice(0, filter.limit);
   const last = rows[filter.limit - 1];
   return { rows: page, nextCursor: encodeSearchCursor(last.tier, Number(last.sim), last.id) };
+}
+
+/** Actual matching total, independent of pagination, with identical recall and filters. */
+export async function countSearchProducts(rawQuery: string, filter: SearchFilter): Promise<number> {
+  const { params, filterWhere } = await buildSearchWhere(rawQuery, filter);
+  const rows = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL pg_trgm.similarity_threshold = ${SEARCH_MIN_SIMILARITY}`);
+    return tx.$queryRawUnsafe<Array<{ total: bigint }>>(
+      `WITH cands(pid, tier, sim) AS (${matchingArmsSql(filter)})
+       SELECT COUNT(DISTINCT p.id) AS total FROM cands r
+         JOIN products p ON p.id = r.pid
+        WHERE ${filterWhere}`,
+      ...params,
+    );
+  });
+  const total = rows[0] ? Number(rows[0].total) : Number.NaN;
+  if (!Number.isSafeInteger(total) || total < 0) throw new Error("Search total unavailable");
+  return total;
 }
