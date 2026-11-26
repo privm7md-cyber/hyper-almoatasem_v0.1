@@ -1,16 +1,43 @@
-# Local-only deploy hygiene for Preview deployments (never commit).
-# Prevents sensitive/operational files from uploading to Vercel.
-# Contains no secrets.
-_recovery/
-*.dump
-scripts/set-super-admin-password-local.ps1
-.agents/
-.claude/
-.cursor/
-.devin/
-docs/recovery-verification.md
+# Local dependencies and build outputs
+node_modules/
+/.next/
+/.next-*/
+/.vercel/
+/out/
+/build/
+/dist/
+coverage/
 test-results/
-/src/app/_prototype/
+playwright-report/
+blob-report/
+*.tsbuildinfo
+*.log
+*.webm
+
+# Private workspace artifacts
+/_recovery/
+/.owner-policy-safety/
+/.product-assets/
+/.agents/
+/.claude/
+/.cursor/
+/.devin/
+/.codex/
+/qc
+/-
+/=
+*.dump
+*.backup
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pem
+*.pfx
+/scripts/set-super-admin-password-local.ps1
+/docs/recovery-verification.md
+
+# Configuration values are injected by the deployment environment.
 .env
 .env.local
 .env.*
