@@ -131,6 +131,7 @@ export async function advanceOrder(args: {
 interface PickLineRow {
   id: string;
   product_variant_id: string;
+  stock_reserved_quantity: string;
   requested_quantity: string;
   actual_quantity: string | null;
   unit_price: string;
@@ -171,6 +172,7 @@ export async function pickOrderLine(args: {
       const lines = await tx.$queryRaw<PickLineRow[]>`
         SELECT id::text AS id, product_variant_id::text AS product_variant_id,
           requested_quantity::text AS requested_quantity,
+          COALESCE(stock_reserved_quantity, requested_quantity)::text AS stock_reserved_quantity,
           actual_quantity::text AS actual_quantity,
           unit_price::text AS unit_price,
           product_type_snapshot, sale_step_snapshot, unit_snapshot, item_status
@@ -185,6 +187,7 @@ export async function pickOrderLine(args: {
         throw conflict("Order line is already resolved.", { itemStatus: line.item_status });
       }
       const requested = line.requested_quantity;
+      const held = line.stock_reserved_quantity;
       const actual = args.actualQuantity;
       if (qtyToThousandths(actual) <= 0) {
         throw businessRule("Picked quantity must be positive.", null);
@@ -199,8 +202,8 @@ export async function pickOrderLine(args: {
       const finalText = formatPiastres(finalCents);
       const status = qtyToThousandths(actual) === qtyToThousandths(requested) ? "FULFILLED" : "PARTIALLY_FULFILLED";
       // R3 commit (mirrors inventory/service.ts commitStock): quantity -=
-      // actual, reserved -= requested (full hold released in both R7 cases),
-      // predicate (quantity - reserved + requested) >= actual, rowcount-checked.
+      // Actual stock and this line's hold are consumed together. A stockless
+      // order can be picked after stock arrives without borrowing another hold.
       const locked = await tx.$queryRaw<Array<{ id: string; quantity: string }>>`
         SELECT id::text AS id, quantity::text AS quantity FROM inventory
          WHERE product_variant_id = ${line.product_variant_id}::uuid FOR UPDATE`;
@@ -208,9 +211,10 @@ export async function pickOrderLine(args: {
       const updated = await tx.$queryRaw<Array<{ nq: string }>>`
         UPDATE inventory
            SET quantity = quantity - ${actual}::numeric,
-               reserved_quantity = reserved_quantity - ${requested}::numeric
+               reserved_quantity = reserved_quantity - ${held}::numeric
          WHERE product_variant_id = ${line.product_variant_id}::uuid
-           AND (quantity - reserved_quantity + ${requested}::numeric) >= ${actual}::numeric
+           AND reserved_quantity >= ${held}::numeric
+           AND (quantity - reserved_quantity + ${held}::numeric) >= ${actual}::numeric
         RETURNING quantity::text AS nq`;
       if (updated.length === 0) {
         throw conflict("Insufficient stock to commit.", { productVariantId: line.product_variant_id });
@@ -304,6 +308,7 @@ export async function markLineUnavailable(args: {
 interface ReadyLine {
   id: string;
   product_variant_id: string;
+  stock_reserved_quantity: string;
   requested_quantity: string;
   item_status: string;
   actual_quantity: string | null;
@@ -332,6 +337,7 @@ export async function finishPreparation(args: { orderId: string; actorId: string
       const lines = await tx.$queryRaw<ReadyLine[]>`
         SELECT id::text AS id, product_variant_id::text AS product_variant_id,
           requested_quantity::text AS requested_quantity, item_status,
+          COALESCE(stock_reserved_quantity, requested_quantity)::text AS stock_reserved_quantity,
           actual_quantity::text AS actual_quantity,
           final_total::text AS final_total,
           unit_price::text AS unit_price
@@ -350,15 +356,15 @@ export async function finishPreparation(args: { orderId: string; actorId: string
       // (markUnavailable releases nothing — approve does for substituted
       // originals, which are REPLACED by READY time). Release them here so
       // no hold survives finalization.
-      const shortLines = lines.filter((l) => l.item_status === "UNAVAILABLE");
+      const shortLines = lines.filter((l) => l.item_status === "UNAVAILABLE" && qtyToThousandths(l.stock_reserved_quantity) > 0);
       for (const vid of orderLockIds(shortLines.map((l) => l.product_variant_id))) {
         await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${vid}::uuid FOR UPDATE`;
       }
       for (const line of shortLines) {
         const freed = await tx.$queryRaw<Array<{ one: number }>>`
-          UPDATE inventory SET reserved_quantity = reserved_quantity - ${line.requested_quantity}::numeric
+          UPDATE inventory SET reserved_quantity = reserved_quantity - ${line.stock_reserved_quantity}::numeric
            WHERE product_variant_id = ${line.product_variant_id}::uuid
-             AND reserved_quantity >= ${line.requested_quantity}::numeric
+             AND reserved_quantity >= ${line.stock_reserved_quantity}::numeric
           RETURNING 1 AS one`;
         if (freed.length === 0) throw new Error("Reservation invariant broken.");
       }

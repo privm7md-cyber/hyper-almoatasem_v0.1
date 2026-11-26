@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SyncManifest, SyncPreview, SyncApplyReceipt, SyncResult, PreviewRow } from "@/lib/catalog-sync/types";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 async function api<T>(url: string, body?: unknown, options?: { ignoreStatus?: boolean }): Promise<{ status: number; json: T }> {
   const res = await fetch(url, {
     method: body === undefined ? "GET" : "POST",
@@ -29,7 +27,6 @@ const statusColor: Record<string, string> = {
 
 export function SyncCenter() {
   const [source, setSource] = useState("DRAFT");
-  const [phase, setPhase] = useState<"generate" | "preview" | "apply" | "history">("generate");
   const [status, setStatus] = useState("جاهز");
   const [error, setError] = useState<string | null>(null);
   const [manifest, setManifest] = useState<SyncManifest | null>(null);
@@ -53,7 +50,7 @@ export function SyncCenter() {
   const doGenerate = async () => {
     setError(null);
     setStatus("جاري توليد المصنف المجمّد من Studio…");
-    const { status: code, json } = await api<{ ok: boolean; manifest?: SyncManifest; error?: string }>("/api/catalog-sync/manifest", { source });
+    const { json } = await api<{ ok: boolean; manifest?: SyncManifest; error?: string }>("/api/catalog-sync/manifest", { source });
     if (!json.ok || !json.manifest) { setError(json.error ?? "توليد المشترك فشل"); setStatus("فشل"); return; }
     setManifest(json.manifest);
     setPreview(null); setReceipt(null);
@@ -64,7 +61,7 @@ export function SyncCenter() {
   const doPreview = async () => {
     setError(null);
     setStatus("جاري إجراء المقارنة ثلاثية الأطراف…");
-    const { status: code, json } = await api<{ ok: boolean; preview?: SyncPreview; error?: string }>("/api/catalog-sync/preview", { manifest });
+    const { json } = await api<{ ok: boolean; preview?: SyncPreview; error?: string }>("/api/catalog-sync/preview", { manifest });
     if (!json.ok || !json.preview) { setError(json.error ?? "فشل المقارنة"); setStatus("فشل"); return; }
     setPreview(json.preview);
     const p = json.preview;
@@ -158,7 +155,7 @@ const rowsVisible = preview ? preview.rows.filter(rowVisible) : [];
             <button type="button" data-testid="sync-apply" disabled={preview.counts.safeToApply === 0 || preview.counts.conflicted > 0 || preview.counts.invalid > 0 || preview.counts.sourceNotFound > 0 || preview.counts.targetReferenceMissing > 0 || preview.counts.dependencyBlocked > 0} onClick={() => void doApply()} className="rounded-lg bg-[var(--studio-ok)] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">تأكيد وتطبيق — بيئة مفصولة</button>
             <button type="button" onClick={() => setPreview(null)} className="rounded-lg border border-[var(--studio-border)] px-4 py-2 text-sm">إلغاء المقارنة</button>
           </div>
-          <p className="text-xs text-[var(--studio-muted-text)]">Real Primary يظل مقفلًا حتى تصديق أصحاب القرار. Primary Read-Only الحالي: <code>hyper_almoatasem @ 7687734853145036120</code>.</p>
+          <p className="text-xs text-[var(--studio-muted-text)]">التطبيق على الموقع الفعلي يتطلب تصريحًا منفصلًا.</p>
         </section>
       )}
 
@@ -183,7 +180,6 @@ const rowsVisible = preview ? preview.rows.filter(rowVisible) : [];
       <section className="rounded-xl border border-[var(--studio-border)] bg-[var(--studio-card)] p-4" aria-label="ملخص الحالة">
         <div className="flex flex-wrap gap-4 text-sm">
           <span>بيئة التطبيق: {preview?.target.environment ?? "N/A"}</span>
-          <span>المقارنات الجارية: {phase}</span>
           <span>الأعمال المعلقة (SAFE_TO_APPLY): {preview ? preview.counts.safeToApply : 0}</span>
         </div>
       </section>

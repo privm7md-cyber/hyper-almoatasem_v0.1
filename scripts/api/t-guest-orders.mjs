@@ -343,9 +343,14 @@ async function main() {
     t("no-token-in-revoke", !JSON.stringify(rv.body).includes(tokE), "leak-check");
     t("revoked-401", (await get(`/api/store/orders/${oE.id}`, GT(tokE))).status === 401, "dead");
     const rt = await post(`/api/admin/orders/${oE.id}/credential/rotate`, {}, { cookie: ck });
-    const tokE2 = rt.body?.data?.guestOrderToken;
-    t("rotate-200-fresh", rt.status === 200 && HEX64.test(tokE2 ?? "") && tokE2 !== tokE, `${rt.status}`);
-    t("rotated-works", (await get(`/api/store/orders/${oE.id}`, GT(tokE2))).status === 200, "new lives");
+    t("rotate-200-without-raw-token", rt.status === 200 && rt.body?.data?.credential === "rotated"
+      && !Object.hasOwn(rt.body.data, "guestOrderToken"), `${rt.status}`);
+    const active = await q(`SELECT token_hash::text h FROM guest_order_credentials
+      WHERE order_id = $1 AND revoked_at IS NULL AND expires_at > now()`, [oE.id]);
+    t("rotation-stores-one-new-hash", active.length === 1 && HEX64.test(active[0].h)
+      && active[0].h !== tokE && active[0].h !== (await q(`SELECT token_hash::text h FROM guest_order_credentials
+        WHERE order_id = $1 AND revoked_at IS NOT NULL ORDER BY revoked_at ASC LIMIT 1`, [oE.id]))[0]?.h);
+    t("rotated-prior-token-stays-revoked", (await get(`/api/store/orders/${oE.id}`, GT(tokE))).status === 401);
     t("revoke-unknown-404", (await post(`/api/admin/orders/01800000-0000-7000-8000-ffffffffffff/credential/revoke`, {}, { cookie: ck })).status === 404, "no oracle");
     t("rotate-registered-404", (await post(`/api/admin/orders/${roId}/credential/rotate`, {}, { cookie: ck })).status === 404, "customer order");
     t("revoke-bare-403", (await post(`/api/admin/orders/${oE.id}/credential/revoke`, {}, { cookie: ckb })).status === 403, "rbac");

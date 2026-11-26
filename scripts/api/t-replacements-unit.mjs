@@ -68,6 +68,12 @@ t("status-enum-frozen", replacementStatusSchema.safeParse("CUSTOMER_APPROVED").s
   && !replacementStatusSchema.safeParse("REJECTED").success);
 t("propose-shape", proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "1" }).success
   && proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "1", markUnavailable: false }).success);
+const legacyProposal = proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "1" });
+const alternative = { replacementVariantId: CID, replacementQuantity: "1" };
+t("proposal-normalizes-legacy-and-multiple-alternatives",
+  legacyProposal.success && legacyProposal.data.alternatives[0]?.replacementVariantId === CID
+  && proposeInputSchema.safeParse({ alternatives: [alternative] }).success
+  && !proposeInputSchema.safeParse({ alternatives: [alternative, alternative] }).success);
 t("propose-rejects", !proposeInputSchema.safeParse({ replacementQuantity: "1" }).success
   && !proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "0" }).success
   && !proposeInputSchema.safeParse({ replacementVariantId: CID, replacementQuantity: "1", governorate: "x" }).success

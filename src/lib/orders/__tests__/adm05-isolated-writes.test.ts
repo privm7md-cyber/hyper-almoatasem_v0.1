@@ -1,6 +1,7 @@
 // @vitest-environment node
 // Real domain code, transaction/reads/audit mocked; no DB or network.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 const m = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn(), items: vi.fn(), audit: vi.fn(), transaction: vi.fn() }));
 vi.mock("@/lib/db", () => ({ prisma: { $transaction: m.transaction } }));
 vi.mock("@/lib/api/audit", () => ({ auditInTx: m.audit }));
@@ -20,7 +21,7 @@ const tx = { $queryRaw: m.query, $executeRaw: m.execute, orderItem: { findMany: 
 const args = { orderId, itemId, actorId };
 const order = (status: string) => [{ id: orderId, status }];
 const line = (item_status = "PENDING", actual_quantity: string | null = null) => [{
-  id: itemId, product_variant_id: itemId, requested_quantity: "1.000", actual_quantity,
+  id: itemId, product_variant_id: itemId, requested_quantity: "1.000", stock_reserved_quantity: "1.000", actual_quantity,
   unit_price: "100.00", product_type_snapshot: "WEIGHT", sale_step_snapshot: 125,
   unit_snapshot: "KG", item_status,
 }];
@@ -166,7 +167,8 @@ describe("ADM05 staff cancellation terms", () => {
       .mockResolvedValueOnce([]).mockResolvedValueOnce([])
       .mockResolvedValueOnce(order("CANCELLED"))
       .mockResolvedValueOnce([{ actor_type: "STAFF", actor_id: actorId, note: cancelArgs.reason }]);
-    m.items.mockResolvedValue([{ actualQuantity: null, itemStatus: "PENDING", productVariantId: itemId, requestedQuantity: "1.000" }]);
+    m.items.mockResolvedValue([{ actualQuantity: null, itemStatus: "PENDING", productVariantId: itemId,
+      requestedQuantity: new Prisma.Decimal("1.000"), stockReservedQuantity: new Prisma.Decimal("1.000") }]);
     await cancelOrder(cancelArgs);
     await cancelOrder(cancelArgs);
     expect(m.items).toHaveBeenCalledTimes(1);

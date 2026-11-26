@@ -345,6 +345,7 @@ model OrderItem {
   saleStepSnapshot            Int?                   @map("sale_step_snapshot")
   unitPrice                   Decimal                @map("unit_price") @db.Decimal(10, 2) // frozen base; never promo math
   requestedQuantity           Decimal                @map("requested_quantity") @db.Decimal(12, 3)
+  stockReservedQuantity       Decimal?               @map("stock_reserved_quantity") @db.Decimal(12, 3)
   actualQuantity              Decimal?               @map("actual_quantity") @db.Decimal(12, 3)
   estimatedTotal              Decimal                @map("estimated_total") @db.Decimal(10, 2)
   finalTotal                  Decimal?               @map("final_total") @db.Decimal(10, 2)

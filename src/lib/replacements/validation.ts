@@ -20,7 +20,7 @@ export const replacementStatusSchema = z.enum(REPLACEMENT_STATUSES);
 const DECIDE_ACTIONS = ["approve", "reject"] as const;
 export const decideActionSchema = z.enum(DECIDE_ACTIONS);
 
-export const proposeInputSchema = z
+const multiProposalSchema = z
   .object({
     /** Owner decision update (2026-11-19): MULTI-ALTERNATIVE proposals —
      *  the store sends ONE proposal with N alternatives; alternatives live in
@@ -47,6 +47,22 @@ export const proposeInputSchema = z
     (value) => new Set(value.alternatives.map((alternative) => alternative.replacementVariantId)).size === value.alternatives.length,
     { message: "Alternative variants must be unique.", path: ["alternatives"] },
   );
+
+const singleProposalSchema = z
+  .object({
+    replacementVariantId: uuidSchema,
+    replacementQuantity: replacementQuantitySchema,
+    reason: z.string().trim().max(2000).nullish(),
+    markUnavailable: z.boolean().nullish(),
+  })
+  .strict()
+  .transform(({ replacementVariantId, replacementQuantity, reason, markUnavailable }) => ({
+    alternatives: [{ replacementVariantId, replacementQuantity, reason: null }],
+    reason,
+    markUnavailable,
+  }));
+
+export const proposeInputSchema = z.union([multiProposalSchema, singleProposalSchema]);
 
 export const decideInputSchema = z
   .object({

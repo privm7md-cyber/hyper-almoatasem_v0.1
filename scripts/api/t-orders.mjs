@@ -344,17 +344,24 @@ async function main() {
     const noKey = await post(`/api/store/orders`, { addressId: idA1, expectedDeliveryFee: FEE }, null, H(tC1));
     t("missing-key-400", noKey.status === 400);
 
-    // ---------- stock-failure atomicity (multi-line, second line short) ----------
-    await db.query(`UPDATE inventory SET quantity = 5.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P25L]);
+    // ---------- stockless ordering (multi-line, second line short) ----------
     const ncShort = await newCust("01092000036", "OrderShort");
     const gShort = await mkGuestCart([[P330, "1"], [P25L, "150"]]);
     await mergeTo(gShort.token, ncShort.tok);
+    await db.query(`UPDATE inventory SET quantity = 5.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P25L]);
     const resBefore = await reservedOf(P330);
     const short = await post(`/api/store/orders`, { addressId: ncShort.addr, idempotencyKey: "ba6-k-short", expectedDeliveryFee: FEE }, null, H(ncShort.tok));
-    t("short-409", short.status === 409);
-    const noOrder = await q(`SELECT count(*)::int AS n FROM orders WHERE idempotency_key = 'ba6-k-short'`);
-    t("short-no-partial", noOrder[0].n === 0 && (await reservedOf(P330)) === resBefore
-      && (await reservedOf(P25L)) === "0.000" && (await get(`/api/store/cart`, null, H(ncShort.tok))).status === 200);
+    trackOrder(short.body);
+    const shortOrder = short.body?.data?.order;
+    t("stockless-order-created-with-both-lines", short.status === 201 && shortOrder?.items?.length === 2);
+    t("stockless-order-only-reserves-available-line", num(await reservedOf(P330)) === num(resBefore) + 1
+      && (await reservedOf(P25L)) === "0.000");
+    if (shortOrder?.id) {
+      const cancelShort = await post(`/api/store/orders/${shortOrder.id}/cancel`, {}, null, H(ncShort.tok));
+      t("stockless-order-can-be-cancelled", cancelShort.status === 200, String(cancelShort.status));
+      t("stockless-cancellation-releases-only-its-hold", (await reservedOf(P330)) === resBefore
+        && (await reservedOf(P25L)) === "0.000");
+    }
     await db.query(`UPDATE inventory SET quantity = 150.000, reserved_quantity = 0 WHERE product_variant_id = $1`, [P25L]);
 
     // ---------- idempotency replay + conflict (isolated customer) ----------
@@ -430,13 +437,16 @@ async function main() {
     t("admin-detail-200", admDetail.status === 200 && admDetail.body.data.order.items.length === 1);
     const admMiss = await loginGet(`/api/admin/orders/${UNKNOWN}`, store.cookie);
     t("admin-detail-404", admMiss.status === 404);
-    const admCancel = await loginPost(`/api/admin/orders/${idAd}/cancel`, null, store.cookie);
+    const adminCancelBody = { confirmed: true, reason: "Synthetic cancellation regression" };
+    const admCancel = await loginPost(`/api/admin/orders/${idAd}/cancel`, adminCancelBody, store.cookie);
     t("admin-cancel-200", admCancel.status === 200 && admCancel.body.data.order.status === "CANCELLED");
-    const admCancelAgain = await loginPost(`/api/admin/orders/${idAd}/cancel`, null, store.cookie);
-    t("admin-cancel-again-409", admCancelAgain.status === 409);
-    const admCancelMiss = await loginPost(`/api/admin/orders/${UNKNOWN}/cancel`, null, store.cookie);
+    const admCancelAgain = await loginPost(`/api/admin/orders/${idAd}/cancel`, adminCancelBody, store.cookie);
+    t("admin-cancel-identical-retry-200", admCancelAgain.status === 200 && admCancelAgain.body.data.order.status === "CANCELLED");
+    const admCancelChanged = await loginPost(`/api/admin/orders/${idAd}/cancel`, { ...adminCancelBody, reason: "Changed synthetic terms" }, store.cookie);
+    t("admin-cancel-changed-retry-409", admCancelChanged.status === 409);
+    const admCancelMiss = await loginPost(`/api/admin/orders/${UNKNOWN}/cancel`, adminCancelBody, store.cookie);
     t("admin-cancel-404", admCancelMiss.status === 404);
-    const bareCancel = await loginPost(`/api/admin/orders/${idAd}/cancel`, null, bare.cookie);
+    const bareCancel = await loginPost(`/api/admin/orders/${idAd}/cancel`, adminCancelBody, bare.cookie);
     t("admin-cancel-bare-403", bareCancel.status === 403);
     // PREPARING-unpicked cancel is fulfillment scope (Phase 4 widened cancel
     // to the frozen machine: NEW|CONFIRMED|PREPARING when nothing is picked).
@@ -449,7 +459,7 @@ async function main() {
     const idPrep = oPrep.body?.data?.order?.id;
     await post(`/api/admin/orders/${idPrep}/prepare`, {}, store.cookie);
     const resBeforePrepCx = await reservedOf(P330);
-    const admPrep = await loginPost(`/api/admin/orders/${idPrep}/cancel`, null, store.cookie);
+    const admPrep = await loginPost(`/api/admin/orders/${idPrep}/cancel`, adminCancelBody, store.cookie);
     t("admin-preparing-unpicked-200", admPrep.status === 200
       && num(await reservedOf(P330)) === num(resBeforePrepCx) - 1, `${admPrep.status}`);
   } finally {

@@ -273,7 +273,7 @@ interface ApprovalContext {
   orderId: string;
   orderItemId: string;
   origVariantId: string;
-  origRequested: string;
+  originalHold: string;
   sub: SubstituteCtx;
   storedAlternatives: StoredAlternative[];
   proposalReason: string | null;
@@ -304,9 +304,13 @@ async function approveSteps(
   if (bumped.length === 0) {
     throw conflict("Insufficient availability for the substitute.", { variantId: ctx.sub.variantId });
   }
-  await tx.$executeRaw`
-    UPDATE inventory SET reserved_quantity = reserved_quantity - ${ctx.origRequested}::numeric
-     WHERE product_variant_id = ${ctx.origVariantId}::uuid`;
+  if (qtyToThousandths(ctx.originalHold) > 0) {
+    const released = await tx.$executeRaw`
+      UPDATE inventory SET reserved_quantity = reserved_quantity - ${ctx.originalHold}::numeric
+       WHERE product_variant_id = ${ctx.origVariantId}::uuid
+         AND reserved_quantity >= ${ctx.originalHold}::numeric`;
+    if (released === 0) throw conflict("The original item's stock reservation could not be released.", null);
+  }
   const lineId = newUuidV7();
   const estimatedText = formatPiastres(
     lineTotalPiastres(ctx.sub.quantity, ctx.sub.priceText) as number,
@@ -323,12 +327,12 @@ async function approveSteps(
       product_name_snapshot, variant_name_snapshot, brand_name_snapshot,
       product_code_snapshot, code_type_snapshot, unit_snapshot,
       product_type_snapshot, sale_step_snapshot, unit_price,
-      requested_quantity, estimated_total)
+      requested_quantity, estimated_total, stock_reserved_quantity)
     VALUES (${lineId}::uuid, ${ctx.orderId}::uuid, ${ctx.sub.variantId}::uuid,
       ${ctx.sub.productName}, ${ctx.sub.variantName}, ${ctx.sub.brandName},
       ${ctx.sub.code}, ${ctx.sub.codeType}, ${ctx.sub.unit},
       ${ctx.sub.productType}, ${ctx.sub.saleStep}, ${ctx.sub.priceText}::numeric,
-      ${ctx.sub.quantity}::numeric, ${estimatedText}::numeric)`;
+      ${ctx.sub.quantity}::numeric, ${estimatedText}::numeric, ${ctx.sub.quantity}::numeric)`;
   const storedReason = ctx.storedAlternatives.length > 0
     ? serializeStoredAlternatives(ctx.storedAlternatives, ctx.proposalReason, ctx.chosenIndex)
     : null;
@@ -362,7 +366,7 @@ async function loadApprovalContext(
       rep_qty: string;
       rep_reason: string | null;
       orig_variant: string;
-      orig_req: string;
+      original_hold: string;
       orig_actual: string | null;
       orig_status: string;
     }>
@@ -370,7 +374,8 @@ async function loadApprovalContext(
     SELECT r.id::text AS id, oi.order_id::text AS order_id, r.order_item_id::text AS order_item_id,
       r.status, r.replacement_variant_id::text AS rep_variant, r.replacement_quantity::text AS rep_qty,
       r.reason AS rep_reason,
-      oi.product_variant_id::text AS orig_variant, oi.requested_quantity::text AS orig_req,
+      oi.product_variant_id::text AS orig_variant,
+      COALESCE(oi.stock_reserved_quantity, oi.requested_quantity)::text AS original_hold,
       oi.actual_quantity::text AS orig_actual, oi.item_status AS orig_status
       FROM order_item_replacements r JOIN order_items oi ON oi.id = r.order_item_id
      WHERE r.id = ${replacementId}::uuid FOR UPDATE OF r`;
@@ -407,7 +412,7 @@ async function loadApprovalContext(
     orderId: rep.order_id,
     orderItemId: rep.order_item_id,
     origVariantId: rep.orig_variant,
-    origRequested: rep.orig_req,
+    originalHold: rep.original_hold,
     sub,
     storedAlternatives: storedAlts,
     proposalReason: storedEnvelope?.proposalReason ?? null,

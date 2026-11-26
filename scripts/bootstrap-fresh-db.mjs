@@ -75,7 +75,15 @@ const CHAIN = [
   "20261008_guest_orders",
   "20261029_residual_delivery_guest_recovery",
   "20261101_audit_tamper_protection",
+  "20261119_replacement_alternatives",
+  "20261125_catalog_sync_receipts",
+  "20261126_order_item_stock_reservations",
 ];
+const MIGRATION_ONLY = new Set([
+  "20261119_replacement_alternatives",
+  "20261125_catalog_sync_receipts",
+  "20261126_order_item_stock_reservations",
+]);
 
 // Never applied. Kept on disk (owner constraint: never delete/rename).
 const PROTOTYPE = "00000000000000_baseline__PROTOTYPE_DO_NOT_APPLY";
@@ -265,7 +273,8 @@ const main = async () => {
       failed.push({ migration, artifact: "dir", error: "missing migration directory" });
       continue;
     }
-    for (const artifact of ["migration.sql", "supplement.sql"]) {
+    const artifacts = MIGRATION_ONLY.has(migration) ? ["migration.sql"] : ["migration.sql", "supplement.sql"];
+    for (const artifact of artifacts) {
       const file = path.join(dir, artifact);
       if (!fs.existsSync(file)) {
         failed.push({ migration, artifact, error: "missing artifact" });
@@ -357,7 +366,7 @@ const main = async () => {
     "customers", "delivery_zones", "guest_checkout_sessions", "guest_order_credentials",
     "guest_order_rate_limits", "inventory",
     "inventory_movements", "notifications", "order_discounts",
-    "order_item_replacements", "order_items", "order_status_history", "orders",
+    "order_item_replacements", "order_item_replacement_alternatives", "order_items", "order_status_history", "orders",
     "permissions", "product_codes", "product_images", "product_price_history",
     "product_variants", "products", "promotion_buy_get_rules", "promotion_rules",
     "promotion_targets", "promotions", "role_permissions", "roles",
@@ -372,6 +381,10 @@ const main = async () => {
       if (exists.n === 0) continue;
       await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON "${schemaName}"."${t}" TO hyper_app`);
       granted.push(`ALL ON ${t}`);
+    }
+    for (const table of ["sync_entity_maps", "sync_idempotency", "sync_apply_receipts"]) {
+      await client.query(`GRANT SELECT, INSERT ON "${schemaName}"."${table}" TO hyper_app`);
+      granted.push(`SELECT, INSERT ON ${table}`);
     }
     // Sequences used as column defaults by the app role.
     const seqs = await q("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='S'", [schemaName]);

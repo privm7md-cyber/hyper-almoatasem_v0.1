@@ -158,7 +158,7 @@ async function main() {
     t("g2-clerk-login-200", !!ckC);
     const audG2Before = await auditDeacts([idOwner]);
     const g2 = await patch(`/api/admin/users/${idOwner}`, { isActive: false }, ckC);
-    t("g2-final-409", g2.status === 409, String(g2.status));
+    t("g2-owner-boundary-403", g2.status === 403, String(g2.status));
     t("g2-owner-active", (await ownerRow()).is_active === true);
     t("g2-no-audit", (await auditDeacts([idOwner])) === audG2Before);
 

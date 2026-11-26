@@ -423,6 +423,7 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         boughtT.set(p.variantId, (boughtT.get(p.variantId) ?? 0) + t);
       }
       const variantIds = orderLockIds([...boughtT.keys()]);
+      const reservedVariants = new Set<string>();
       for (const vid of variantIds) {
         await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${vid}::uuid FOR UPDATE`;
       }
@@ -433,10 +434,11 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
         // is the ONLY availability gate; unknown/zero stock never blocks an
         // order. The conditional bump is kept for variants that DO have an
         // inventory row (future-proofing); no reservation is invented.
-        await tx.$queryRaw`
+        const held = await tx.$executeRaw`
           UPDATE inventory SET reserved_quantity = reserved_quantity + ${qty}::numeric
            WHERE product_variant_id = ${vid}::uuid
              AND (quantity - reserved_quantity) >= ${qty}::numeric`;
+        if (held === 1) reservedVariants.add(vid);
       }
 
       // Single fee authority (default setting OR matched active zone). A
@@ -530,13 +532,14 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
             product_name_snapshot, variant_name_snapshot, brand_name_snapshot,
             product_code_snapshot, code_type_snapshot, unit_snapshot,
             product_type_snapshot, sale_step_snapshot, unit_price,
-            requested_quantity, estimated_total, discount_amount)
+            requested_quantity, estimated_total, discount_amount, stock_reserved_quantity)
           VALUES (${itemId}::uuid, ${orderId}::uuid, ${p.variantId}::uuid,
             ${p.productName}, ${p.variantName}, ${p.brandName},
             ${p.code}, ${p.codeType}, ${p.unit},
             ${p.productType}, ${p.saleStep}, ${p.unitPriceText}::numeric,
             ${p.quantity}::numeric, ${p.estimatedText}::numeric,
-            ${formatPiastres(directDisc(p.variantId))}::numeric)`;
+            ${formatPiastres(directDisc(p.variantId))}::numeric,
+            ${reservedVariants.has(p.variantId) ? p.quantity : "0"}::numeric)`;
       }
       for (const f of promo.freeLines) {
         const itemId = newUuidV7();
@@ -546,13 +549,13 @@ export async function createOrder(args: CreateOrderArgs): Promise<CreateOrderRes
             product_name_snapshot, variant_name_snapshot, brand_name_snapshot,
             product_code_snapshot, code_type_snapshot, unit_snapshot,
             product_type_snapshot, sale_step_snapshot, unit_price,
-            requested_quantity, estimated_total, discount_amount)
+            requested_quantity, estimated_total, discount_amount, stock_reserved_quantity)
           VALUES (${itemId}::uuid, ${orderId}::uuid, ${f.variantId}::uuid,
             ${f.productName}, ${f.variantName}, ${f.brandName},
             ${f.code}, ${f.codeType}, ${f.unit},
             ${f.productType}, ${f.saleStep}, ${f.unitPriceText}::numeric,
             ${thousandthsText(f.qtyT)}::numeric, ${formatPiastres(f.estimatedC)}::numeric,
-            ${formatPiastres(f.amountC)}::numeric)`;
+            ${formatPiastres(f.amountC)}::numeric, ${thousandthsText(f.qtyT)}::numeric)`;
       }
       await persistPromoRows(tx, {
         orderId,
@@ -681,13 +684,16 @@ export async function cancelOrder(args: CancelOrderArgs): Promise<string> {
       // producer of REPLACED, frozen R10) always releases the original hold
       // at approval time. Releasing them again here would double-release and
       // corrupt other lines' holds — so cancel skips them (BA-7 invariant).
-      const releasable = items.filter((i) => i.itemStatus !== "REPLACED");
-      const variantIds = orderLockIds(releasable.map((i) => i.productVariantId));
+      const releasable = items.flatMap((item) => {
+        const hold = item.stockReservedQuantity ?? item.requestedQuantity;
+        return item.itemStatus !== "REPLACED" && hold.gt(0) ? [{ item, hold }] : [];
+      });
+      const variantIds = orderLockIds(releasable.map(({ item }) => item.productVariantId));
       for (const vid of variantIds) {
         await tx.$queryRaw`SELECT 1 FROM inventory WHERE product_variant_id = ${vid}::uuid FOR UPDATE`;
       }
-      for (const item of releasable) {
-        const qty = item.requestedQuantity.toString();
+      for (const { item, hold } of releasable) {
+        const qty = hold.toString();
         const freed = await tx.$queryRaw<Array<{ one: number }>>`
           UPDATE inventory SET reserved_quantity = reserved_quantity - ${qty}::numeric
            WHERE product_variant_id = ${item.productVariantId}::uuid

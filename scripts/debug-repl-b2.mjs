@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { Client } from "pg";
 import { registerHooks } from "node:module";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 for (const m of readFileSync(".env", "utf8").matchAll(/^\s*([\w-]+)\s*=\s*"?([^"\r\n]*)"?\s*$/gm)) process.env[m[1]] ??= m[2];
 registerHooks({ resolve(s, c, next) {

@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { registerHooks } from "node:module";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 for (const m of readFileSync(".env", "utf8").matchAll(/^\s*([\w-]+)\s*=\s*"?([^"\r\n]*)"?\s*$/gm)) process.env[m[1]] ??= m[2];
 registerHooks({ resolve(s,c,next){
@@ -35,7 +35,6 @@ await assertDisposableConnection(dba, { context: "v1-ops-pos-production-tests" }
 const { prisma } = await import('../src/lib/db.ts');
 const { posImportApply, posImportPreview } = await import('../src/lib/inventory/pos-import.ts');
 const { parseInventoryFile } = await import('../src/lib/inventory/import-file.ts');
-const { previewOrApplyInventoryImport: stock } = await import('../src/lib/inventory/import-service.ts');
 const { revertStockImport } = await import('../src/lib/inventory/revert-service.ts');
 
 const admin = process.env.V1_OPS_ADMIN_ID;
@@ -50,7 +49,7 @@ async function mkCategory(name) {
   await dba.query("INSERT INTO categories(id,name,slug) VALUES($1,$2,$3)", [id, name + '-' + tag, slug]);
   return id;
 }
-async function mkProduct(tagSuffix, name, categoryId, productType = 'PIECE') {
+async function mkProduct(tagSuffix, name, categoryId) {
   const id = randomUUID();
   const slug = 'pos-' + tagSuffix + '-' + tag;
   await dba.query("INSERT INTO products(id,name,slug,category_id,product_type,unit,is_active) VALUES($1,$2,$3,$4,'PIECE','PIECE',true)", [id, name, slug, categoryId]);
@@ -75,9 +74,9 @@ const auditCount = async (action) => (await dba.query('SELECT count(*)::int AS n
 
 // Setup ---------------------------------------------------------------
 const catA = await mkCategory('catA');
-const catB = await mkCategory('catB');
+await mkCategory('catB');
 const existing = await mkProduct('exists', 'سلعة موجودة-' + tag, catA);
-const dupName = await mkProduct('dup', 'اسم مكرر تجريبي', catA);
+await mkProduct('dup', 'اسم مكرر تجريبي', catA);
 
 try {
   await test('1. repeated import: second apply is a no-op (no new products, quantities stay)', async () => {
@@ -95,7 +94,7 @@ try {
   });
 
   await test('2. concurrent import: racing applies do not double-create products', async () => {
-    const prod = await mkProduct('conc', 'منتج متوازي-' + tag, catA);
+    await mkProduct('conc', 'منتج متوازي-' + tag, catA);
     const rows = [{ code: 'POS-conc-' + tag, quantity: '3', unit: 'PIECE' }];
     const [r1, r2] = await Promise.allSettled([posApply('c1.csv', rows), posApply('c2.csv', rows)]);
     const met = [r1, r2].filter((r) => r.status === 'fulfilled').length;
@@ -106,7 +105,7 @@ try {
   });
 
   await test('3. duplicate barcodes within a file: rejected (duplicate variant)', async () => {
-    const prod = await mkProduct('dupb', 'منتج باركود مكرر-' + tag, catA);
+    await mkProduct('dupb', 'منتج باركود مكرر-' + tag, catA);
     const table = await parseInventoryFile(Buffer.from(posCsv([
       { code: 'POS-dupb-' + tag, quantity: '2', unit: 'PIECE' },
       { code: 'POS-dupb-' + tag, quantity: '5', unit: 'PIECE' },
